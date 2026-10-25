@@ -122,7 +122,7 @@ describe("one plane, two nodes, two fake agents", () => {
   function auth(token: string, nodeId: string): Record<string, string> {
     return {
       Authorization: `Bearer ${token}`,
-      "X-Lesserv-Node": nodeId,
+      "X-Lessv-Node": nodeId,
     };
   }
 
@@ -135,7 +135,7 @@ describe("one plane, two nodes, two fake agents", () => {
     const response = await planeJson(
       "POST",
       "/api/node/heartbeat",
-      { protocol: 1, applied_hash: applied },
+      { protocol: 2, applied_hash: applied },
       auth(token, nodeId),
     );
     expect(response.status, await response.clone().text()).toBe(200);
@@ -169,7 +169,7 @@ describe("one plane, two nodes, two fake agents", () => {
     const response = await planeJson(
       "POST",
       "/api/node/report",
-      { protocol: 1, hash: wanted, ok: true, stage: "applied" },
+      { protocol: 2, hash: wanted, ok: true, stage: "applied" },
       auth(token, nodeId),
     );
     expect(response.status, await response.clone().text()).toBe(200);
@@ -278,13 +278,13 @@ describe("one plane, two nodes, two fake agents", () => {
     const tokenA = await mint(nodeA);
 
     const cases: [string, string, unknown][] = [
-      ["POST", "/api/node/enroll", { protocol: 1 }],
-      ["POST", "/api/node/heartbeat", { protocol: 1 }],
+      ["POST", "/api/node/enroll", { protocol: 2 }],
+      ["POST", "/api/node/heartbeat", { protocol: 2 }],
       ["GET", "/api/node/config", undefined],
       [
         "POST",
         "/api/node/report",
-        { protocol: 1, hash: "x", ok: true, stage: "applied" },
+        { protocol: 2, hash: "x", ok: true, stage: "applied" },
       ],
     ];
     for (const [method, path, payload] of cases) {

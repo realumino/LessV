@@ -59,6 +59,7 @@ import {
 } from "./models";
 import { ApiError } from "../models";
 import type { CertDomainCreate } from "./models";
+import * as nodeDb from "../db";
 import type { NodeRow } from "../db";
 export { certPathName };
 
@@ -548,8 +549,7 @@ export async function nodeCertSummaries(env: Env, nodeId: string): Promise<NodeC
 }
 
 export async function requireNode(env: Env, nodeId: string): Promise<NodeRow> {
-  const { getNode } = await import("../db");
-  const node = await getNode(env.DB, nodeId);
+  const node = await nodeDb.getNode(env.DB, nodeId);
   if (!node) throw new ApiError(404, "node not found");
   return node;
 }

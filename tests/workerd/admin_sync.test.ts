@@ -59,7 +59,7 @@ describe("minting and the drift view", () => {
   function auth(token: string, nodeId: string = node): Record<string, string> {
     return {
       Authorization: `Bearer ${token}`,
-      "X-Lesserv-Node": nodeId,
+      "X-Lessv-Node": nodeId,
     };
   }
 
@@ -120,13 +120,13 @@ describe("minting and the drift view", () => {
     const headers = auth(token);
     const wanted = (
       await body<{ desired_hash: string }>(
-        await planeJson("POST", "/api/node/heartbeat", { protocol: 1 }, headers),
+        await planeJson("POST", "/api/node/heartbeat", { protocol: 2 }, headers),
       )
     ).desired_hash;
     await planeJson(
       "POST",
       "/api/node/report",
-      { protocol: 1, hash: wanted, ok: true, stage: "applied" },
+      { protocol: 2, hash: wanted, ok: true, stage: "applied" },
       headers,
     );
 
@@ -145,13 +145,13 @@ describe("minting and the drift view", () => {
     const headers = auth(token);
     const wanted = (
       await body<{ desired_hash: string }>(
-        await planeJson("POST", "/api/node/heartbeat", { protocol: 1 }, headers),
+        await planeJson("POST", "/api/node/heartbeat", { protocol: 2 }, headers),
       )
     ).desired_hash;
     await planeJson(
       "POST",
       "/api/node/report",
-      { protocol: 1, hash: "bad", ok: false, stage: "started", error: "boom" },
+      { protocol: 2, hash: "bad", ok: false, stage: "started", error: "boom" },
       headers,
     );
 

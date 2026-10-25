@@ -23,6 +23,7 @@ import * as nodeService from "../services/node_service";
 import * as nodeStateService from "../services/node_state_service";
 import * as nodeTokenService from "../services/node_token_service";
 import * as renderService from "../services/render_service";
+import * as certService from "../cert/service";
 
 /**
  * The pull contract's version.
@@ -30,9 +31,10 @@ import * as renderService from "../services/render_service";
  * WHY the constant lives here: both repos implement this number, and the
  * agent's zero-code-change guarantee against the plane depends on it not
  * drifting silently. Bumping it means editing this module, the agent, and
- * docs/PROTOCOL.md together.
+ * docs/PROTOCOL.md together. Protocol 2 (P1b): the certificate endpoint,
+ * the cert stage report, and the renamed node-identity header.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export const nodeApi = new Hono<{ Bindings: Env }>();
 
@@ -49,7 +51,7 @@ export const nodeApi = new Hono<{ Bindings: Env }>();
  */
 async function requireNode(env: Env, request: Request): Promise<db.NodeRow> {
   const authorization = request.headers.get("Authorization") ?? "";
-  const headerNodeId = request.headers.get("X-Lesserv-Node") ?? "";
+  const headerNodeId = request.headers.get("X-Lessv-Node") ?? "";
   const spaceIndex = authorization.indexOf(" ");
   const scheme =
     spaceIndex < 0 ? authorization : authorization.slice(0, spaceIndex);
@@ -190,7 +192,51 @@ nodeApi.post("/api/node/report", async (c) => {
     nodeStateService.now(),
   );
   await nodeStateService.touchFromValues(c.env.DB, node.id, values);
+  // Certificate/nginx facts ride on cert reports and apply reports alike;
+  // absent fields are written as NULL only by stage=cert reports.
+  if (payload.stage === "cert" || payload.cert_etag !== null || payload.nginx_ok !== null) {
+    await db.setNodeCertStatus(c.env.DB, node.id, {
+      nginx_ok: payload.nginx_ok === null ? null : payload.nginx_ok ? 1 : 0,
+      nginx_error: payload.nginx_error,
+      cert_etag: payload.cert_etag,
+      cert_synced_at: payload.cert_synced_at,
+    });
+  }
   return c.json({});
+});
+
+/**
+ * WHAT: the node's production certificate manifest (assigned active
+ * domains, current production certificates, composite ETag).
+ *
+ * WHY 304 on If-None-Match: certificate bytes are big and identical almost
+ * every poll; the ETag is the cheap question. WHY no-store: the body
+ * carries every private key — it must never sit in a cache.
+ */
+nodeApi.get("/api/node/certs", async (c) => {
+  const node = await requireNode(c.env, c.req.raw);
+  let manifest;
+  try {
+    manifest = await certService.nodeCertManifest(c.env, node.id);
+  } catch (error) {
+    // All-or-nothing: an unreadable artifact is a 5xx with the object path,
+    // never a partial manifest (§3.2). The agent keeps its previous files.
+    throw new ApiError(
+      500,
+      error instanceof Error ? error.message : "cert manifest failed",
+    );
+  }
+  const ifNoneMatch = c.req.header("If-None-Match");
+  if (ifNoneMatch !== undefined && ifNoneMatch === manifest.etag) {
+    return new Response(null, {
+      status: 304,
+      headers: { ETag: manifest.etag, "Cache-Control": "no-store" },
+    });
+  }
+  return c.json(manifest, 200, {
+    ETag: manifest.etag,
+    "Cache-Control": "no-store",
+  });
 });
 
 /**

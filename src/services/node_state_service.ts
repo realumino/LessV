@@ -110,6 +110,11 @@ export function shouldTouch(
  * would hide the drift the dashboard must show. Success on
  * `applied`/`started` adopts the hash and clears the error; success on
  * earlier stages only clears nothing and moves nothing.
+ *
+ * WHY stage=cert never writes a diagnosis: a cert-stage report carries
+ * nginx/cert facts only (they go to the cert columns); letting it set
+ * health/last_error would overwrite Xray state with a process-status
+ * claim. Only last_seen moves.
  */
 export function reportValues(
   node: LivenessRow,
@@ -124,6 +129,9 @@ export function reportValues(
     last_error: node.last_error,
     applied_hash: node.applied_hash,
   };
+  if (payload.stage === "cert") {
+    return values;
+  }
   const succeeded =
     payload.ok && (SUCCESS_STAGES as readonly string[]).includes(payload.stage);
   if (succeeded) {

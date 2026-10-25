@@ -92,7 +92,7 @@ describe("the node protocol", () => {
   function auth(token: string, nodeId: string = node): Record<string, string> {
     return {
       Authorization: `Bearer ${token}`,
-      "X-Lesserv-Node": nodeId,
+      "X-Lessv-Node": nodeId,
     };
   }
 
@@ -116,7 +116,7 @@ describe("the node protocol", () => {
     const enrolled = await planeJson(
       "POST",
       "/api/node/enroll",
-      { protocol: 1 },
+      { protocol: 2 },
       auth(first),
     );
     expect(enrolled.status).toBe(200);
@@ -126,14 +126,14 @@ describe("the node protocol", () => {
     const stale = await planeJson(
       "POST",
       "/api/node/enroll",
-      { protocol: 1 },
+      { protocol: 2 },
       auth(first),
     );
     expect(stale.status).toBe(401);
     const fresh = await planeJson(
       "POST",
       "/api/node/enroll",
-      { protocol: 1 },
+      { protocol: 2 },
       auth(second),
     );
     expect(fresh.status).toBe(200);
@@ -146,7 +146,7 @@ describe("the node protocol", () => {
     const cases: [Record<string, string>, string][] = [
       [{}, "no headers at all"],
       [{ Authorization: `Bearer ${token}` }, "no node header"],
-      [{ "X-Lesserv-Node": node }, "no bearer token"],
+      [{ "X-Lessv-Node": node }, "no bearer token"],
       [auth("wrong"), "wrong token"],
       [auth(token, "ghost"), "unknown node id"],
     ];
@@ -154,7 +154,7 @@ describe("the node protocol", () => {
       const response = await planeJson(
         "POST",
         "/api/node/enroll",
-        { protocol: 1 },
+        { protocol: 2 },
         headers,
       );
       expect(response.status, label).toBe(401);
@@ -169,15 +169,15 @@ describe("the node protocol", () => {
     const tokenA = await mint(node);
 
     const cases: [string, string, unknown][] = [
-      ["POST", "/api/node/enroll", { protocol: 1 }],
-      ["POST", "/api/node/heartbeat", { protocol: 1 }],
+      ["POST", "/api/node/enroll", { protocol: 2 }],
+      ["POST", "/api/node/heartbeat", { protocol: 2 }],
       ["GET", "/api/node/config", undefined],
       [
         "POST",
         "/api/node/report",
-        { protocol: 1, hash: "x", ok: true, stage: "applied" },
+        { protocol: 2, hash: "x", ok: true, stage: "applied" },
       ],
-      ["POST", "/api/node/stats", { protocol: 1, boot_id: "b", counters: {} }],
+      ["POST", "/api/node/stats", { protocol: 2, boot_id: "b", counters: {} }],
     ];
     for (const [method, path, payload] of cases) {
       const response = await planeJson(
@@ -197,7 +197,7 @@ describe("the node protocol", () => {
     const first = await planeJson(
       "POST",
       "/api/node/enroll",
-      { protocol: 1, agent_version: "0.1.0", xray_version: "25.1.1" },
+      { protocol: 2, agent_version: "0.1.0", xray_version: "25.1.1" },
       auth(token),
     );
 
@@ -209,7 +209,7 @@ describe("the node protocol", () => {
     const second = await planeJson(
       "POST",
       "/api/node/enroll",
-      { protocol: 1 },
+      { protocol: 2 },
       auth(token),
     );
     expect(second.status).toBe(200);
@@ -229,7 +229,7 @@ describe("the node protocol", () => {
     const response = await planeJson(
       "POST",
       "/api/node/enroll",
-      { protocol: 1 },
+      { protocol: 2 },
       auth(token),
     );
 
@@ -245,7 +245,7 @@ describe("the node protocol", () => {
     const response = await planeJson(
       "POST",
       "/api/node/enroll",
-      { protocol: 1, detected_ip: "203.0.113.7" },
+      { protocol: 2, detected_ip: "203.0.113.7" },
       auth(token),
     );
     expect(response.status).toBe(200);
@@ -269,7 +269,7 @@ describe("the node protocol", () => {
     await planeJson(
       "POST",
       "/api/node/enroll",
-      { protocol: 1, detected_ip: "203.0.113.7" },
+      { protocol: 2, detected_ip: "203.0.113.7" },
       auth(token),
     );
 
@@ -288,14 +288,14 @@ describe("the node protocol", () => {
     await planeJson(
       "POST",
       "/api/node/enroll",
-      { protocol: 1, detected_ip: "203.0.113.7" },
+      { protocol: 2, detected_ip: "203.0.113.7" },
       headers,
     );
 
     await planeJson(
       "POST",
       "/api/node/enroll",
-      { protocol: 1, detected_ip: "198.51.100.9" },
+      { protocol: 2, detected_ip: "198.51.100.9" },
       headers,
     );
 
@@ -335,7 +335,7 @@ describe("the node protocol", () => {
     const response = await planeJson(
       "POST",
       "/api/node/heartbeat",
-      { protocol: 1, applied_hash: null, xray_running: false },
+      { protocol: 2, applied_hash: null, xray_running: false },
       auth(token),
     );
 
@@ -352,7 +352,7 @@ describe("the node protocol", () => {
     const headers = auth(token);
     const before = (
       await body<HeartbeatOut>(
-        await planeJson("POST", "/api/node/heartbeat", { protocol: 1 }, headers),
+        await planeJson("POST", "/api/node/heartbeat", { protocol: 2 }, headers),
       )
     ).desired_hash;
 
@@ -368,7 +368,7 @@ describe("the node protocol", () => {
     expect(created.status).toBe(201);
     const after = (
       await body<HeartbeatOut>(
-        await planeJson("POST", "/api/node/heartbeat", { protocol: 1 }, headers),
+        await planeJson("POST", "/api/node/heartbeat", { protocol: 2 }, headers),
       )
     ).desired_hash;
 
@@ -380,7 +380,7 @@ describe("the node protocol", () => {
     await makeNode(node, config());
     const token = await mint();
     const headers = auth(token);
-    const payload = { protocol: 1, applied_hash: "abc", xray_running: true };
+    const payload = { protocol: 2, applied_hash: "abc", xray_running: true };
     await planeJson("POST", "/api/node/heartbeat", payload, headers);
     const before = await sync();
 
@@ -397,7 +397,7 @@ describe("the node protocol", () => {
     const headers = auth(token);
     const wanted = (
       await body<HeartbeatOut>(
-        await planeJson("POST", "/api/node/heartbeat", { protocol: 1 }, headers),
+        await planeJson("POST", "/api/node/heartbeat", { protocol: 2 }, headers),
       )
     ).desired_hash as string;
 
@@ -452,14 +452,14 @@ describe("the node protocol", () => {
     const headers = auth(token);
     const wanted = (
       await body<HeartbeatOut>(
-        await planeJson("POST", "/api/node/heartbeat", { protocol: 1 }, headers),
+        await planeJson("POST", "/api/node/heartbeat", { protocol: 2 }, headers),
       )
     ).desired_hash;
 
     const response = await planeJson(
       "POST",
       "/api/node/report",
-      { protocol: 1, hash: wanted, ok: true, stage: "applied" },
+      { protocol: 2, hash: wanted, ok: true, stage: "applied" },
       headers,
     );
 
@@ -478,7 +478,7 @@ describe("the node protocol", () => {
     await planeJson(
       "POST",
       "/api/node/report",
-      { protocol: 1, hash: "good", ok: true, stage: "applied" },
+      { protocol: 2, hash: "good", ok: true, stage: "applied" },
       headers,
     );
 
@@ -486,7 +486,7 @@ describe("the node protocol", () => {
       "POST",
       "/api/node/report",
       {
-        protocol: 1,
+        protocol: 2,
         hash: "bad",
         ok: false,
         stage: "started",
@@ -509,7 +509,7 @@ describe("the node protocol", () => {
     const response = await planeJson(
       "POST",
       "/api/node/report",
-      { protocol: 1, hash: "x", ok: true, stage: "nope" },
+      { protocol: 2, hash: "x", ok: true, stage: "nope" },
       auth(token),
     );
 
@@ -520,7 +520,7 @@ describe("the node protocol", () => {
     await makeNode(node, config());
     const token = await mint();
     const headers = auth(token);
-    const payload = { protocol: 1, hash: "abc", ok: true, stage: "applied" };
+    const payload = { protocol: 2, hash: "abc", ok: true, stage: "applied" };
 
     await planeJson("POST", "/api/node/report", payload, headers);
     const before = await sync();
@@ -538,7 +538,7 @@ describe("the node protocol", () => {
       "POST",
       "/api/node/stats",
       {
-        protocol: 1,
+        protocol: 2,
         boot_id: "b3f1",
         counters: {
           [`user>>>alice@${node}-niigata>>>traffic>>>uplink`]: 10,
@@ -561,7 +561,7 @@ describe("the node protocol", () => {
       const response = await planeJson(
         "POST",
         "/api/node/stats",
-        { protocol: 1, boot_id: "b", counters },
+        { protocol: 2, boot_id: "b", counters },
         headers,
       );
       expect(response.status, JSON.stringify(counters)).toBe(422);
@@ -583,13 +583,13 @@ describe("the node protocol", () => {
       },
     });
 
-    await planeJson("POST", "/api/node/enroll", { protocol: 1 }, headers);
+    await planeJson("POST", "/api/node/enroll", { protocol: 2 }, headers);
     const wanted = (
       await body<HeartbeatOut>(
         await planeJson(
           "POST",
           "/api/node/heartbeat",
-          { protocol: 1, applied_hash: null },
+          { protocol: 2, applied_hash: null },
           headers,
         ),
       )
@@ -606,7 +606,7 @@ describe("the node protocol", () => {
     await planeJson(
       "POST",
       "/api/node/report",
-      { protocol: 1, hash: wanted, ok: true, stage: "applied" },
+      { protocol: 2, hash: wanted, ok: true, stage: "applied" },
       headers,
     );
     const settled = (
@@ -614,7 +614,7 @@ describe("the node protocol", () => {
         await planeJson(
           "POST",
           "/api/node/heartbeat",
-          { protocol: 1, applied_hash: wanted },
+          { protocol: 2, applied_hash: wanted },
           headers,
         ),
       )
