@@ -49,7 +49,10 @@ def write_temp_config(cfg, config_data):
         payload = config_data
     else:
         payload = str(config_data).encode("utf-8")
-    fd, tmp = tempfile.mkstemp(dir=parent, prefix=".config.next.")
+    # suffix=".json": Xray picks the parser from the file's extension and
+    # errors out ("Failed to get format of") on an extensionless temp name.
+    fd, tmp = tempfile.mkstemp(dir=parent, prefix=".config.next.",
+                               suffix=".json")
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(payload)

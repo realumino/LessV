@@ -91,6 +91,16 @@ class ApplyTest(unittest.TestCase):
             )
             self.assertEqual(result["stage"], "fetched")
 
+    def test_staged_temp_has_json_extension(self):
+        # Xray picks the parser from the file extension; a bare mkstemp
+        # name fails its own load with "Failed to get format of ...".
+        with tempfile.TemporaryDirectory() as tmp:
+            path = apply_mod.write_temp_config(_cfg(tmp), {"a": 1})
+            try:
+                self.assertTrue(path.endswith(".json"), path)
+            finally:
+                os.remove(path)
+
 
 if __name__ == "__main__":
     unittest.main()
