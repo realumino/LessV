@@ -326,6 +326,24 @@ describe("linksForUser", () => {
     expect(hasUsableAddress(onlyWildcard, "")).toBe(false);
     expect(hasUsableAddress(onlyWildcard, "", ["cdn.example.com"])).toBe(true);
   });
+
+  it("carries spx from Xray's nested reality settings.spiderX", () => {
+    // Server-side authored configs nest spiderX inside realitySettings
+    // settings (the client-side convention keeps it top-level); links
+    // must emit spx either way or REALITY clients probe the wrong path.
+    const config = shareConfig();
+    const reality = (config.inbounds as Record<string, unknown>[])[0][
+      "streamSettings"
+    ] as Record<string, unknown>;
+    reality["realitySettings"] = {
+      ...(reality["realitySettings"] as Record<string, unknown>),
+      settings: { fingerprint: "chrome", spiderX: "/" },
+    };
+
+    const [links] = linksForUser(shareUser(["REALITY_IN"]), config, "example.com");
+
+    expect(links[0]["uri"]).toContain("spx=%2F");
+  });
 });
 
 describe("Python-generated link fixtures", () => {

@@ -232,9 +232,7 @@ function securityParams(
 
     const settings = (reality["settings"] ?? {}) as Dict;
     const fingerprint = settings["fingerprint"] || reality["fingerprint"];
-    params["fp"] = fingerprint || "chrome";
-
-    const privateKey =
+    params["fp"] = fingerprint || "chrome";    const privateKey =
       (realityKeys ?? {})[inbound["tag"] as string] || reality["privateKey"];
     if (privateKey) {
       const publicKey = derivePublicKey(privateKey as string);
@@ -254,8 +252,12 @@ function securityParams(
       params["sid"] = shortId;
     }
 
-    if (reality["spiderX"]) {
-      params["spx"] = reality["spiderX"];
+    // Xray's server-side schema nests spiderX inside `settings`; the
+    // client-side convention keeps it top-level. Links must carry it
+    // either way (clients read spx to shape the REALITY probe).
+    const spiderX = reality["spiderX"] || settings["spiderX"];
+    if (spiderX) {
+      params["spx"] = spiderX;
     }
   } else if (security === "tls") {
     const tls = (stream["tlsSettings"] ?? {}) as Dict;
