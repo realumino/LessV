@@ -191,10 +191,11 @@ client --REALITY--> Xray:443 --dest--> 127.0.0.1:8443 nginx (LE 证书 + 假站�
 
 | 表 | 关键列 | 说明 |
 |---|---|---|
-| `cert_domains` | id, name, zone_id, include_wildcard, acme_profile, renew_before_days(null=按寿命算), status, created_at | 签发单元；`name=example.com` 或 `*.example.com`；SAN 由 name + wildcard 派生 |
-| `certificates` | id, domain_id, environment, serial, fingerprint, sans, not_before, not_after, profile, is_current, r2_prefix, created_at | `environment=production / staging`；唯一索引 `(domain_id, environment) WHERE is_current=1` |
-| `acme_accounts` | environment PK, account_url, private_key(sealed), thumbprint, updated_at | staging/prod 各自一个账户，绝不共用 |
-| `issue_runs` | id, domain_id, environment, trigger, status, phase, error, workflow_id, started_at, finished_at | `trigger=renew / manual / test`；错误原样保留 |
+| `cert_domains` | id, name, zone_id, include_wildcard, acme_profile, renew_before_days(null=按寿命算), status, last_error, created_at, updated_at | 签发单元；`name=example.com` 或 `*.example.com`；SAN 由 name + wildcard 派生 |
+| `certificates` | id, domain_id, environment, serial, fingerprint_sha256, sans_json, not_before, not_after, profile, is_current, r2_prefix, purged_at, created_at | `environment=production / staging`；唯一索引 `(domain_id, environment) WHERE is_current=1` |
+| `acme_accounts` | environment PK, directory_url, account_url, private_key(sealed), public_jwk, thumbprint, updated_at | staging/prod 各自一个账户，绝不共用 |
+| `issue_runs` | id, domain_id, environment, trigger, status, phase, error, workflow_id, started_at, finished_at, steps_json, created_at | `trigger=renew / manual / test`；错误原样保留 |
+| `challenge_records` | id, run_id, zone_id, cf_record_id, name, value, created_at, deleted_at | TXT 清理/sweeper 内部使用，不对外暴露 |
 | `node_cert_domains` | node_id, domain_id, assigned_at | **按 domain 分配，不按 cert id**；续期后自动指向新的 production current |
 | `nodes` 追加列 | nginx_ok, nginx_error, cert_etag, cert_synced_at | agent 上报；fleet 显示 |
 | `nodes.nginx_config` | TEXT（P2 才加） | 面板托管 nginx 配置时使用 |
@@ -231,9 +232,9 @@ client --REALITY--> Xray:443 --dest--> 127.0.0.1:8443 nginx (LE 证书 + 假站�
 
 | 方法 + 路径 | 用途 |
 |---|---|
-| `GET /api/zones` | Cloudflare zone 列表（给 domain 选择器） |
+| `GET /api/admin/zones` | Cloudflare zone 列表（给 domain 选择器）。必须在 `/api/admin/*` 下：四组 fail-closed 守卫不允许第五个前缀，不为了一个端点放宽边界 |
 | `GET/POST /api/admin/cert-domains` | 域名列表/创建 |
-| `GET/PATCH/DELETE /api/admin/cert-domains/:id` | 详情/修改/删除（删除需确认） |
+| `GET/PATCH/DELETE /api/admin/cert-domains/:id` | 详情/修改/删除（删除需确认）。删除**不做 ACME revoke**（§12 已排除 revoke UI）：有活动 run → 409；否则软删除 + 删除节点分配 |
 | `POST /api/admin/cert-domains/:id/issue` | **生产**签发/重签 |
 | `POST /api/admin/cert-domains/:id/test-issue` | **staging** 测试签发 |
 | `GET /api/admin/cert-domains/:id/runs` | 该域名的 run 列表 |
@@ -268,6 +269,7 @@ client --REALITY--> Xray:443 --dest--> 127.0.0.1:8443 nginx (LE 证书 + 假站�
 
 ```json
 {
+  "stage": "cert",
   "nginx_ok": true,
   "nginx_error": null,
   "cert_etag": "…",
@@ -275,7 +277,13 @@ client --REALITY--> Xray:443 --dest--> 127.0.0.1:8443 nginx (LE 证书 + 假站�
 }
 ```
 
-协议版本：`protocol: 2`。理由：新增证书端点 + 报告字段；没有已部署的旧 agent，不需要兼容。
+`stage: "cert"` 是必填的区分位：agent 在“配置未变但证书/nginx 状态变化”时用
+它单独报告（例如 nginx 进程状态改变），服务端只更新 `last_seen` + 证书状态
+列，不动 `applied_hash`/`health`/`last_error`。没有它就只能用 apply 成功报告
+去伪造 Xray 状态。普通 apply report 也可以携带这些字段，服务端一并写入。
+
+协议版本：`protocol: 2`。理由：新增证书端点 + 报告字段；没有已部署的旧 agent，
+不需要兼容。
 
 ---
 
@@ -367,16 +375,24 @@ const ACME_DIRECTORIES = {
 /etc/lessv/certs/<domain>/current/privkey.pem
 ```
 
-`<domain>` 是证书域（如 `example.com`），不是节点地址。
+`<domain>` 是证书域（如 `example.com`），不是节点地址。路径名用 `certPathName`：
+lowercase；wildcard 域 `*.example.com` → `wildcard.example.com`（`*` 不允许进
+nginx 路径/命令行），其余原样（已由 `normalizeDomainName` 限定字符）。
 
 **agent 流程：**
 
 1. 每个 loop 在 heartbeat 后调 `GET /api/node/certs`；带 `If-None-Match`；304 直接跳过。
 2. 对每个证书：写 `<domain>/<fingerprint>/fullchain.pem`（0644）和 `privkey.pem`（0600；可选 group），然后原子切换 `current` 符号链接。
 3. 全部写完后 `nginx -t`；失败则把所有 `current` 切回旧版本，再 `nginx -t`，上报失败。
-4. `systemctl reload nginx`；检查 nginx active；上报 `nginx_ok`/`nginx_error`/`cert_etag`。
+4. nginx **active 时 `systemctl reload nginx`；inactive 时 `systemctl start nginx` 后再验证**（inactive 的 unit 上 reload 会失败，“停 nginx 后恢复自动好转”的验收项才能成立）；上报 `nginx_ok`/`nginx_error`/`cert_etag`。
 5. 证书失败不阻塞 Xray 配置 apply；报告分别记录。
 6. 首次运行如果 nginx 配置已经引用了不存在的 `current`，`nginx -t` 会失败；安装文档要求先让 agent 同步证书，再启用 nginx site。
+7. `state.json` 增加 `last_nginx_ok`；304 时只做 nginx active 检查，状态变化才报告（stage=cert），避免每 30s 写库。
+
+**测试证书保留（staging）：**
+
+- staging 只保留 current；非 current 立即由 sweeper 清（R2 + 行删除）；current 超过 7 天也清（R2 + 行）。
+- production 非 current 只清 R2，保留 D1 行（`purged_at`）；current 不清理。
 
 **权限：**
 
@@ -471,7 +487,7 @@ P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模
 
 1. 前端 REALITY preset 弹窗 + 节点页按钮；生成附录 A（`dest=127.0.0.1:8443`）；保存后走现有渲染/密钥/链接管线。
 2. 迁移：`cert_domains`、`certificates`、`acme_accounts`、`issue_runs`、`node_cert_domains`；`nodes` 加 `nginx_ok`/`nginx_error`/`cert_etag`/`cert_synced_at`。
-3. 复制 certworker 的 ACME/DNS-01/证书/Workflow/R2 代码；合并 vitest 配置（R2/Workflows）；合并依赖（`@peculiar/x509`、`jose`）。ACME account key 改存 `acme_accounts`（D1，sealed），不再用 R2 的 `acme/<env>/` 路径。
+3. 复制 certworker 的 ACME/DNS-01/证书/Workflow/R2 代码；合并 vitest 配置（R2/Workflows）；合并依赖（`@peculiar/x509`、`@abraham/reflection`；**不引入 `jose`**——它只属于已删除的 Access，ACME 全部用 WebCrypto/JWS 自实现）。ACME account key 改存 `acme_accounts`（D1，sealed），不再用 R2 的 `acme/<env>/` 路径。
 4. 目录常量 + environment 维度；`acme_accounts` 分环境；`certificates` current 分环境；`issue_runs.environment`；`test-issue`。
 5. `tlsserver` profile；`newOrder` 带 `profile`；校验 `meta.profiles`；1/3 寿命续期；order/authz 过期处理；每日 cron 只跑 production。
 6. 证书管理页：zone 选择、域名 CRUD、生产签发、测试签发、runs、证书列表、下载、节点分配、到期显示。
@@ -533,6 +549,10 @@ P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模
 | Agent | Lesserv-Agent 33 | cert fetch、文件原子写、symlink 回滚、nginx mock、报告字段 |
 | E2E | Agent 的 plane E2E | 本地 `wrangler dev` + agent + fake cert endpoint；真实 VPS 手工验收 |
 
+工具链前置：先把 `@cloudflare/vitest-plugin` 升到 `^1.3.3`、`wrangler` 到
+`^4.144.0`（P1b.0 做）。旧 plugin（1.1.13）没有 `introspectWorkflowInstance`，
+Workflow 步骤测试无法移植。
+
 规则：
 
 - CI 不碰 LE production。ACME 测试用 mock；staging 测试手工在线上面板点。
@@ -569,6 +589,10 @@ P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模
 6. `npx wrangler d1 migrations apply DB --remote`
 7. `curl https://cp.example.com/api/health`
 8. 打开 `/admin`，粘贴 `ADMIN_KEY`
+
+注意：本地 `wrangler.jsonc` 是 gitignored 的，必须手动写入远程
+`database_id`（否则 `d1 migrations apply DB --remote` 找不到库）；
+`wrangler.example.jsonc` 只保留结构，不写 id。
 
 **本地开发：**
 
@@ -628,7 +652,7 @@ P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模
 5. **ADMIN_KEY 存 localStorage**；提供 logout；不做 sessionStorage 切换。
 6. **保留 `/api/node/stats` 端点但不上报/不存储**；agent 默认关闭。
 7. **agent 包名/路径统一改为 `lessv_agent` / `/etc/lessv` / `/var/lib/lessv`**。
-8. **协议版本 `protocol: 2`**。节点身份头 `X-Lesserv-Node` 同批在 P1b 随协议一起改名（P0 保持不变）。
+8. **协议版本 `protocol: 2`**。节点身份头改为 `X-Lessv-Node`，随协议在 P1b 同批改名（P0 保持 `X-Lesserv-Node` 不变）。旧 agent 不兼容；部署后立即升级节点 agent。
 9. **`KEY_SECRET` 统一封装** REALITY + 证书 + ACME account key。
 10. **`node_cert_domains` 按域名分配**，不按 cert id；续期自动生效。
 

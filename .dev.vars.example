@@ -34,3 +34,9 @@ ADMIN_KEY=base64url-of-32-random-bytes
 # AES-256-GCM key that seals REALITY private keys at rest. base64 of 32
 # random bytes. NOT rotatable without a migration plan; see warning above.
 KEY_SECRET=base64-of-32-random-bytes
+
+# Enabled in P1b (DNS-01 certificate automation): a Cloudflare token with
+# Zone.DNS Edit + Zone.Zone Read on the certificate zone(s). Local dev and
+# tests never call the DNS API (everything is mocked), so any placeholder
+# works here; real value only needed for `wrangler dev` flows that hit it.
+CF_DNS_API_TOKEN=test-only-token

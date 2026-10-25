@@ -23,9 +23,12 @@ export default defineConfig({
             TEST_MIGRATIONS: migrations,
             // Test-only fixed secrets (P0.3): the suite runs hermetically —
             // no .dev.vars, no operator values. Production secrets come
-            // from `wrangler secret` / --secrets-file only.
+            // from `wrangler secret` / --secrets-file only. CF_DNS_API_TOKEN
+            // (P1b): every DNS call is mocked in tests, so a placeholder
+            // keeps the binding shape real without network access.
             KEY_SECRET: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
             ADMIN_KEY: "test-admin-key",
+            CF_DNS_API_TOKEN: "test-only-token",
           },
           // WHY the binding is declared here and not in wrangler.jsonc:
           // the deploy config never fetches assets from the Worker, so

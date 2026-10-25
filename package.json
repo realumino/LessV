@@ -19,19 +19,21 @@
     "release:agent": "node scripts/release_agent.mjs"
   },
   "dependencies": {
+    "@abraham/reflection": "^0.13.0",
     "@noble/curves": "^2.4.0",
+    "@peculiar/x509": "^2.2.0",
     "hono": "^4.13.8",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.1.13",
+    "@cloudflare/vitest-plugin": "^1.4.7",
     "@types/node": "^26.6.2",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.0",
-    "wrangler": "^4.135.0"
+    "vitest": "^4.1.12",
+    "wrangler": "^4.152.0"
   },
   "allowScripts": {
-    "workerd@1.20260918.1": true,
-    "esbuild@0.28.1": true
+    "workerd@1.20261019.1": true,
+    "esbuild@0.28.2": true
   }
 }
