@@ -52,7 +52,7 @@
   // `wrangler deploy --secrets-file <file>` because `wrangler secret
   // put` cannot address a Worker that does not exist yet.
   "secrets": {
-    "required": ["REALITY_KEY_SECRET"]
+    "required": ["ADMIN_KEY", "KEY_SECRET"]
   },
 
   // Static assets own /admin (built by frontend/, nested to mirror the

@@ -1,29 +1,36 @@
 # WHAT: template for the gitignored .dev.vars — the LOCAL-DEVELOPMENT
 # secret file. `.dev.vars` is a wrangler dev feature: wrangler loads it
 # when `npm run dev` starts and never when deploying, so this file has no
-# effect on production. Copy it to `.dev.vars` and paste a real value.
+# effect on production. Copy it to `.dev.vars` and paste real values.
 #
-# The value is the base64 of 32 random bytes: the AES-256-GCM key the
-# plane uses to seal REALITY private keys at rest (src/env.ts
-# secretBytes() fails loudly when it is missing or malformed). Use a
-# DIFFERENT value locally and in production — never your real
-# production key here.
+# Every key here MUST also be declared in wrangler.jsonc's
+# `secrets.required` (see wrangler.example.jsonc): wrangler only binds
+# names the config declares, so an undeclared key silently stays missing
+# at runtime (401s that look like a wrong value).
 #
 # Generate a value:
 #   node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 #
-# Production is a separate file with a separate value: .env.production,
-# passed to the FIRST deploy via
-#   npx wrangler deploy --secrets-file .env.production
-# and rotated afterwards with `npx wrangler secret put REALITY_KEY_SECRET`.
+# Production is a separate file with separate values: .env.production,
+# passed to deploys via
+#   npm run deploy -- --secrets-file .env.production
+# and rotated afterwards with `npx wrangler secret put <NAME>`.
 # .env.production is read only when you pass it explicitly — it is not
 # loaded by dev, tests, or typecheck. Both files are gitignored.
 #
 # Warnings:
-#  - Rotating a REALITY_KEY_SECRET in production strands every sealed key
+#  - Use DIFFERENT values locally and in production.
+#  - Rotating a KEY_SECRET in production strands every sealed REALITY key
 #    ever stored (they are unreadable without it). Generate once per
 #    deployment, keep it backed up, rotate only with a plan.
-#  - Never pipe this value into wrangler from PowerShell 5.1: the pipe
+#  - Never pipe these values into wrangler from PowerShell 5.1: the pipe
 #   prepends a UTF-8 BOM and the decoder rejects it. Use the interactive
 #   prompt (`npx wrangler secret put`) or a dotenv file.
-REALITY_KEY_SECRET=base64-of-32-random-bytes
+
+# Bearer key for every /api/admin/* request (also what the SPA login page
+# asks for).
+ADMIN_KEY=base64url-of-32-random-bytes
+
+# AES-256-GCM key that seals REALITY private keys at rest. base64 of 32
+# random bytes. NOT rotatable without a migration plan; see warning above.
+KEY_SECRET=base64-of-32-random-bytes

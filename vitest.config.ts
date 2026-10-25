@@ -19,7 +19,14 @@ export default defineConfig({
       return {
         wrangler: { configPath: "./wrangler.jsonc" },
         miniflare: {
-          bindings: { TEST_MIGRATIONS: migrations },
+          bindings: {
+            TEST_MIGRATIONS: migrations,
+            // Test-only fixed secrets (P0.3): the suite runs hermetically —
+            // no .dev.vars, no operator values. Production secrets come
+            // from `wrangler secret` / --secrets-file only.
+            KEY_SECRET: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+            ADMIN_KEY: "test-admin-key",
+          },
           // WHY the binding is declared here and not in wrangler.jsonc:
           // the deploy config never fetches assets from the Worker, so
           // it relies on the default (absent) binding. The asset tests

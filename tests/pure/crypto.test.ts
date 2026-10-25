@@ -2,7 +2,7 @@
  * AES-256-GCM envelope and REALITY-key custody.
  *
  * WHY these tests are load-bearing: production rows were sealed by the
- * Python plane under REALITY_KEY_SECRET, so a single divergence in the
+ * Python plane under KEY_SECRET, so a single divergence in the
  * envelope (base64 alphabet, IV placement, appended tag, secret decoding)
  * turns every render into an outage. There was no Python unit test for
  * `crypto.py`; the fixture under tests/fixtures/crypto.json — a published
@@ -29,7 +29,7 @@ function fromHex(hex: string): Uint8Array {
 
 /** WHAT: an Env carrying only the sealing secret, for custody tests. */
 function envWith(secret: string): Env {
-  return { REALITY_KEY_SECRET: secret } as Env;
+  return { KEY_SECRET: secret } as Env;
 }
 
 const secretEnv = envWith(fixture.sealed_key.secret_b64);
@@ -136,11 +136,11 @@ describe("key_cipher", () => {
     const emptyEnv = envWith("");
 
     await expect(seal(emptyEnv, "key")).rejects.toThrow(
-      /REALITY_KEY_SECRET is not configured/,
+      /KEY_SECRET is not configured/,
     );
     await expect(
       unseal(emptyEnv, fixture.sealed_key.stored),
-    ).rejects.toThrow(/REALITY_KEY_SECRET is not configured/);
+    ).rejects.toThrow(/KEY_SECRET is not configured/);
   });
 
   it("tolerates a BOM and surrounding whitespace on the secret", async () => {

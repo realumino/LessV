@@ -11,10 +11,10 @@
 
 import { base64ToBytes } from "./crypto";
 
-const REALITY_KEY_SECRET = "REALITY_KEY_SECRET";
+const KEY_SECRET = "KEY_SECRET";
 
 /**
- * WHAT: return the REALITY_KEY_SECRET binding as raw key bytes.
+ * WHAT: return the KEY_SECRET binding as raw key bytes.
  *
  * WHY it throws instead of falling back: the secret is required to seal and
  * unseal REALITY private keys at rest, and there is deliberately no
@@ -23,10 +23,10 @@ const REALITY_KEY_SECRET = "REALITY_KEY_SECRET";
  * Python behavior, where PowerShell pipes can prepend a BOM to the value.
  */
 export function secretBytes(env: Env): Uint8Array {
-  const raw = env[REALITY_KEY_SECRET];
+  const raw = env[KEY_SECRET];
   if (!raw) {
     throw new Error(
-      `${REALITY_KEY_SECRET} is not configured; REALITY keys cannot be ` +
+      `${KEY_SECRET} is not configured; REALITY keys cannot be ` +
         "sealed or unsealed without it",
     );
   }

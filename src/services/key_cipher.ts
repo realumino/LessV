@@ -4,7 +4,7 @@
  * WHY this module exists: the plane owns every REALITY private key, and
  * they are stored as AES-256-GCM ciphertext (`crypto.ts`,
  * `v1:<base64(iv || ct+tag)>`) with the key held in the Worker secret
- * `REALITY_KEY_SECRET`. A database dump then yields only ciphertext — that
+ * `KEY_SECRET`. A database dump then yields only ciphertext — that
  * is the "seatbelt" trade ARCHITECTURE.md describes.
  *
  * WHY there is no plaintext fallback: the app runs only under workerd,
