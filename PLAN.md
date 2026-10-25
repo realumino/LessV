@@ -635,8 +635,8 @@ P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模
 
 - [ ] 面板部署在自定义域；`/api/health` 200。（云部署可与 P1a 合并）
 - [x] 无 Access；未带 key 的 `/api/admin/*` 返回 401。
-- [ ] 粘贴 `ADMIN_KEY` 能登录；刷新保持；logout 清除。
-- [ ] 创建节点、拿 token、看 fleet。
+- [x] 粘贴 `ADMIN_KEY` 能登录；刷新保持；logout 清除。（机制：本地 curl + auth 单测；浏览器视检待云部署后）
+- [x] 创建节点、拿 token、看 fleet。（本地 wrangler dev 实测）
 - [x] 全部测试/类型检查/构建绿。
 - [x] 三个源仓库未被修改。
 

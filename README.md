@@ -74,5 +74,7 @@ npm --prefix frontend run dev    # Vite dev server，代理 API 到 :8787
 
 ## 当前状态
 
-- **P0 完成（本机）**：改名、`KEY_SECRET` 统一、`/api/admin/*` 的 `ADMIN_KEY` 认证、SPA 登录、部署脚本、测试矩阵全绿（Worker 241 passed，前端 27 passed，agent 33 passed / 4 skipped）。
-- **待办**：云部署（可与 P1a 合并）；P1a 节点 onboarding；P1b REALITY preset + ACME。
+- **P0 完成（本机）**：改名、`KEY_SECRET` 统一、`/api/admin/*` 的 `ADMIN_KEY` 认证、SPA 登录、部署脚本。
+- **本地验收（P0.7）**：14 条 curl 矩阵全部符合（认证矩阵 401/404/200、节点 CRUD + token + enroll/heartbeat、订阅端点不受影响、SPA 深链可刷新）；users CRUD、REALITY 轮换、link profiles、订阅 token 手工流程回归通过；重启 wrangler dev 后数据与登录态保留；无 Set-Cookie。浏览器六项登录行为的机制由 `frontend/src/lib/auth.test.ts` 钉死。
+- **测试矩阵**：Worker 241 passed / 32 files；前端 27 passed；agent 33 passed / 4 skipped。
+- **待办**：云部署（§README 部署，可与 P1a 合并，PLAN §14 P0 剩余两项）；P1a 节点 onboarding；P1b REALITY preset + ACME。
