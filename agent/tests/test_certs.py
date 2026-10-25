@@ -107,6 +107,7 @@ class AdoptionTest(CertsBase):
         self.assertEqual(oct(os.stat(os.path.join(version, "privkey.pem")).st_mode & 0o777), "0o600")
         self.assertEqual(self.current_target(), "a" * 64)
         self.assertEqual(st["cert_etag"], '"aa"')
+        self.assertIsInstance(st["cert_synced_at"], int)
         self.assertTrue(st["last_nginx_ok"])
 
     def test_report_failure_does_not_advance_etag(self):
@@ -174,6 +175,11 @@ class RollbackTest(CertsBase):
         self.assertFalse(st["last_nginx_ok"])
         self.assertIn("nginx -t failed", self.reports[-1]["error"])
         self.assertEqual(st["cert_etag"], '"aa"')
+        # The failed adoption never produced a new sync time; the report
+        # repeats the last successful one instead of clearing it.
+        self.assertEqual(self.reports[-1]["cert_synced_at"],
+                         st["cert_synced_at"])
+        self.assertIsInstance(st["cert_synced_at"], int)
 
     def test_reload_failure_restores_previous_links(self):
         self.sync((200, manifest()))
@@ -223,6 +229,52 @@ class NoopTest(CertsBase):
         st, _acted = self.sync((304, None), active=True)
         self.assertTrue(st["last_nginx_ok"])
         self.assertEqual(len(self.reports), 2)
+
+    @unittest.skipUnless(POSIX, "the flip scenario starts from a real adoption (symlinks)")
+    def test_nginx_flip_keeps_cert_synced_at(self):
+        """A stop/stop-start cycle must never null the sync timestamp.
+
+        WHAT: Adoption, then a 304 pair where nginx dies and recovers.
+        WHY: Before 0.2.1 the noop report sent cert_synced_at: None and
+        the plane stored NULL, showing "ok · never" in the fleet.
+        """
+        st, _acted = self.sync((200, manifest()))
+        synced = st["cert_synced_at"]
+        self.assertIsInstance(synced, int)
+        st, _acted = self.sync((304, None), active=False)
+        self.assertFalse(self.reports[-1]["nginx_ok"])
+        self.assertEqual(self.reports[-1]["cert_synced_at"], synced)
+        st, _acted = self.sync((304, None), active=True)
+        self.assertTrue(self.reports[-1]["nginx_ok"])
+        self.assertEqual(self.reports[-1]["cert_synced_at"], synced)
+        self.assertEqual(st["cert_synced_at"], synced)
+
+    def test_reports_repeat_sync_time_without_adoption(self):
+        """Portable twin of the flip test: preset the synced time.
+
+        WHAT: Failure + nginx-recovery reports with a preset state.
+        WHY: Windows has no symlink privilege, so only the portable
+        report paths can be exercised here; they must still repeat the
+        last successful sync time instead of NULL.
+        """
+        self.st["cert_etag"] = '"aa"'
+        self.st["cert_synced_at"] = 1792937643
+        self.st["last_nginx_ok"] = True
+
+        def failing_fetch(cfg, etag=None):
+            raise client.ClientError("HTTP 500 /api/node/certs", status=500)
+
+        with mock.patch.object(client, "fetch_certs", failing_fetch), \
+                mock.patch.object(certs_mod, "nginx_active", return_value=True):
+            st, _acted = certs_mod.sync_certificates(
+                self.cfg, self.st, self.state_path, report_fn=self._report)
+        self.assertEqual(len(self.reports), 1)
+        self.assertFalse(self.reports[0]["ok"])
+        self.assertEqual(self.reports[0]["cert_synced_at"], 1792937643)
+        st, _acted = self.sync((304, None), active=True)
+        self.assertTrue(self.reports[-1]["nginx_ok"])
+        self.assertEqual(self.reports[-1]["cert_synced_at"], 1792937643)
+        self.assertEqual(st["cert_synced_at"], 1792937643)
 
     def test_manage_nginx_false_disables_nginx_checks(self):
         self.cfg["manage_nginx"] = False

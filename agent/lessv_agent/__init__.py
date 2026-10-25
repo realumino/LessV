@@ -5,7 +5,7 @@ WHY: A single place for version truth so enroll/heartbeat/report
 stay consistent and the dashboard can spot stale nodes.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 #: Protocol version spoken by this agent. Binding contract lives in
 #: LessV-Cloud/docs/PROTOCOL.md (v2: cert endpoint, X-Lessv-Node header).

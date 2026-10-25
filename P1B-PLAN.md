@@ -1,8 +1,7 @@
 # LessV — P1b 执行计划
 
-> 依据 `PLAN.md` §8 P1b。执行工件（不是产品文档），P1c 结束时删除。
-> 状态：**可行，待执行**；Cloudflare/R2/DNS/Linode token 已验证，剩 VPS 创建与节点 A 记录。
-> 基线：P0/P1a 已完成；本机 `npm test` 242 passed、前端 27 passed、agent 54 passed / 1 skipped（POSIX 权限测试在 Windows skip）；三个源仓库 `git status` 干净。
+> 状态：**P1b.0–P1b.9 已完成；P1b.10 未完成**（2026-10-25 审计）。执行状态、可复现证据与剩余工作见 `P1B-PLAN-CONTINUE.md`。
+> 验收：P1b 的代码与云端资源已实测；节点侧验收（nginx/curl/Xray PID）依赖已删除的验收 VPS，不能就地复验。测试基线 `npm test` 387 passed / 55 files、前端 37 passed / 7 files、agent 62 passed / 12 skipped（POSIX 专属用例在 Windows skip）。
 > 执行边界：REALITY preset（自偷）+ ACME DNS-01 + 测试签发 + 证书投递 + nginx reload + cert lint。不引入 B 拓扑、Clash、审计、revoke UI、面板托管 nginx 配置。
 
 ---
@@ -1112,7 +1111,7 @@ PLAN.md                     # 状态/修正
 1. `docs/PROTOCOL.md` v2：端点、头、protocol、ETag、report cert stage、错误。
 2. `docs/OPERATIONS.md`：nginx 片段、证书路径/current、测试签发、续期、回滚、停 nginx 排障、`journalctl`、`nginx -t`。
 3. README：P1b 状态、R2/Workflow/cron、`CF_DNS_API_TOKEN`、首节点 nginx 步骤、preset/证书页。
-4. 更新 `PLAN.md` §14 P1b 复选框、§8 状态、§13 默认项；把 P1b 执行记录（证据摘要）追加到本文件末尾。
+4. 更新 `PLAN.md` §14 P1b 复选框、§8 状态、§13 默认项；执行记录与证据写入 `P1B-PLAN-CONTINUE.md`（本文件只保留设计与计划）。
 5. 全量回归：Worker/前端/agent/typecheck/build/deploy dry-run。
 6. 确认三个源仓库 clean；`git status` 只含 P1b 预期文件。
 7. P1c 之前不删除本文件；P1c 结束时按 P1a 惯例删除。
@@ -1309,16 +1308,16 @@ dig +short tokyo01.example.com
 
 ## 11. 完成清单（对应 PLAN.md §14 P1b）
 
-- [ ] REALITY preset（自偷）保存；30 秒内 applied = desired。
-- [ ] “测试签发”成功；测试证书标 staging；production current 不变。
-- [ ] 测试证书不在节点分配列表、不出现在 `/api/node/certs`。
-- [ ] 生产签发 `tlsserver` 成功；节点分配；agent 写入；nginx reload。
-- [ ] `curl https://<domain>` 返回假站点，证书有效。
-- [ ] REALITY 客户端继续可用；订阅不变。
-- [ ] 强制续期：nginx reload；`curl` 有效；Xray 未重启。
-- [ ] 停 nginx：fleet 显示错误；恢复后自动好转。
-- [ ] `serverNames` 不被证书覆盖时 lint 报警。
-- [ ] 证书到期/续期失败在面板可见。
+- [x] REALITY preset（自偷）保存；30 秒内 applied = desired。
+- [x] “测试签发”成功；测试证书标 staging；production current 不变。
+- [x] 测试证书不在节点分配列表、不出现在 `/api/node/certs`。
+- [x] 生产签发 `tlsserver` 成功；节点分配；agent 写入；nginx reload。
+- [x] `curl https://<domain>` 返回假站点，证书有效。
+- [x] REALITY 客户端继续可用；订阅不变。
+- [x] 强制续期：nginx reload；`curl` 有效；Xray 未重启。
+- [x] 停 nginx：fleet 显示错误；恢复后自动好转。
+- [x] `serverNames` 不被证书覆盖时 lint 报警。
+- [x] 证书到期/续期失败在面板可见。
 
 ---
 
@@ -1340,3 +1339,11 @@ dig +short tokyo01.example.com
 | **合计** | **6–9 个专注日** | 证书链路和真实 nginx 是主要变量 |
 
 > `PLAN.md` 附录 E 的 2–4 天是原估算；把 certworker 测试移植、Workflow 工具链升级、真实 nginx 回滚验收算进去后，6–9 天更现实。
+
+---
+
+## 13. 实施状态
+
+**P1b.0–P1b.9 已完成；P1b.10 未完成。** 逐阶段状态、可复现证据、剩余工作和清理决策见 `P1B-PLAN-CONTINUE.md`。
+
+> 审计说明（2026-10-25）：本节此前存在一份伪造的实施记录（不存在的 commit hash、错误的测试数字、与本仓库无关的 session 描述和文件清单），已删除。`P1B-PLAN.md` 只作为设计与契约来源；不要再从本文件推断执行状态。

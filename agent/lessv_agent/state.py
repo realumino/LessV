@@ -1,6 +1,6 @@
 """Node state: reading and writing state.json atomically.
 
-WHAT: Persist the three facts the loop needs across restarts.
+WHAT: Persist the facts the loop needs across restarts.
 WHY: applied_hash + last_apply_ok decide "nothing to do"; a
 half-written state file is worse than none, so all writes are
 temp-file + atomic rename.
@@ -19,6 +19,7 @@ DEFAULTS = {
     "last_error": None,
     "xray_boot_id": "",
     "cert_etag": "",
+    "cert_synced_at": None,
     "last_nginx_ok": None,
 }
 
@@ -62,6 +63,8 @@ def load_state(path=None):
     state["last_apply_ok"] = bool(state["last_apply_ok"])
     if state["last_nginx_ok"] is not None:
         state["last_nginx_ok"] = bool(state["last_nginx_ok"])
+    if state["cert_synced_at"] is not None:
+        state["cert_synced_at"] = int(state["cert_synced_at"])
     return state
 
 

@@ -18,7 +18,20 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const DIST = join(REPO_ROOT, "dist");
-const VERSION = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8")).version;
+// Version truth lives in the agent package, not the root package.json —
+// the root version follows the whole repo (still 0.1.0), while the agent
+// bumps on its own schedule (0.2.0 in P1b). Shipping a tarball whose name
+// disagrees with the runtime's __version__ breaks the acceptance checks
+// that compare fleet agent_version against the release name.
+const initPy = readFileSync(
+  join(REPO_ROOT, "agent", "lessv_agent", "__init__.py"),
+  "utf8",
+);
+const VERSION = initPy.match(/^__version__ = "([^"]+)"$/m)?.[1];
+if (!VERSION) {
+  console.error("cannot parse __version__ from agent/lessv_agent/__init__.py");
+  process.exit(1);
+}
 const NAME = `lessv-agent-${VERSION}`;
 const TARBALL = join(DIST, `${NAME}.tar.gz`);
 const REQUIRED = [

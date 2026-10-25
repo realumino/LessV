@@ -509,6 +509,8 @@ P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模
 - 证书 lint：`serverNames` 不被证书覆盖时报警。
 - 测试全绿。
 
+> **状态（2026-10-25）：P1b.0–P1b.9 完成。** 代码与云端资源已实测；P1b.10 文档/清理收尾中。
+
 ### P1c — 文档、发布、真实验收
 
 **任务**
@@ -645,7 +647,7 @@ Workflow 步骤测试无法移植。
 
 以下是计划采用的默认值；如果不同意，在 P0 开始前改：
 
-1. **证书存 R2**（复用 certworker 代码），D1 合并放 P2。
+1. **证书产物存 R2，元数据存 D1**（P1b 已按此实现）；把 R2 产物也并入 D1 不是 v1 目标。
 2. **nginx P1 手工片段**，P2 再面板托管。
 3. **测试证书保留最近一份、最长 7 天 + 可下载**；run 日志 30 天。
 4. **生产重签要输入域名确认**；测试签发不需要。
@@ -682,16 +684,16 @@ Workflow 步骤测试无法移植。
 
 ### P1b
 
-- [ ] REALITY preset（自偷）保存；30 秒内 applied = desired。
-- [ ] “测试签发”成功；测试证书标 staging；production current 不变。
-- [ ] 测试证书不在节点分配列表、不出现在 `/api/node/certs`。
-- [ ] 生产签发 `tlsserver` 成功；节点分配；agent 写入；nginx reload。
-- [ ] `curl https://<domain>` 返回假站点，证书有效。
-- [ ] REALITY 客户端继续可用；订阅不变。
-- [ ] 强制续期：nginx reload；`curl` 有效；Xray 未重启。
-- [ ] 停 nginx：fleet 显示错误；恢复后自动好转。
-- [ ] `serverNames` 不被证书覆盖时 lint 报警。
-- [ ] 证书到期/续期失败在面板可见。
+- [x] REALITY preset（自偷）保存；30 秒内 applied = desired。
+- [x] “测试签发”成功；测试证书标 staging；production current 不变。
+- [x] 测试证书不在节点分配列表、不出现在 `/api/node/certs`。
+- [x] 生产签发 `tlsserver` 成功；节点分配；agent 写入；nginx reload。
+- [x] `curl https://<domain>` 返回假站点，证书有效。
+- [x] REALITY 客户端继续可用；订阅不变。
+- [x] 强制续期：nginx reload；`curl` 有效；Xray 未重启。
+- [x] 停 nginx：fleet 显示错误；恢复后自动好转。
+- [x] `serverNames` 不被证书覆盖时 lint 报警。
+- [x] 证书到期/续期失败在面板可见。
 
 ### P1c
 

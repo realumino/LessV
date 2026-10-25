@@ -10,6 +10,7 @@
  * Usage:
  *   node scripts/linode_provision.mjs create --token-file ~/.lessv/linode.env \
  *     --ssh-key ~/.ssh/lessv_p1a_ed25519.pub --out ~/.lessv/acceptance/linode.json
+ *     [--server-only true]   # P1b.9: create only lessv-server
  *   node scripts/linode_provision.mjs list --token-file ~/.lessv/linode.env
  *   node scripts/linode_provision.mjs delete --token-file ~/.lessv/linode.env \
  *     --label lessv-client
@@ -178,20 +179,26 @@ async function createInstance(token, spec) {
  * WHY marker-delimited: reruns replace exactly this block, leaving any
  * other SSH config untouched.
  */
-function writeSshConfigBlock(inventory) {
+function writeSshConfigBlock(inventory, sshKeyPath) {
   const configPath = join(homedir(), ".ssh", "config");
   const BEGIN = `# ${TAG} begin`;
   const END = `# ${TAG} end`;
+  const identity = sshKeyPath.replace(/\.pub$/, "").replace(/\\/g, "/");
+  const identityLine = identity.startsWith("~")
+    ? identity
+    : `~/${identity.split(/[:/\\]/).slice(-2).join("/")}`;
   const block = (host, entry) =>
-    [
-      `Host ${host}`,
-      `  HostName ${entry.ipv4}`,
-      "  User root",
-      "  IdentityFile ~/.ssh/lessv_p1a_ed25519",
-      "  IdentitiesOnly yes",
-      "  StrictHostKeyChecking accept-new",
-      "",
-    ].join("\n");
+    entry
+      ? [
+          `Host ${host}`,
+          `  HostName ${entry.ipv4}`,
+          "  User root",
+          `  IdentityFile ${identityLine}`,
+          "  IdentitiesOnly yes",
+          "  StrictHostKeyChecking accept-new",
+          "",
+        ].join("\n")
+      : "";
   let existing = "";
   if (existsSync(configPath)) {
     existing = readFileSync(configPath, "utf8");
@@ -221,24 +228,32 @@ async function cmdCreate(args) {
   const image = args.image ?? "linode/debian12";
   const serverRegion = args["server-region"] ?? "jp-tyo-3";
   const clientRegion = args["client-region"] ?? "sg-sin-2";
+  // P1b.9: acceptance needs exactly one node; creating a second would be
+  // a cost the plan does not authorize. Value-style flag keeps parseArgs
+  // (which always expects `--key value` pairs) unchanged.
+  const serverOnly = args["server-only"] === "true";
 
   // Sequential on purpose: parallel creates can hit the API rate limit.
   const server = await createInstance(token, {
     region: serverRegion, type, image, label: "lessv-server", sshKey,
   });
   let client;
-  try {
-    client = await createInstance(token, {
-      region: clientRegion, type, image, label: "lessv-client", sshKey,
-    });
-  } catch (error) {
-    console.error(
-      `warning: server created but client failed (${error.message}); ` +
-        `clean up with: node scripts/linode_provision.mjs delete --token-file ${args["token-file"]} --label lessv-server`,
-    );
-    process.exit(1);
+  if (serverOnly) {
+    console.log("--server-only: skipping the client instance");
+  } else {
+    try {
+      client = await createInstance(token, {
+        region: clientRegion, type, image, label: "lessv-client", sshKey,
+      });
+    } catch (error) {
+      console.error(
+        `warning: server created but client failed (${error.message}); ` +
+          `clean up with: node scripts/linode_provision.mjs delete --token-file ${args["token-file"]} --label lessv-server`,
+      );
+      process.exit(1);
+    }
   }
-  const inventory = { server, client };
+  const inventory = serverOnly ? { server } : { server, client };
   mkdirSync(dirnameOf(outPath), { recursive: true });
   writeFileSync(outPath, JSON.stringify(inventory, null, 2) + "\n");
   if (process.platform === "win32") {
@@ -251,8 +266,8 @@ async function cmdCreate(args) {
   } else {
     chmodSync(outPath, 0o600);
   }
-  writeSshConfigBlock(inventory);
-  console.log(`server ${server.ipv4}  client ${client.ipv4}`);
+  writeSshConfigBlock(serverOnly ? { ...inventory, client: null } : inventory, expand(args["ssh-key"]));
+  console.log(`server ${server.ipv4}${serverOnly ? "" : `  client ${client.ipv4}`}`);
   console.log(`inventory written: ${outPath}`);
 }
 

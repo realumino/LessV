@@ -286,7 +286,9 @@ def _noop_check(cfg, st, persist, report_fn):
 
     WHAT: Compare active state with the stored last_nginx_ok.
     WHY: Without the throttle every 30s poll would write a report; a
-    state flip (nginx died or recovered) is the actual news.
+    state flip (nginx died or recovered) is the actual news. The
+    report repeats the last successful sync time instead of NULL, so
+    an nginx flip never clears nodes.cert_synced_at on the plane.
     """
     service = cfg.get("nginx_service", "nginx")
     manage = cfg.get("manage_nginx", True)
@@ -305,7 +307,7 @@ def _noop_check(cfg, st, persist, report_fn):
             "nginx_ok": active,
             "nginx_error": None if active else "nginx unit is not active",
             "cert_etag": st.get("cert_etag") or None,
-            "cert_synced_at": None,
+            "cert_synced_at": st.get("cert_synced_at"),
         })
         persist()
     except client.ClientError as exc:
@@ -357,14 +359,14 @@ def _adopt(cfg, st, persist, report_fn, etag, certs):
     except (OSError, ValueError) as exc:
         _rollback(domain_dirs, previous)
         return _report_failure(cfg, st, persist, report_fn,
-                               "certificate write failed: %s" % exc)
+                               "certificate write failed: %s" % exc), False
 
     ok, output = nginx_test()
     if not ok:
         _rollback(domain_dirs, previous)
         nginx_test()  # best-effort confirmation that the rollback tests clean
         return _report_failure(cfg, st, persist, report_fn,
-                               "nginx -t failed: %s" % output)
+                               "nginx -t failed: %s" % output), False
 
     service = cfg.get("nginx_service", "nginx")
     if cfg.get("manage_nginx", True):
@@ -372,13 +374,14 @@ def _adopt(cfg, st, persist, report_fn, etag, certs):
         if not reload_ok:
             _rollback(domain_dirs, previous)
             return _report_failure(cfg, st, persist, report_fn,
-                                   "nginx reload failed: %s" % reload_out)
+                                   "nginx reload failed: %s" % reload_out), False
         if not nginx_active(service):
             _rollback(domain_dirs, previous)
             return _report_failure(cfg, st, persist, report_fn,
-                                   "nginx is not active after reload")
+                                   "nginx is not active after reload"), False
 
     try:
+        synced_at = int(time.time())
         report_fn(cfg, {
             "protocol": 2,
             "hash": "",
@@ -387,7 +390,7 @@ def _adopt(cfg, st, persist, report_fn, etag, certs):
             "nginx_ok": True,
             "nginx_error": None,
             "cert_etag": etag,
-            "cert_synced_at": int(time.time()),
+            "cert_synced_at": synced_at,
         })
     except client.ClientError as exc:
         _log("cert report failed (etag not advanced): %s" % exc)
@@ -395,6 +398,7 @@ def _adopt(cfg, st, persist, report_fn, etag, certs):
         return st, True
 
     st["cert_etag"] = etag
+    st["cert_synced_at"] = synced_at
     st["last_nginx_ok"] = True
     persist()
     return st, True
@@ -416,7 +420,10 @@ def _report_failure(cfg, st, persist, report_fn, error):
 
     WHAT: Bounded error text, state flag, best-effort report.
     WHY: The etag does not advance, so the next poll retries; the
-    failure stays visible in the fleet view either way.
+    failure stays visible in the fleet view either way. The report
+    repeats the last successful sync time — a failed adoption never
+    produced a new timestamp, and the files on disk are still the
+    last synced ones.
     """
     st["last_nginx_ok"] = False
     try:
@@ -429,7 +436,7 @@ def _report_failure(cfg, st, persist, report_fn, error):
             "nginx_ok": False,
             "nginx_error": error[:500],
             "cert_etag": st.get("cert_etag") or None,
-            "cert_synced_at": None,
+            "cert_synced_at": st.get("cert_synced_at"),
         })
     except client.ClientError:
         pass
