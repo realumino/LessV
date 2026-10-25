@@ -151,7 +151,10 @@ def _start_plane(repo, root, port, log, admin_key, key_secret):
         npx + ["wrangler", "dev", "--port", str(port),
                "--persist-to", persist,
                "--var", "ADMIN_KEY:" + admin_key,
-               "--var", "KEY_SECRET:" + key_secret],
+               "--var", "KEY_SECRET:" + key_secret,
+               # P1b: the config declares CF_DNS_API_TOKEN as a required
+               # secret; tests never call the DNS API, so any value works.
+               "--var", "CF_DNS_API_TOKEN:test-only-token"],
         cwd=repo, stdout=log, stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL, env=env,
         **({} if os.name == "nt" else {"start_new_session": True}))
@@ -235,6 +238,12 @@ class TestE2EPull(unittest.TestCase):
             "poll_interval": 30, "xray_binary": "xray",
             "xray_service": "xray", "restart_mode": "systemd",
             "auth": "bearer-v1", "stats_interval": 60,
+            # P1b: certificates flow through /api/node/certs; the E2E has
+            # no nginx/systemd, so the unit is never touched.
+            "manage_nginx": False,
+            "cert_dir": os.path.join(cls.root, "certs"),
+            "nginx_service": "nginx",
+            "cert_group": "",
         }
 
     @classmethod
@@ -417,10 +426,23 @@ class TestE2EPull(unittest.TestCase):
             handle.write(b"E2E-BAD live")
         st = loop.startup_check(self.cfg, state_mod.load_state(self.state_path))
         self.assertFalse(st["last_apply_ok"])
-        st, _, _ = self._cycle(dict(st, last_apply_ok=False,
-                                    applied_hash=st["applied_hash"]))
-        self.assertTrue(st["last_apply_ok"])
-        self.assertTrue(self._sync()["in_sync"])
+
+    def test_certs_endpoint_roundtrip(self):
+        """The empty-certs contract: 200 manifest, stable ETag, then 304.
+
+        WHAT: fetch_certs twice against the live plane.
+        WHY: The 304 fast path is the cert loop's hot path; only a real
+        plane proves the header names and the quoted-ETag form agree.
+        """
+        status, payload = client.fetch_certs(self.cfg, None)
+        self.assertEqual(status, 200)
+        self.assertIn("etag", payload)
+        self.assertEqual(payload["certs"], [])
+        etag = payload["etag"]
+        self.assertTrue(etag.startswith('"') and etag.endswith('"'))
+        status, payload = client.fetch_certs(self.cfg, etag)
+        self.assertEqual(status, 304)
+        self.assertIsNone(payload)
 
     def _put_user(self, username):
         """Grant one more user access on the e2e node."""

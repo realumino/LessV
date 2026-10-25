@@ -34,6 +34,11 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "error: $1 not found" >&2; ex
 [ "$(id -u)" -eq 0 ] || { echo "error: run as root (needs /etc/lessv and systemd)" >&2; exit 1; }
 need python3; need systemctl
 
+# nginx is a P1b prerequisite: the agent tests its config, reloads (or
+# starts) the unit after certificate swaps, and never writes its config.
+need nginx
+systemctl cat nginx >/dev/null 2>&1 || { echo "error: nginx.service not found" >&2; exit 1; }
+
 # Xray must already be installed: the agent only manages its config, the
 # binary and its service unit belong to the official installer.
 XRAY_BIN="$(command -v xray || true)"

@@ -24,6 +24,12 @@ DEFAULTS = {
     "restart_mode": "systemd",
     "auth": "bearer-v1",
     "stats_interval": 60,
+    # P1b certificate/nginx settings: the agent writes versioned cert files
+    # under cert_dir and keeps the nginx unit healthy.
+    "manage_nginx": True,
+    "cert_dir": "/etc/lessv/certs",
+    "nginx_service": "nginx",
+    "cert_group": "",
 }
 
 
@@ -62,6 +68,8 @@ def _parse_simple_toml(text):
             data[key] = value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
         elif len(value) >= 2 and value[0] == "'" and value[-1] == "'":
             data[key] = value[1:-1]
+        elif value in ("true", "false"):
+            data[key] = value == "true"
         else:
             try:
                 data[key] = int(value)
@@ -126,6 +134,22 @@ def _check_tuning(cfg, path):
         )
 
 
+def _check_cert_fields(cfg, path):
+    """Validate the P1b nginx/certificate settings.
+
+    WHAT: manage_nginx boolean, absolute cert_dir, non-empty unit name.
+    WHY: An empty or relative cert_dir would write into the CWD; a
+    wrong unit name shows up only at reload time — fail at load instead.
+    """
+    cfg["manage_nginx"] = bool(cfg.get("manage_nginx", True))
+    cert_dir = str(cfg.get("cert_dir", "") or "")
+    if not cert_dir.startswith("/"):
+        raise ConfigError("cert_dir must be an absolute path in %s" % path)
+    cfg["cert_dir"] = cert_dir
+    cfg["nginx_service"] = str(cfg.get("nginx_service", "") or "") or "nginx"
+    cfg["cert_group"] = str(cfg.get("cert_group", "") or "")
+
+
 def _validate(data, path):
     """Apply defaults and validate required fields.
 
@@ -137,6 +161,7 @@ def _validate(data, path):
     cfg.update(data or {})
     _check_required(cfg, path)
     _check_tuning(cfg, path)
+    _check_cert_fields(cfg, path)
     cfg["cp_url"] = str(cfg["cp_url"]).rstrip("/")
     return cfg
 

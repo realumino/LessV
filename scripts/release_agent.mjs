@@ -25,6 +25,7 @@ const REQUIRED = [
   `${NAME}/install.sh`,
   `${NAME}/lessv_agent/__main__.py`,
   `${NAME}/lessv_agent/loop.py`,
+  `${NAME}/lessv_agent/certs.py`,
   `${NAME}/systemd/lessv-agent.service`,
 ];
 const FORBIDDEN = ["tests/", "__pycache__"];

@@ -34,7 +34,7 @@ class ClientTest(unittest.TestCase):
 
         def fake_urlopen(req, timeout=None):
             seen["auth"] = req.get_header("Authorization")
-            seen["node"] = req.get_header("X-lesserv-node")
+            seen["node"] = req.get_header("X-lessv-node")
             return FakeResp(200, b'{"desired_hash":"h","actions":[]}')
 
         with mock.patch.object(client.urllib.request, "urlopen", fake_urlopen):
@@ -92,7 +92,7 @@ class ClientTest(unittest.TestCase):
 
         with mock.patch.object(client.urllib.request, "urlopen", fake_urlopen):
             client.do_enroll(_cfg(), {"agent_version": "0.1.0"})
-        self.assertEqual(seen["body"]["protocol"], 1)
+        self.assertEqual(seen["body"]["protocol"], 2)
 
 
 if __name__ == "__main__":

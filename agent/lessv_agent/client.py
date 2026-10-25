@@ -34,13 +34,13 @@ def _headers(cfg):
     """
     return {
         "Authorization": "Bearer %s" % cfg["token"],
-        "X-Lesserv-Node": cfg["node_id"],
+        "X-Lessv-Node": cfg["node_id"],
         "Content-Type": "application/json",
         "User-Agent": "lessv-agent/%s" % __version__,
     }
 
 
-def _send(cfg, method, path, query, payload):
+def _send(cfg, method, path, query, payload, extra_headers=None):
     """Execute the HTTP round-trip, mapping transport errors.
 
     WHAT: Build URL, send JSON, return (status, raw bytes).
@@ -50,8 +50,9 @@ def _send(cfg, method, path, query, payload):
     url = cfg["cp_url"] + path
     if query:
         url += "?" + urllib.parse.urlencode(query)
+    headers = dict(_headers(cfg), **(extra_headers or {}))
     req = urllib.request.Request(url, data=payload, method=method,
-                                 headers=_headers(cfg))
+                                 headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
             return getattr(resp, "status", 200), resp.read()
@@ -86,7 +87,7 @@ def _decode(path, status, raw):
                           status=status)
 
 
-def _request(cfg, method, path, body=None, query=None):
+def _request(cfg, method, path, body=None, query=None, extra_headers=None):
     """Perform one JSON request against the control plane.
 
     WHAT: Send method+path, parse JSON, map errors to ClientError.
@@ -96,7 +97,7 @@ def _request(cfg, method, path, body=None, query=None):
     payload = None
     if body is not None:
         payload = json.dumps(body).encode("utf-8")
-    status, raw = _send(cfg, method, path, query, payload)
+    status, raw = _send(cfg, method, path, query, payload, extra_headers)
     return _decode(path, status, raw)
 
 
@@ -163,6 +164,25 @@ def fetch_config(cfg, desired_hash):
                               % (desired_hash, data["hash"]))
         return status, data["config"]
     return status, data
+
+
+def fetch_certs(cfg, etag=None):
+    """Fetch the node's production certificate manifest (or 304).
+
+    WHAT: GET /api/node/certs with If-None-Match.
+    WHY: Certificate bytes are big and identical almost every poll; the
+    ETag question is cheap. Returns (status, payload) where payload is
+    None on 304 and {etag, certs} on 200.
+    """
+    headers = {"If-None-Match": etag} if etag else None
+    try:
+        return _request(cfg, "GET", "/api/node/certs", extra_headers=headers)
+    except ClientError as exc:
+        # urllib raises HTTPError for 304 before any status is visible;
+        # the contract still delivers it as (304, None).
+        if exc.status == 304:
+            return 304, None
+        raise
 
 
 def do_report(cfg, rep):

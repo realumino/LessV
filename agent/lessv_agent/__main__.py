@@ -63,6 +63,10 @@ def _save_enroll_config(args, token):
         "xray_service": args.xray_service,
         "restart_mode": args.restart_mode,
         "auth": "bearer-v1",
+        "manage_nginx": not args.no_manage_nginx,
+        "cert_dir": args.cert_dir,
+        "nginx_service": args.nginx_service,
+        "cert_group": args.cert_group,
     })
 
 
@@ -148,6 +152,17 @@ def _add_enroll_args(sub):
     enroll.add_argument("--xray-service", default="xray")
     enroll.add_argument("--restart-mode", default="systemd",
                         choices=["systemd", "docker"])
+    # P1b certificate/nginx flags (defaults live in config.DEFAULTS).
+    enroll.add_argument("--manage-nginx", dest="no_manage_nginx",
+                        action="store_false", default=False,
+                        help="keep the nginx unit reloaded/started (default)")
+    enroll.add_argument("--no-manage-nginx", dest="no_manage_nginx",
+                        action="store_true",
+                        help="do not touch the nginx unit")
+    enroll.add_argument("--cert-dir", default="/etc/lessv/certs")
+    enroll.add_argument("--nginx-service", default="nginx")
+    enroll.add_argument("--cert-group", default="",
+                        help="group for privkey.pem when nginx is not root")
     enroll.add_argument("--verbose", action="store_true")
     enroll.set_defaults(func=cmd_enroll)
 

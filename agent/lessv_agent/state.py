@@ -18,6 +18,8 @@ DEFAULTS = {
     "last_apply_ok": True,
     "last_error": None,
     "xray_boot_id": "",
+    "cert_etag": "",
+    "last_nginx_ok": None,
 }
 
 
@@ -55,7 +57,11 @@ def load_state(path=None):
                 state[key] = data[key]
     if not isinstance(state["applied_hash"], str):
         state["applied_hash"] = ""
+    if not isinstance(state["cert_etag"], str):
+        state["cert_etag"] = ""
     state["last_apply_ok"] = bool(state["last_apply_ok"])
+    if state["last_nginx_ok"] is not None:
+        state["last_nginx_ok"] = bool(state["last_nginx_ok"])
     return state
 
 

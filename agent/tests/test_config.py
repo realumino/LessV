@@ -27,6 +27,10 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(cfg["node_id"], "tokyo01")
             self.assertEqual(cfg["poll_interval"], 30)
             self.assertEqual(cfg["restart_mode"], "systemd")
+            self.assertTrue(cfg["manage_nginx"])
+            self.assertEqual(cfg["cert_dir"], "/etc/lessv/certs")
+            self.assertEqual(cfg["nginx_service"], "nginx")
+            self.assertEqual(cfg["cert_group"], "")
 
     def test_missing_file_explains_enroll(self):
         with tempfile.TemporaryDirectory() as tmp:

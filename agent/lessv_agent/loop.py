@@ -11,6 +11,7 @@ import random
 import time
 
 from lessv_agent import apply as apply_mod
+from lessv_agent import certs as certs_mod
 from lessv_agent import client, state as state_mod
 from lessv_agent import stats as stats_mod
 from lessv_agent import xray
@@ -164,8 +165,26 @@ def run_once(cfg, st, start_time):
     if "restart_xray" in (resp.get("actions", []) or []):
         _handle_restart_action(cfg)
     if not needs_apply(st, desired):
+        st = _sync_certificates(cfg, st)
         return st, False, desired
-    return _apply_desired(cfg, st, desired), True, desired
+    st = _apply_desired(cfg, st, desired)
+    st = _sync_certificates(cfg, st)
+    return st, True, desired
+
+
+def _sync_certificates(cfg, st):
+    """Best-effort certificate sync after the Xray work.
+
+    WHAT: Run the cert state machine in its own failure domain.
+    WHY: A certificate/nginx failure must not disturb the Xray loop —
+    the cert stage reports its own status and the next poll retries.
+    """
+    try:
+        st, _acted = certs_mod.sync_certificates(cfg, st)
+        return st
+    except Exception as exc:  # never crash the loop on cert paths
+        LOG.warning("cert sync error: %s", exc)
+        return st
 
 
 def _fetch_or_raise(cfg, desired_hash):
