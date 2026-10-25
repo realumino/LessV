@@ -11,8 +11,9 @@
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
+import { adminKey } from "./auth/admin_key";
 import { ApiError } from "./models";
-import { isAllowedPath } from "./route_groups";
+import { ADMIN_PREFIX, isAllowedPath } from "./route_groups";
 import { adminLinkProfiles } from "./routers/admin_link_profiles";
 import { adminNodes } from "./routers/admin_nodes";
 import { adminReality } from "./routers/admin_reality";
@@ -24,17 +25,32 @@ import { subRouter } from "./routers/sub";
 export const app = new Hono<{ Bindings: Env }>();
 
 /**
- * WHAT: reject any path outside the four route groups with a bare 404.
+ * WHAT: reject any path outside the four route groups with a bare 404, and
+ * require the admin bearer key on `/api/admin/*`.
  *
- * WHY middleware and not per-router checks: fail-closed must hold for
+ * WHY one middleware and not per-router checks: fail-closed must hold for
  * routes that do not exist yet and for mistakes made later. One check in
  * front of routing cannot be forgotten by a new router, and there is no
  * way to satisfy it partially — the path either sits in a group or the
  * request never reaches one.
+ *
+ * WHY the admin key check rides on the same `*` middleware instead of its
+ * own `app.use("/api/admin/*", ...)`: workerd serves unmatched paths
+ * through Hono's single-handler fast path, where only `*`-registered
+ * middleware runs — a path-pattern middleware is silently skipped there,
+ * which would let unknown admin paths answer 404 unauthenticated. Under
+ * the `*` mount the key check runs before routing for every admin path,
+ * known or not: an unauthenticated request answers 401, and only an
+ * authenticated one reaches a 404.
  */
 app.use("*", async (c, next) => {
-  if (!isAllowedPath(new URL(c.req.url).pathname)) {
+  const path = new URL(c.req.url).pathname;
+  if (!isAllowedPath(path)) {
     return c.json({ detail: "Not found" }, 404);
+  }
+  if (path.startsWith(ADMIN_PREFIX)) {
+    await adminKey(c, next);
+    return;
   }
   await next();
 });

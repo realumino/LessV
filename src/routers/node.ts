@@ -2,10 +2,10 @@
  * Agent-facing endpoints: the PROTOCOL.md v1 pull contract.
  *
  * WHY a separate router: these are the only endpoints that authenticate by
- * node bearer token instead of (from M4) Cloudflare Access, and every one
- * is scoped to the calling node — a node must never read another node's
- * data. No SQL and no liveness rules live here; endpoints translate
- * between HTTP and the service layer.
+ * node bearer token instead of the admin key, and every one is scoped to
+ * the calling node — a node must never read another node's data. No SQL
+ * and no liveness rules live here; endpoints translate between HTTP and
+ * the service layer.
  */
 
 import { Hono } from "hono";

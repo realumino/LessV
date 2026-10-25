@@ -5,7 +5,7 @@
  * output, and comparing it against what the admin pasted is how a skipped
  * or malformed render becomes visible at a glance. The rendered pane is
  * also where the panel-owned REALITY private key appears — it is
- * admin-only, behind Cloudflare Access, and never cached.
+ * admin-only, behind the admin key, and never cached.
  */
 import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router";

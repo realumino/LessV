@@ -14,14 +14,32 @@ import type { D1Migration } from "@cloudflare/vitest-plugin";
 const ORIGIN = "https://plane.test";
 
 /**
+ * WHAT: the admin key the test harness presents to /api/admin/*.
+ *
+ * WHY a fixed literal: it must equal the ADMIN_KEY binding that
+ * vitest.config.ts declares for the test workerd (that binding is the
+ * single source of the value); production secrets never touch tests.
+ */
+export const TEST_ADMIN_KEY = "test-admin-key";
+
+/**
  * WHAT: fetch one path from the Worker's default export.
  *
  * WHY the default export and not the Hono app object: the port's spec is
  * the HTTP behavior, so requests must travel the same fetch path workerd
  * serves in production, routing and error handling included.
+ *
+ * WHY the injection: admin tests care about their scenario's key state,
+ * not about carrying a bearer header on every call, so a request under
+ * /api/admin/ gets the test key unless the caller set Authorization
+ * itself (merged, never overwritten — node-plane tests rely on that).
  */
 export function planeFetch(path: string, init?: RequestInit): Promise<Response> {
-  return exports.default.fetch(new Request(ORIGIN + path, init));
+  const headers = new Headers(init?.headers);
+  if (path.startsWith("/api/admin/") && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${TEST_ADMIN_KEY}`);
+  }
+  return exports.default.fetch(new Request(ORIGIN + path, { ...init, headers }));
 }
 
 /**

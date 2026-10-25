@@ -1,17 +1,18 @@
 /**
  * The four route groups and the fail-closed path check.
  *
- * WHY this exists: the trust boundary is the set of path prefixes, and the
- * rule in AGENTS.md is that anything outside the four groups must 404 —
- * fail closed, never fail open. The Hono guard in main.ts consults this
- * module before any routing happens, so a route registered at a wrong path
- * (a leftover, a typo) stays unreachable instead of exposed. Cloudflare
- * Access (M4) is the actual authentication for `/api/admin/*`; this guard
- * is the in-app guarantee that no route lives outside a group in the first
- * place.
+ * WHY this exists: the trust boundary is the set of path prefixes, and
+ * the rule is that anything outside the four groups must 404 — fail
+ * closed, never fail open. The Hono guard in main.ts consults this
+ * module before any routing happens, so a route registered at a wrong
+ * path (a leftover, a typo) stays unreachable instead of exposed. The
+ * admin key middleware (src/auth/admin_key.ts) is the authentication
+ * for `/api/admin/*`; this guard is the in-app guarantee that no route
+ * lives outside a group in the first place.
  */
 
 export const PREFIXES = ["/api/admin/", "/api/node/", "/sub/"] as const;
+export const ADMIN_PREFIX = PREFIXES[0];
 export const HEALTH_PATH = "/api/health";
 
 /**

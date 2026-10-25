@@ -4,8 +4,8 @@
  *
  * WHY a separate router: nodes are the fleet's primary resource; config
  * parsing and the runtime pane hang off them. All paths sit under
- * `/api/admin/` (the route group from AGENTS.md); Cloudflare Access is the
- * actual authentication. No SQL and no business rules live here —
+ * `/api/admin/` (the route group); the admin bearer key is the
+ * authentication. No SQL and no business rules live here —
  * endpoints translate between HTTP and the service layer.
  */
 

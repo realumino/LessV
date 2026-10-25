@@ -2,8 +2,8 @@
  * The end-user subscription surface: GET /sub/{token}.
  *
  * WHY a tiny router: this is the whole endpoint. The route guard admits the
- * `/sub/` prefix (one of the four groups since M1), Cloudflare Access
- * bypasses it (since M4), and the body semantics live in
+ * `/sub/` prefix (one of the four groups since M1), the admin key
+ * middleware does not apply to it, and the body semantics live in
  * `subscription_service` — every token state, known or not, answers 200 so
  * the URL reveals nothing about whether it exists.
  */
