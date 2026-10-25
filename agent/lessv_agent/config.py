@@ -187,14 +187,21 @@ def _to_toml(data):
 
     WHAT: Serialize known scalar fields.
     WHY: tomllib has no writer and a dependency is unjustifiable for
-    seven keys; emitting `key = "v"` / `key = N` is sufficient.
+    eleven keys; emitting `key = "v"` / `key = N` is sufficient.
+    WHY the P1b fields are in the tuples: `_validate` accepts them and
+    enroll always builds them, but a whitelist that forgot them would
+    silently drop an operator's `--no-manage-nginx` (or a custom cert
+    dir/service/group) on the round-trip to agent.toml.
     """
     lines = []
     for key in ("cp_url", "node_id", "token", "xray_binary", "config_path",
-                "xray_service", "restart_mode", "auth"):
+                "xray_service", "restart_mode", "auth", "cert_dir",
+                "nginx_service", "cert_group"):
         if key in data:
             val = str(data[key]).replace("\\", "\\\\").replace('"', '\\"')
             lines.append('%s = "%s"' % (key, val))
+    if "manage_nginx" in data:
+        lines.append("manage_nginx = %s" % ("true" if data["manage_nginx"] else "false"))
     for key in ("poll_interval", "stats_interval"):
         if key in data:
             lines.append("%s = %d" % (key, int(data[key])))

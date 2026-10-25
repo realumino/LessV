@@ -31,6 +31,20 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(cfg["cert_dir"], "/etc/lessv/certs")
             self.assertEqual(cfg["nginx_service"], "nginx")
             self.assertEqual(cfg["cert_group"], "")
+            # WHY this assertion: the P1b fields must round-trip through
+            # agent.toml, not just pass validation — a whitelist that forgot
+            # them would persist the operator's choice as the default.
+            text = open(path).read()
+            self.assertIn("manage_nginx = true", text)
+            self.assertIn('cert_dir = "/etc/lessv/certs"', text)
+
+    def test_save_no_manage_nginx_roundtrip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "agent.toml")
+            config_mod.save_config(path, {**_base(tmp), "manage_nginx": False})
+            cfg = config_mod.load_config(path)
+            self.assertFalse(cfg["manage_nginx"])
+            self.assertIn("manage_nginx = false", open(path).read())
 
     def test_missing_file_explains_enroll(self):
         with tempfile.TemporaryDirectory() as tmp:
