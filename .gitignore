@@ -1,0 +1,18 @@
+# wrangler artifacts
+.wrangler/
+# local secret files: never commit. `.dev.vars*` also covers per-env
+# variants (.dev.vars.<env>); .env* covers .env.production and friends.
+# The example template is committed on purpose.
+.dev.vars*
+!.dev.vars.example
+.env*
+node_modules/
+
+# local wrangler config (real domain, real D1 id): never commit.
+# wrangler.example.jsonc is the committed template; the npm pre-hooks copy
+# it when this file is missing.
+wrangler.jsonc
+
+# frontend
+frontend/node_modules/
+frontend/dist/

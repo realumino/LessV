@@ -1,0 +1,70 @@
+{
+  // WHAT: the committed template for the local wrangler.jsonc.
+  //
+  // WHY this file exists: wrangler.jsonc is the single source of truth for
+  // every wrangler command (dev, deploy, migrations, types) and it carries
+  // operator-specific values that must never be committed — the deploy
+  // hostname, and after the first deploy the D1 database_id that wrangler
+  // writes back. Both live in the gitignored wrangler.jsonc; this template
+  // holds only a placeholder hostname. Copy it to wrangler.jsonc (the npm
+  // pre-hooks do that automatically when the file is missing) and edit the
+  // fields marked EDIT below. See WORKBOOK.md Part 1.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lesserv-cloud",
+  "main": "src/worker.ts",
+  // The runtime feature set pinned by this date. workerd executes the TS
+  // plane natively. Bump deliberately, in a commit, never casually — the
+  // test suite and the deploy both run on this date's runtime.
+  "compatibility_date": "2026-09-17",
+
+  // Access is the admin auth and attaches to a hostname on a zone you
+  // control, so workers.dev is disabled and the Worker takes the whole
+  // hostname as a custom domain.
+  "workers_dev": false,
+  // Preview URLs live on *.workers.dev too and do not inherit per-path
+  // Access from the custom domain. Both switches false = no URL exists
+  // except the one Access protects. See WORKBOOK.md Part 3.
+  "preview_urls": false,
+  // EDIT before deploying: hostname on a proxied zone of your account.
+  // `wrangler deploy` creates the DNS record and attaches the domain.
+  "routes": [{ "pattern": "cp.example.org", "custom_domain": true }],
+
+  // No database_id on purpose: `wrangler deploy` auto-provisions a D1
+  // named `database_name` (or `<worker>-db` when this field is absent)
+  // and writes the real id back into wrangler.jsonc; `wrangler dev`
+  // creates the local database with the same binding. If a database with
+  // this name already exists in the account, deploy links it instead of
+  // creating a second one. Migrations are NOT run by deploy — apply them
+  // explicitly (WORKBOOK.md Part 1); this is the directory that command
+  // reads.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "lesserv-cloud",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Names only, never values. `wrangler types` generates Env from this
+  // list (CI-safe), `wrangler dev` warns when one is missing, and
+  // `wrangler deploy` fails closed until every name has a value — which,
+  // on the FIRST deploy, can only be supplied via
+  // `wrangler deploy --secrets-file <file>` because `wrangler secret
+  // put` cannot address a Worker that does not exist yet.
+  "secrets": {
+    "required": ["REALITY_KEY_SECRET"]
+  },
+
+  // Static assets own /admin (built by frontend/, nested to mirror the
+  // path). Assets are matched before the Worker, so /admin/* never
+  // invokes the Worker and the route-group guard keeps its four prefixes.
+  // Keep in step with frontend/vite.config.ts (base /admin/, outDir
+  // dist/admin).
+  "assets": {
+    "directory": "./frontend/dist",
+    "not_found_handling": "single-page-application"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
