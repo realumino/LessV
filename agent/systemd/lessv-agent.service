@@ -6,7 +6,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 -m lessv_agent run
+# The release tarball unpacks to /usr/local/lib/lessv-agent (install.sh),
+# not the interpreter's site-packages; without PYTHONPATH the -m import
+# cannot see the package and the unit dies instantly.
+Environment=PYTHONPATH=/usr/local/lib/lessv-agent
+ExecStart=/usr/bin/env python3 -m lessv_agent run
 Restart=on-failure
 RestartSec=5
 User=root

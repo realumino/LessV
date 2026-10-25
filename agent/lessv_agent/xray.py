@@ -42,14 +42,18 @@ def _run(cmd, timeout=TEST_TIMEOUT_S):
 def test_config(binary, path, timeout=TEST_TIMEOUT_S):
     """Test a config file with Xray's own checker.
 
-    WHAT: Run `xray test -c <file>` (legacy `-test` fallback).
+    WHAT: Run `xray run -test -c <file>`; on an old Xray that rejects
+    the modern subcommand, fall back to legacy `xray -test -config`.
     WHY: A non-zero exit must stop the apply before the live config
-    is touched. Returns (ok, exit_code, output_tail).
+    is touched. Modern Xray (≥ 1.8) dropped the bare `test` alias and
+    moved testing into `run -test`; dispatch on the "unknown command"
+    output so old binaries keep working. Returns (ok, exit_code,
+    output_tail).
     """
-    code, out = _run([binary, "test", "-c", path], timeout=timeout)
+    code, out = _run([binary, "run", "-test", "-c", path], timeout=timeout)
     if code == 0:
         return True, code, out
-    if "unknown" in out.lower() and "test" in out.lower():
+    if "unknown" in out.lower():
         code2, out2 = _run([binary, "-test", "-config", path], timeout=timeout)
         return (code2 == 0), code2, out2
     return False, code, out
