@@ -4,7 +4,7 @@ import json
 import unittest
 from unittest import mock
 
-from lesserv_agent import client
+from lessv_agent import client
 
 
 def _cfg():

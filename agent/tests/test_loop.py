@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from lesserv_agent import loop as loop_mod
+from lessv_agent import loop as loop_mod
 
 
 class BackoffTest(unittest.TestCase):
@@ -38,7 +38,7 @@ class StartupTest(unittest.TestCase):
 
     def test_broken_live_restores_last_good(self):
         with tempfile.TemporaryDirectory() as tmp:
-            from lesserv_agent import apply as apply_mod
+            from lessv_agent import apply as apply_mod
             cfg = {"config_path": os.path.join(tmp, "config.json"),
                    "xray_binary": "xray", "xray_service": "xray",
                    "restart_mode": "systemd"}
@@ -46,9 +46,9 @@ class StartupTest(unittest.TestCase):
                 fh.write("broken")
             with open(apply_mod.last_good_path(cfg), "w") as fh:
                 fh.write('{"good": true}')
-            with mock.patch("lesserv_agent.loop.xray.test_config",
+            with mock.patch("lessv_agent.loop.xray.test_config",
                             return_value=(False, 1, "bad")), \
-                 mock.patch("lesserv_agent.loop.xray.restart_xray",
+                 mock.patch("lessv_agent.loop.xray.restart_xray",
                             return_value=(True, "")):
                 st = loop_mod.startup_check(cfg, {"last_apply_ok": True})
             self.assertFalse(st["last_apply_ok"])
@@ -61,7 +61,7 @@ class StartupTest(unittest.TestCase):
                    "xray_binary": "xray"}
             with open(cfg["config_path"], "w") as fh:
                 fh.write('{"ok": true}')
-            with mock.patch("lesserv_agent.loop.xray.test_config",
+            with mock.patch("lessv_agent.loop.xray.test_config",
                             return_value=(True, 0, "")):
                 st = loop_mod.startup_check(
                     cfg, {"last_apply_ok": True, "applied_hash": "h"})
@@ -74,9 +74,9 @@ class RunOnceTest(unittest.TestCase):
                "xray_service": "xray", "restart_mode": "systemd"}
         st = {"applied_hash": "same", "applied_at": 1, "last_apply_ok": True,
               "last_error": None, "xray_boot_id": "b"}
-        with mock.patch("lesserv_agent.loop.xray.service_running",
+        with mock.patch("lessv_agent.loop.xray.service_running",
                         return_value=(True, 100)), \
-             mock.patch("lesserv_agent.loop.client.do_heartbeat",
+             mock.patch("lessv_agent.loop.client.do_heartbeat",
                         return_value={"desired_hash": "same", "actions": []}):
             out, acted, desired = loop_mod.run_once(cfg, dict(st), 0)
         self.assertFalse(acted)
@@ -88,14 +88,14 @@ class RunOnceTest(unittest.TestCase):
                "xray_service": "xray", "restart_mode": "systemd"}
         st = {"applied_hash": "old", "applied_at": 1, "last_apply_ok": True,
               "last_error": None, "xray_boot_id": "b"}
-        with mock.patch("lesserv_agent.loop.xray.service_running",
+        with mock.patch("lessv_agent.loop.xray.service_running",
                         return_value=(True, 100)), \
-             mock.patch("lesserv_agent.loop.client.do_heartbeat",
+             mock.patch("lessv_agent.loop.client.do_heartbeat",
                         return_value={"desired_hash": "new", "actions": []}), \
-             mock.patch("lesserv_agent.loop.apply_mod.apply_to_hash",
+             mock.patch("lessv_agent.loop.apply_mod.apply_to_hash",
                         return_value={"ok": True, "stage": "started",
                                       "error": None, "xray_exit_code": None}), \
-             mock.patch("lesserv_agent.loop.client.do_report") as rep:
+             mock.patch("lessv_agent.loop.client.do_report") as rep:
             out, acted, _ = loop_mod.run_once(cfg, dict(st), 0)
         self.assertTrue(acted)
         self.assertEqual(out["applied_hash"], "new")

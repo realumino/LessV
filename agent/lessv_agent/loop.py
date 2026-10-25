@@ -10,12 +10,12 @@ import logging
 import random
 import time
 
-from lesserv_agent import apply as apply_mod
-from lesserv_agent import client, state as state_mod
-from lesserv_agent import stats as stats_mod
-from lesserv_agent import xray
+from lessv_agent import apply as apply_mod
+from lessv_agent import client, state as state_mod
+from lessv_agent import stats as stats_mod
+from lessv_agent import xray
 
-LOG = logging.getLogger("lesserv_agent")
+LOG = logging.getLogger("lessv_agent")
 
 BASE_BACKOFF_S = 5
 MAX_BACKOFF_S = 300

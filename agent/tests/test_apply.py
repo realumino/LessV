@@ -5,7 +5,7 @@ import os
 import tempfile
 import unittest
 
-from lesserv_agent import apply as apply_mod
+from lessv_agent import apply as apply_mod
 
 
 def _cfg(tmp):

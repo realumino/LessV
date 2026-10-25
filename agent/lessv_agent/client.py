@@ -11,7 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from lesserv_agent import PROTOCOL_VERSION, __version__
+from lessv_agent import PROTOCOL_VERSION, __version__
 
 TIMEOUT_S = 10
 
@@ -36,7 +36,7 @@ def _headers(cfg):
         "Authorization": "Bearer %s" % cfg["token"],
         "X-Lesserv-Node": cfg["node_id"],
         "Content-Type": "application/json",
-        "User-Agent": "lesserv-agent/%s" % __version__,
+        "User-Agent": "lessv-agent/%s" % __version__,
     }
 
 

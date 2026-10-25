@@ -1,5 +1,5 @@
 #!/bin/sh
-# Lesserv-Agent installer: host setup + enroll, from this repo's releases.
+# LessV-Agent installer: host setup + enroll, from this repo's releases.
 # WHAT: Install the agent, write agent.toml paths, enable systemd unit.
 # WHY: The control plane hands the admin a token + link; it never hosts
 # the agent. Token is prompted on stdin, never passed as an argument.
@@ -28,25 +28,25 @@ if [ -z "$CP_URL" ] || [ -z "$NODE_ID" ]; then
 fi
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "error: run as root (needs /etc/lesserv and systemd)" >&2
+  echo "error: run as root (needs /etc/lessv and systemd)" >&2
   exit 1
 fi
 
 command -v python3 >/dev/null || { echo "error: python3 not found" >&2; exit 1; }
 command -v systemctl >/dev/null || { echo "error: systemctl not found" >&2; exit 1; }
 
-mkdir -p /etc/lesserv /var/lib/lesserv /usr/local/lib/lesserv-agent
-chmod 755 /etc/lesserv /var/lib/lesserv
+mkdir -p /etc/lessv /var/lib/lessv /usr/local/lib/lessv-agent
+chmod 755 /etc/lessv /var/lib/lessv
 
 # Install package (release tarball unpacks next to this script).
-cp -r "$SRC_DIR/lesserv_agent" /usr/local/lib/lesserv-agent/
-chmod -R a=rX /usr/local/lib/lesserv-agent
-cp "$SRC_DIR/systemd/lesserv-agent.service" /etc/systemd/system/lesserv-agent.service
+cp -r "$SRC_DIR/lessv_agent" /usr/local/lib/lessv-agent/
+chmod -R a=rX /usr/local/lib/lessv-agent
+cp "$SRC_DIR/systemd/lessv-agent.service" /etc/systemd/system/lessv-agent.service
 systemctl daemon-reload
 
-# Enroll writes /etc/lesserv/agent.toml (0600) and first-contacts the plane.
-PYTHONPATH=/usr/local/lib/lesserv-agent \
-  python3 -m lesserv_agent enroll --cp "$CP_URL" --node "$NODE_ID"
+# Enroll writes /etc/lessv/agent.toml (0600) and first-contacts the plane.
+PYTHONPATH=/usr/local/lib/lessv-agent \
+  python3 -m lessv_agent enroll --cp "$CP_URL" --node "$NODE_ID"
 
-systemctl enable --now lesserv-agent.service
-echo "lesserv-agent installed and started (journalctl -u lesserv-agent)"
+systemctl enable --now lessv-agent.service
+echo "lessv-agent installed and started (journalctl -u lessv-agent)"

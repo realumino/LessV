@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from lesserv_agent import state as state_mod
+from lessv_agent import state as state_mod
 
 
 class StateTest(unittest.TestCase):

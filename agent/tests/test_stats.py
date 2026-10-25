@@ -2,7 +2,7 @@
 
 import unittest
 
-from lesserv_agent import stats as stats_mod
+from lessv_agent import stats as stats_mod
 
 
 class StatsTest(unittest.TestCase):

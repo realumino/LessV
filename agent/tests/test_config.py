@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from lesserv_agent import config as config_mod
+from lessv_agent import config as config_mod
 
 
 def _base(tmp, **over):

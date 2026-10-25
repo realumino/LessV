@@ -10,13 +10,13 @@ import getpass
 import logging
 import sys
 
-from lesserv_agent import __version__
-from lesserv_agent import client, config as config_mod
-from lesserv_agent import loop as loop_mod
-from lesserv_agent import state as state_mod
-from lesserv_agent import xray
+from lessv_agent import __version__
+from lessv_agent import client, config as config_mod
+from lessv_agent import loop as loop_mod
+from lessv_agent import state as state_mod
+from lessv_agent import xray
 
-LOG = logging.getLogger("lesserv_agent")
+LOG = logging.getLogger("lessv_agent")
 
 
 def _setup_logging(verbose=False):
@@ -144,7 +144,7 @@ def _add_enroll_args(sub):
     enroll.add_argument("--config", default=None, help="agent.toml path")
     enroll.add_argument("--poll-interval", type=int, default=30)
     enroll.add_argument("--xray-binary", default="xray")
-    enroll.add_argument("--config-path", default="/var/lib/lesserv/config.json")
+    enroll.add_argument("--config-path", default="/var/lib/lessv/config.json")
     enroll.add_argument("--xray-service", default="xray")
     enroll.add_argument("--restart-mode", default="systemd",
                         choices=["systemd", "docker"])
@@ -172,8 +172,8 @@ def build_parser():
     WHY: Token has no flag on purpose — its absence from argv is the
     security property, enforced by not offering the option at all.
     """
-    parser = argparse.ArgumentParser(prog="lesserv_agent",
-                                     description="Lesserv node agent")
+    parser = argparse.ArgumentParser(prog="lessv_agent",
+                                     description="LessV node agent")
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     _add_enroll_args(sub)
@@ -185,7 +185,7 @@ def main(argv=None):
     """CLI dispatch.
 
     WHAT: Parse args, run enroll or daemon.
-    WHY: Thin wrapper so `python -m lesserv_agent` works under systemd
+    WHY: Thin wrapper so `python -m lessv_agent` works under systemd
     and in tests via injected argv.
     """
     parser = build_parser()

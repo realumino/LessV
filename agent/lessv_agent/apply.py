@@ -17,7 +17,7 @@ def live_path(cfg):
     WHAT: Resolve what Xray is running now.
     WHY: Single accessor so tests and rollback agree on the file.
     """
-    return cfg.get("config_path", "/var/lib/lesserv/config.json")
+    return cfg.get("config_path", "/var/lib/lessv/config.json")
 
 
 def last_good_path(cfg):

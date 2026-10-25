@@ -10,7 +10,7 @@ import json
 import os
 import tempfile
 
-DEFAULT_STATE_PATH = "/var/lib/lesserv/state.json"
+DEFAULT_STATE_PATH = "/var/lib/lessv/state.json"
 
 DEFAULTS = {
     "applied_hash": "",
@@ -29,7 +29,7 @@ def default_state_path(config=None):
     """
     if config and config.get("state_path"):
         return config["state_path"]
-    return os.environ.get("LESSERV_STATE_PATH", DEFAULT_STATE_PATH)
+    return os.environ.get("LESSV_STATE_PATH", DEFAULT_STATE_PATH)
 
 
 def load_state(path=None):

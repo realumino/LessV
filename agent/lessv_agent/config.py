@@ -14,12 +14,12 @@ try:
 except ImportError:  # Python < 3.11 (e.g. older LTS nodes)
     _tomllib = None
 
-DEFAULT_CONFIG_PATH = "/etc/lesserv/agent.toml"
+DEFAULT_CONFIG_PATH = "/etc/lessv/agent.toml"
 
 DEFAULTS = {
     "poll_interval": 30,
     "xray_binary": "xray",
-    "config_path": "/var/lib/lesserv/config.json",
+    "config_path": "/var/lib/lessv/config.json",
     "xray_service": "xray",
     "restart_mode": "systemd",
     "auth": "bearer-v1",
@@ -35,10 +35,10 @@ def default_config_path():
     """Return the agent.toml path, honoring test overrides.
 
     WHAT: Resolve the config location.
-    WHY: Production uses /etc/lesserv/agent.toml; tests override via
-    LESSERV_AGENT_CONFIG without touching code paths.
+    WHY: Production uses /etc/lessv/agent.toml; tests override via
+    LESSV_AGENT_CONFIG without touching code paths.
     """
-    return os.environ.get("LESSERV_AGENT_CONFIG", DEFAULT_CONFIG_PATH)
+    return os.environ.get("LESSV_AGENT_CONFIG", DEFAULT_CONFIG_PATH)
 
 
 def _parse_simple_toml(text):
@@ -151,7 +151,7 @@ def load_config(path=None):
     path = path or default_config_path()
     if not os.path.exists(path):
         raise ConfigError(
-            "config not found at %s (run `python -m lesserv_agent enroll "
+            "config not found at %s (run `python -m lessv_agent enroll "
             "--cp <url> --node <id>`)" % path
         )
     return _validate(_load_toml_file(path), path)

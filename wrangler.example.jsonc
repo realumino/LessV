@@ -10,7 +10,7 @@
   // pre-hooks do that automatically when the file is missing) and edit the
   // fields marked EDIT below. See WORKBOOK.md Part 1.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "lesserv-cloud",
+  "name": "lessv",
   "main": "src/worker.ts",
   // The runtime feature set pinned by this date. workerd executes the TS
   // plane natively. Bump deliberately, in a commit, never casually — the
@@ -40,7 +40,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "lesserv-cloud",
+      "database_name": "lessv",
       "migrations_dir": "migrations"
     }
   ],

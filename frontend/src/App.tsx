@@ -48,7 +48,7 @@ export default function App() {
 function Header() {
   return (
     <header className="flex items-center gap-6 rounded-2xl border border-apple-border bg-apple-card px-5 py-3 shadow-sm">
-      <span className="text-lg font-bold tracking-tight">Lesserv</span>
+      <span className="text-lg font-bold tracking-tight">LessV</span>
       <NavLink to="/nodes" className={navClass}>
         Nodes
       </NavLink>

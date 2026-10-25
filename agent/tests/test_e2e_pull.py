@@ -1,6 +1,6 @@
 """End-to-end pull test: real agent code against the real control plane.
 
-WHAT: Launch Lesserv-Cloud locally, seed it over HTTP, then run the
+WHAT: Launch LessV-Cloud locally, seed it over HTTP, then run the
 agent's actual enroll / heartbeat / apply / report / stats path to
 convergence, including rejection, rollback, kill-mid-apply, and
 startup-repair.
@@ -25,30 +25,30 @@ import urllib.error
 import urllib.request
 from unittest import mock
 
-from lesserv_agent import apply as apply_mod
-from lesserv_agent import client
-from lesserv_agent import loop
-from lesserv_agent import state as state_mod
-from lesserv_agent import stats as stats_mod
-from lesserv_agent import xray
+from lessv_agent import apply as apply_mod
+from lessv_agent import client
+from lessv_agent import loop
+from lessv_agent import state as state_mod
+from lessv_agent import stats as stats_mod
+from lessv_agent import xray
 
 NODE_ID = "e2e01"
 BOOT_TIMEOUT_S = 120
 
 
 def _cloud_dir():
-    """Locate the sibling Lesserv-Cloud checkout, or None.
+    """Locate the sibling LessV-Cloud checkout, or None.
 
-    WHAT: Prefer $LESSERV_CLOUD_DIR, else ../Lesserv-Cloud.
+    WHAT: Prefer $LESSV_CLOUD_DIR, else ../LessV-Cloud.
     WHY: The two repos are siblings on a dev box; CI without the
     sibling must skip, not fail. The sentinel is the Worker entrypoint
     (the plane runs only under workerd; there is no uvicorn entrypoint).
     """
-    env = os.environ.get("LESSERV_CLOUD_DIR")
+    env = os.environ.get("LESSV_CLOUD_DIR")
     if env and os.path.isfile(os.path.join(env, "src", "worker.py")):
         return env
     here = os.path.dirname(os.path.abspath(__file__))
-    cand = os.path.normpath(os.path.join(here, "..", "..", "Lesserv-Cloud"))
+    cand = os.path.normpath(os.path.join(here, "..", "..", "LessV-Cloud"))
     if os.path.isfile(os.path.join(cand, "src", "worker.py")):
         return cand
     return None
@@ -107,7 +107,7 @@ def _start_plane(cloud, root, port, log):
     """
     persist = os.path.join(root, "plane-state")
     apply_ = subprocess.run(
-        ["uv", "run", "pywrangler", "d1", "migrations", "apply", "lesserv",
+        ["uv", "run", "pywrangler", "d1", "migrations", "apply", "lessv",
          "--local", "--persist-to", persist],
         cwd=cloud, capture_output=True, text=True, timeout=180)
     if apply_.returncode != 0:
@@ -168,10 +168,10 @@ class TestE2EPull(unittest.TestCase):
     def setUpClass(cls):
         cloud = _cloud_dir()
         if not cloud:
-            raise unittest.SkipTest("no Lesserv-Cloud sibling checkout")
+            raise unittest.SkipTest("no LessV-Cloud sibling checkout")
         if not _find_uv():
             raise unittest.SkipTest("no uv on PATH (needed to launch the plane)")
-        cls.root = tempfile.mkdtemp(prefix="lesserv-e2e-")
+        cls.root = tempfile.mkdtemp(prefix="lessv-e2e-")
         cls.port = _free_port()
         cls.base = "http://127.0.0.1:%d" % cls.port
         log_path = os.path.join(cls.root, "plane.log")
