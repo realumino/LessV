@@ -6,15 +6,21 @@
  * can become an empty state instead of a red banner. Centralizing that
  * keeps pages free of fetch details and makes the error shape uniform.
  *
- * WHY non-JSON success bodies are special: Cloudflare Access redirects an
- * expired session to a login page, and fetch follows that redirect to a
- * 200 HTML document. Parsing it as JSON would throw a misleading error, so
- * the client names the likely cause instead.
+ * WHY non-JSON success bodies are special: a stale build or a proxy can
+ * answer a 2xx with an HTML document. Parsing it as JSON would throw a
+ * misleading error, so the client names the likely cause instead.
  *
+ * WHY the Authorization header lives here: every admin call needs it and
+ * only this module reads the stored key; a 401 clears the key, which the
+ * app shell observes to switch back to the login page.
  * WHY every path is under /api/admin: the Worker's route-group guard is
  * fail-closed to four prefixes, and the SPA must never invent a fifth.
  */
 
+import {
+  clearAdminKey,
+  getAdminKey,
+} from "./lib/auth";
 import type {
   InboundSummary,
   LinkProfileIn,
@@ -33,7 +39,6 @@ import type {
 } from "./types";
 
 const BASE = "/api/admin";
-const SESSION_EXPIRED = "Session may have expired — reload the page.";
 
 /** The uniform result every call returns; `status` lets callers branch on 404. */
 export interface ApiResult<T> {
@@ -71,12 +76,15 @@ async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<ApiResult<T>> {
+  const headers = new Headers(options.headers ?? {});
+  headers.set("Content-Type", "application/json");
+  const key = getAdminKey();
+  if (key && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${key}`);
+  }
   let response: Response;
   try {
-    response = await fetch(`${BASE}${path}`, {
-      headers: { "Content-Type": "application/json" },
-      ...options,
-    });
+    response = await fetch(`${BASE}${path}`, { ...options, headers });
   } catch {
     return {
       data: null,
@@ -99,6 +107,14 @@ async function request<T>(
     }
   }
   if (!response.ok) {
+    if (response.status === 401) {
+      clearAdminKey();
+      return {
+        data: null,
+        error: "Admin key rejected — sign in again.",
+        status: 401,
+      };
+    }
     return {
       data: null,
       error: detailOf(body) ?? `HTTP ${response.status}`,
@@ -106,9 +122,31 @@ async function request<T>(
     };
   }
   if (!parsed && text) {
-    return { data: null, error: SESSION_EXPIRED, status: response.status };
+    return {
+      data: null,
+      error: "Unexpected response format — is this the admin plane?",
+      status: response.status,
+    };
   }
   return { data: body as T, error: null, status: response.status };
+}
+
+/**
+ * WHAT: verify a candidate admin key without touching storage.
+ *
+ * WHY a status probe: read-only, always present, and answers 401 for a
+ * wrong key — the cheapest honest check. Network failure counts as "not
+ * verified" so the login form keeps the typed key for a retry.
+ */
+export async function checkAdminKey(key: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${BASE}/status`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** JSON-stringify a body for the write helpers. */
