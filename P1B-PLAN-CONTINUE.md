@@ -21,7 +21,7 @@
 | P1b.7 前端 preset/证书 UI | `9b761ac`（flow 修复 `c55fb7a`） | 完成 | `CertificatesPage`、`RealityPresetDialog`、fleet TLS |
 | P1b.8 部署 + staging 签发 | `0e8029d`（空提交，云端状态为准） | 完成 | 部署、R2、Workflow、staging 证书 |
 | P1b.9 生产签发 + 自偷验收 | `c55fb7a`/`be8865d`/`811aa5f`（`811aa5f` 为空提交） | 完成（证据 B/C，见 §2.5） | 生产证书、续期、nginx、lint |
-| **P1b.10 文档/清理/最终回归** | **无** | **未完成** | 工作树有草稿；docs 未跟踪；无提交 |
+| **P1b.10 文档/清理/最终回归** | **无** | **完成（2026-10-25 23:32）** | 提交 `cc89555`；T2 文档、T3 夹具清理、T4 agent 0.2.1、回归全绿；细节见 §3.5 |
 
 **一句话**：功能链路已经真实跑通；剩下的是把这些事实写对、清理验收夹具、提交 P1b.10。
 
@@ -30,7 +30,7 @@
 1. `cd C:/Users/dev/Documents/GitHub/LessV && git status --porcelain=v1 -uall && git log -3 --oneline`；确认 HEAD/脏文件与 §2.1 一致。
 2. `npm test`（约 18s，55 files / 387 passed）确认基线；不必重跑 P1b.0–P1b.9 的排查。
 3. 只读本文件 §1.2、§2.4、§3；需要契约细节时再查 `P1B-PLAN.md` §3–§4，不要通读 78K 全文。
-4. 按 T2 → T3 → T4（可选）→ T5 → T6 执行；T1 已由本次审计完成。
+4. T1–T6 已于 2026-10-25 完成（见 §3.5）；本文件转为记录。P1c 复验只看 §3 T7 与 §5 的只读命令。
 
 ---
 
@@ -281,6 +281,16 @@ P1b.10 完成后，P1c 的事（不在本文件范围）：
 
 ---
 
+### 3.5 P1b.10 执行记录（2026-10-25 23:32 +0800）
+
+- **提交**：`cc89555` `P1b: document certificate operations and finalize`（12 文件，含 agent 三文件与测试）；本记录随后以单独提交入库。
+- **T1**：确认完成（`P1B-PLAN.md` diff 与 `README.md` 指针核实，未恢复旧内容）。
+- **T2**：PLAN.md §8 P1b 状态行 + §13 第 1 条改写；PROTOCOL.md `renew_before_days` 修正 + `stage:"cert"`/`cert_synced_at` 语义（agent 0.2.1 起 nginx 翻转与失败报告重复上次成功时间，不清空）+ 版本号 0.2.1；OPERATIONS.md 5 处 `/api/admin` 前缀、wildcard 措辞、删除 `DELETE /admin/nodes`、夹具段重写、state.json 字段清单加 `cert_synced_at`。
+- **T3（默认决策已执行）**：删除 `lessv-pre-p1b.sql`、`acceptance/linode.json`、`~/.ssh/lessv_p1b_ed25519*`，`acceptance/` 目录已移除；Cloudflare DNS A `tokyo01.example.com`（record `00000002…`）已删（success:true，复查 count=0）。保留：`~/.lessv/linode.env`（icacls 单用户 dev:F）、`nodes.tokyo01` 行、`fail.example.com` 软删除行、R2 current 对象；`dist/` 中被 0.2.1 取代的 0.2.0 tarball 已移除。
+- **T4（已做，agent-only，未重部署 Worker）**：state.json 增加 `cert_synced_at`；`_adopt` 成功后写入；304/nginx 翻转报告与 `_report_failure` 重复上次成功值。附带修复 HEAD 潜在崩溃：`_adopt` 四个失败路径原返回裸 dict（应为 `, False`），会让循环解包抛错——被 POSIX-only 测试在 Windows 上 skip 掩盖，新便携测试暴露后修复。agent 0.2.0 → 0.2.1；tarball `dist/lessv-agent-0.2.1.tar.gz`（24059 B，sha256 `b5eaa235ac1418f1a8f67b7f7d586271165edc0d8579ff5054fee0839446b9a8`）在提交后构建，内容校验通过。
+- **回归（提交前后各一轮）**：worker 55 files / 387 passed；typecheck 通过；frontend 7 files / 37 passed；`npm run build` dry-run（bindings DB/CERTS/ISSUANCE 正常）；frontend 真实构建 339.17 kB / 19.84 kB；agent 63 passed / 0 failed / 13 skipped（新增 1 便携 + 1 POSIX-only 测试）。
+- **遗留给 P1c**：线上 tokyo01 仍是 agent 0.2.0，D1 `cert_synced_at` 仍为 NULL；0.2.1 的不清空语义需在 P1c 新 VPS 真机复验。生产证书 `d2b6ac82…` 未动。
+
 ## 4. 不要做
 
 1. **不要重做 P1b.0–P1b.9**。代码、迁移、Workflow、证书、D1 数据都在。
@@ -332,7 +342,7 @@ set -a; . ~/.lessv/linode.env; set +a
 curl -sS -H "Authorization: Bearer $LINODE_TOKEN" https://api.linode.com/v4/linode/instances
 ```
 
-预期：D1 里 tokyo01 生产 current `d2b6ac82…`、staging current `1c8f5ea9…`；节点 `nginx_ok=1`、`cert_etag` 非空、`cert_synced_at` 可能为 NULL（T4 未修时）；Linode 只有 `unrelated-jp01`。
+预期：D1 里 tokyo01 生产 current `d2b6ac82…`、staging current `1c8f5ea9…`；节点 `nginx_ok=1`、`cert_etag` 非空、`cert_synced_at` 预计仍为 NULL（0.2.1 未上机，D1 值不会被 agent 0.2.1 修改直到 P1c 真机升级）；Linode 只有 `unrelated-jp01`。
 
 ---
 
@@ -346,10 +356,10 @@ curl -sS -H "Authorization: Bearer $LINODE_TOKEN" https://api.linode.com/v4/lino
 
 ## 7. P1b.10 完成定义
 
-- [ ] `P1B-PLAN.md` 无伪造记录；文件头与本文件一致。
-- [ ] `README.md` / `PLAN.md` / `docs/PROTOCOL.md` / `docs/OPERATIONS.md` 与代码、部署状态一致（T2 全部修完）。
-- [ ] 夹具决策执行并记录：pre-P1b SQL、DNS A、SSH key、inventory、Linode token、stale node。
-- [ ] `cert_synced_at` 缺陷已修并有测试，或明确记录为已知缺陷并修正文档承诺。
-- [ ] Worker 387 / 前端 37 / agent 62（12 skip）/ typecheck / build / deploy dry-run 全绿。
-- [ ] 工作树干净（只允许 ignored 文件）；`P1b.10` 提交存在。
-- [ ] 本文件状态更新为“P1b.10 完成”，并写入提交 hash。
+- [x] `P1B-PLAN.md` 无伪造记录；文件头与本文件一致（`cc89555`）。
+- [x] `README.md` / `PLAN.md` / `docs/PROTOCOL.md` / `docs/OPERATIONS.md` 与代码、部署状态一致（T2 全部修完）。
+- [x] 夹具决策执行并记录（默认决策，见 §3.5：pre-P1b SQL、DNS A、SSH key、inventory 已删；linode.env、stale node、软删除行、R2 current 保留）。
+- [x] `cert_synced_at` 缺陷已修并有测试（agent 0.2.1；真机复验留 P1c）。
+- [x] Worker 387 / 前端 37 / typecheck / build / dry-run 全绿；agent 63 passed / 13 skipped（原 62/12， +1 便携测试、+1 POSIX 门控场景测试）。
+- [x] 工作树干净（仅 ignored 文件）；`P1b.10` 提交存在（`cc89555`）。
+- [x] 本文件状态更新为“P1b.10 完成”，并写入提交 hash。
