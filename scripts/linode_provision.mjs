@@ -38,7 +38,7 @@ const BOOT_TIMEOUT_S = 300;
 function readEnvFile(path) {
   const map = {};
   for (const line of readFileSync(path, "utf8").split("\n")) {
-    const match = line.match(/^([A-Z_]+)=(.*)\s*$/);
+    const match = line.trim().match(/^([A-Z_]+)=(.*)$/);
     if (match) {
       map[match[1]] = match[2];
     }
@@ -60,25 +60,44 @@ function fail(message) {
   process.exit(1);
 }
 
-/** WHAT: one Linode API call; returns {status, data}. */
+/** WHAT: one Linode API call; returns {status, data}. Retries transient
+ * network errors and 429/5xx with backoff (this network's edge drops
+ * connections intermittently). */
 async function api(token, method, path, body = null) {
-  const response = await fetch(`${API}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: body === null ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(30000),
-  });
-  const text = await response.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = { raw: text.slice(0, 300) };
+  let lastError = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 2000 * 2 ** (attempt - 1)));
+    }
+    let response, text;
+    try {
+      response = await fetch(`${API}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: body === null ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(30000),
+      });
+      text = await response.text();
+    } catch (error) {
+      lastError = error;
+      continue;
+    }
+    if (response.status === 429 || response.status >= 500) {
+      lastError = new Error(`HTTP ${response.status} from ${path}`);
+      continue;
+    }
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = { raw: text.slice(0, 300) };
+    }
+    return { status: response.status, data };
   }
-  return { status: response.status, data };
+  throw lastError ?? new Error("request failed without a response");
 }
 
 /** WHAT: is an IPv4 string a private/non-routable address? */
@@ -223,10 +242,11 @@ async function cmdCreate(args) {
   mkdirSync(dirnameOf(outPath), { recursive: true });
   writeFileSync(outPath, JSON.stringify(inventory, null, 2) + "\n");
   if (process.platform === "win32") {
-    // 0600 equivalent: drop inheritance, keep only the current user read.
+    // 0600 equivalent: drop inheritance, owner-only access. Full control
+    // (not read-only) — the delete step rewrites this file.
     const user = process.env.USERNAME;
     if (user) {
-      spawnSync("icacls", [outPath, "/inheritance:r", "/grant:r", `${user}:R`]);
+      spawnSync("icacls", [outPath, "/inheritance:r", "/grant:r", `${user}:F`]);
     }
   } else {
     chmodSync(outPath, 0o600);

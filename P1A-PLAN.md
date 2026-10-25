@@ -1,8 +1,8 @@
 # LessV — P1a 执行计划
 
 > 依据 `PLAN.md` §8 P1a。执行工件（不是产品文档），P1c 结束时删除。
-> 状态：**就绪**：Cloudflare/Linode token、zone/hostname、SSH key 已检查（见 §0.1）；可以执行 P1a.0/P1a.1。真实客户端可后置。
-> 执行边界：在你确认 §2 的输入前，不创建 Cloudflare/Linode 资源；本文件只是计划。
+> 状态：**P1a 已执行完成（2026-10-25）**，G0–G7 全绿，见文末执行记录；真实客户端人工验收交付后置。
+> 执行边界：已完成；本文件保留为执行工件，P1c 结束时删除。
 > 基线：P0 本机验收完成；云端未部署；三个源仓库 `git status` 干净。
 
 ---
@@ -1145,6 +1145,9 @@ node scripts/p1a_smoke.mjs \
 | `install.sh` 已可用 | 缺 PYTHONPATH、xray 检查、目录、drop-in | P1a 修安装器 |
 | agent 写 `/var/lib/lessv/config.json` | 官方 Xray unit 读 `/usr/local/etc/xray/config.json` 且 `User=nobody` | P1a 加 drop-in；PLAN §7.4 的路径不变 |
 | “过期后订阅为空” | 过期只影响订阅，不影响 Xray 配置 | P1a 按字面验收；断连留 P1b/P2 |
+| live config 含 `alice@direct` | 实为 `alice@tokyo01-direct`（qualify 前缀，X1/X7） | 按实际实现验收 |
+| 过期恢复 `expire:null` | PUT 不能把 expire 改回 null（null=“不变”） | 用远期 epoch 恢复（X3） |
+| G6 断言 URI 含 `spx` | 面板原实现从顶层 `realitySettings.spiderX` 读，附录 A 的嵌套 `settings.spiderX` 不生效 | share_service 兼容两种位置（X2） |
 
 ---
 
@@ -1232,12 +1235,26 @@ node scripts/subscription_to_xray.mjs \
 |---|---|
 | 日期 | 2026-10-25 |
 | Cloudflare zone | `example.com`（active） |
-| 面板主机名 | `cp.example.com`（custom domain，证书已签发） |
-| Worker 名 / D1 | `lessv` / `lessv`（id 00000000-0000-4000-8000-000000000002） |
-| Linode server/client IP / OS / 架构 | 见 P1a.4.0 |
+| 面板主机名 | `cp.example.com`（custom domain，证书已签发；health 200） |
+| Worker 名 / D1 | `lessv` / `lessv`（D1 id `00000000-0000-4000-8000-000000000002`） |
+| Linode server IP / OS / 架构 | `lessv-server` id 100000001：`203.0.113.10`，Debian 12 bookworm，x86_64 |
+| Linode client IP / 状态 | `lessv-client` id 100000002：`203.0.113.11`，探针通过后已删除 |
 | Linode 区域 / type | `jp-tyo-3` + `sg-sin-2` / `g6-nanode-1` |
-| 节点 id / 标签 | `tokyo01` / `Tokyo` |
-| Xray 版本 | 见 P1a.4.1 |
-| agent 版本 | 0.1.0（tarball sha256 7972c972…） |
-| 真实客户端 | 待定（可后置） |
-| 验收结果 | 进行中：G0–G3 绿；部署 2026-10-25，health 200，auth 401/401/200，secrets 只有 ADMIN_KEY/KEY_SECRET，remote migrations 无待应用，/admin/ 200 |
+| 节点 id / 标签 | `tokyo01` / `Tokyo`，address = server 公网 IP |
+| Xray 版本 | 26.10.21 (1b1647c, go1.27.3 linux/amd64)，两台同版 |
+| agent 版本 | 0.1.0（tarball sha256 `e8c2bd1e…`，装在 server） |
+| 真实客户端 | 待定（订阅 URL 已交付：面板 SubscriptionCard / `~/.lessv/acceptance/sub.json`，含 QR；人工导入后置，不阻塞工程验收） |
+| 验收结果 | G0–G7 全绿：smoke 26/26；探针出口 IP = server；agent/Xray/面板重启后收敛；禁用→订阅空+配置移除+探针失败；过期→订阅空（V8）；client 已删、server 保留；Worker 242 / 前端 27 / agent 54 passed + 1 POSIX 平台 skip；无 secret 进 git |
+
+## 执行期发现（P1a 执行中修掉，均已提交）
+
+| # | 发现 | 处理 |
+|---|---|---|
+| X1 | agent 的 mkstemp 临时文件无扩展名，Xray 报 `Failed to get format of .config.next.<rand>`（真实 VPS G5 撞见） | `apply.py` mkstemp 加 `suffix=".json"` + 单测钉住 |
+| X2 | 面板 links 不发 `spx`：附录 A 把 spiderX 放在 `realitySettings.settings` 里，`share_service` 只读顶层 | `share_service` 兼容两种位置（顶层优先）+ 单测 |
+| X3 | `PUT /api/admin/users` 不能把 `expire` 改回 null（null=“不变”） | 恢复用远期 epoch（2100）；已写入 README/附录 E |
+| X4 | git archive tarball 字节不可复现（entry mtime=打包时刻） | 用成对 `.sha256`（release 时生成）验证传输后的文件即可；内容可复现 |
+| X5 | `pkill -f "xray run -c /tmp/lessv-client.json"` 会匹配并杀死远端 `bash -c` 自身（命令行含该字符串） | 探针启停用 `pgrep -x xray` / 按进程名 kill |
+| X6 | Windows icacls 授 `:R` 会让工具后续覆写失败（EPERM）；`0600` 的 Windows 等价是 owner `:F` | `linode_provision.mjs` 对 inventory 用 `:F` |
+| X7 | live config 里 client email 是 `alice@tokyo01-direct`（qualify 前缀），计划文中写 `alice@direct` 是简写 | 按实际实现验收 |
+| X8 | 官方 Xray unit 实测 `User=xray`（专用用户），不是文档里的 `nobody` —— drop-in 同样必需且有效 | 结论与 V5 一致，drop-in 覆盖为 root + agent 配置路径 |

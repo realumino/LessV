@@ -20,7 +20,7 @@ import { readFileSync } from "node:fs";
 function readEnvFile(path) {
   const map = {};
   for (const line of readFileSync(path, "utf8").split("\n")) {
-    const match = line.match(/^([A-Z_]+)=(.*)\s*$/);
+    const match = line.trim().match(/^([A-Z_]+)=(.*)$/);
     if (match) {
       map[match[1]] = match[2];
     }

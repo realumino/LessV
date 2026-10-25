@@ -453,6 +453,11 @@ lint 只读，不改变渲染，不阻塞保存。
 
 P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模式。产品拓扑（自偷 + LE）在 P1b 验收。
 
+> **状态（2026-10-25）：完成。** 面板部署在 `cp.example.com`（合并 P0 云端项）；
+> Linode 两台（server 保留 / client 探针后删除）实测通过，含自动化探针、重启
+> 收敛、禁用/过期。人工真实客户端导入交付给用户，后置不阻塞。执行细节见
+> `P1A-PLAN.md` 执行记录与附录 E。
+
 **完成标准**
 
 - 一台真实 Linux 节点：安装 agent、enroll、应用 REALITY 配置；fleet 显示 applied = desired。
@@ -633,7 +638,7 @@ P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模
 
 ### P0
 
-- [ ] 面板部署在自定义域；`/api/health` 200。（云部署可与 P1a 合并）
+- [x] 面板部署在自定义域；`/api/health` 200。（云部署可与 P1a 合并）
 - [x] 无 Access；未带 key 的 `/api/admin/*` 返回 401。
 - [x] 粘贴 `ADMIN_KEY` 能登录；刷新保持；logout 清除。（机制：本地 curl + auth 单测；浏览器视检待云部署后）
 - [x] 创建节点、拿 token、看 fleet。（本地 wrangler dev 实测）
@@ -642,12 +647,12 @@ P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模
 
 ### P1a
 
-- [ ] 全新 VPS 按 README 安装 Xray + agent。
-- [ ] agent enroll；fleet 显示健康。
-- [ ] 临时 REALITY 配置（公网 dest）保存；30 秒内 applied = desired。
-- [ ] 订阅 URL 导入真实客户端，能上网。
-- [ ] agent/Xray/面板重启后收敛。
-- [ ] 用户禁用/过期后订阅为空。
+- [x] 全新 VPS 按 README 安装 Xray + agent。（Linode Debian 12；P1a.1 加固后的 install.sh + release tarball）
+- [x] agent enroll；fleet 显示健康。（state=active，last_seen 更新，health ok）
+- [x] 临时 REALITY 配置（公网 dest）保存；30 秒内 applied = desired。（首次实陈 60–90s；实测 t+10s 内，另见 P1A-PLAN 附录 E）
+- [x] 订阅 URL 导入真实客户端，能上网。（自动化探针：第二台 VPS 上真实 Xray 客户端，出口 IP = 节点；人工真实客户端导入交付给用户后置）
+- [x] agent/Xray/面板重启后收敛。
+- [x] 用户禁用/过期后订阅为空。（禁用还从配置移除且探针失败；过期仅订阅为空，V8）
 
 （preset / 自偷 / LE 证书在 P1b 验收。）
 

@@ -72,9 +72,56 @@ npm --prefix frontend run dev    # Vite dev server，代理 API 到 :8787
 
 回滚：`npx wrangler rollback`。
 
+## 首节点（从零到一条能上网的订阅）
+
+前提：VPS（Debian 12+，root SSH，443 空闲，可出站 443）已装好 Xray
+（`bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install`）；面板已部署（上节）。
+
+1. **发布 agent**：`npm run release:agent` → `dist/lessv-agent-<ver>.tar.gz` +
+   `.sha256`。要求 `agent/` 无未提交改动（tarball 从 `HEAD:agent` 打包）。
+2. **建节点 + mint token**（面板或 API）：
+   ```bash
+   curl -sS -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
+     -d '{"id":"tokyo01","label":"Tokyo","address":"<server公网IP>"}' \
+     https://<cp-host>/api/admin/nodes
+   curl -sS -X POST -H "Authorization: Bearer $ADMIN_KEY" \
+     https://<cp-host>/api/admin/nodes/tokyo01/token   # 只显示一次
+   ```
+3. **传 tarball 并安装**（token 走 stdin，不要作为参数）：
+   ```bash
+   scp dist/lessv-agent-<ver>.tar.gz root@<server-ip>:/tmp/
+   ssh root@<server-ip> 'mkdir -p /tmp/lessv-agent && tar -xzf /tmp/lessv-agent-<ver>.tar.gz -C /tmp/lessv-agent --strip-components=1'
+   ssh -t root@<server-ip> 'cd /tmp/lessv-agent && ./install.sh --cp https://<cp-host> --node tokyo01'
+   ```
+   install.sh 会：检查 python3/systemd/Xray 与 xray.service；建
+   `/etc/lessv`、`/etc/lessv/certs`、`/var/lib/lessv`、`/var/www/lessv-decoy`；
+   装包到 `/usr/local/lib/lessv-agent`；写 systemd drop-in
+   `/etc/systemd/system/xray.service.d/99-lessv.conf`（`User=root` +
+   `ExecStart=... run -config /var/lib/lessv/config.json`，因为 agent 以
+   0600 root 写配置，官方 unit 的非 root 用户读不了）；enroll；enable。
+4. **保存一份 REALITY 配置**（P1a 夹具用公网 dest；P1b 换自偷 + LE）：
+   在面板节点页粘贴（`privateKey` 留空，面板渲染时生成并注入；`shortIds`
+   自填 8 位 hex）：
+   ```json
+   {"log":{"loglevel":"warning"},"inbounds":[{"tag":"reality","listen":"0.0.0.0","port":443,"protocol":"vless","settings":{"clients":[],"decryption":"none","flow":"xtls-rprx-vision"},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"dest":"www.microsoft.com:443","serverNames":["www.microsoft.com"],"privateKey":"","shortIds":["<8-hex>"],"settings":{"fingerprint":"chrome","spiderX":"/"}}}}],"outbounds":[{"tag":"BLOCK","protocol":"blackhole"},{"tag":"direct","protocol":"freedom"}],"routing":{"rules":[]}}
+   ```
+5. **建用户**：用户页新建（如 `alice`），给节点 `tokyo01` 勾选 inbound
+   `reality`、outbound `direct`。等 fleet 的 applied = desired（心跳 30s
+   + apply，首次 60–90s）。
+6. **发订阅**：用户页 mint 订阅 token，取 `https://<cp-host>/sub/<token>`
+   （或扫码）导入 v2rayN / NekoBox / Shadowrocket / Hiddify，更新订阅后连接；
+   打开 `https://api.ipify.org` 确认出口 IP 是节点地址。
+
+排障：`journalctl -u lessv-agent -n 50`、`journalctl -u xray -n 30`、
+`xray run -test -c /var/lib/lessv/config.json`、面板 fleet 的
+`health`/`last_error`。不要手工改 `/var/lib/lessv/config.json`；让面板/agent
+收敛。注意：`expire` 只影响订阅资格（过期用户订阅为空，但配置仍保留）；
+`status=disabled` 才会从 Xray 配置移除。另外 `PUT /api/admin/users` 无法把
+`expire` 改回 `null`（null 表示“不变”），需要时用一个远期 epoch 替代。
+
 ## 当前状态
 
-- **P0 完成（本机）**：改名、`KEY_SECRET` 统一、`/api/admin/*` 的 `ADMIN_KEY` 认证、SPA 登录、部署脚本。
-- **本地验收（P0.7）**：14 条 curl 矩阵全部符合（认证矩阵 401/404/200、节点 CRUD + token + enroll/heartbeat、订阅端点不受影响、SPA 深链可刷新）；users CRUD、REALITY 轮换、link profiles、订阅 token 手工流程回归通过；重启 wrangler dev 后数据与登录态保留；无 Set-Cookie。浏览器六项登录行为的机制由 `frontend/src/lib/auth.test.ts` 钉死。
-- **测试矩阵**：Worker 241 passed / 32 files；前端 27 passed；agent 33 passed / 4 skipped。
-- **待办**：云部署（§README 部署，可与 P1a 合并，PLAN §14 P0 剩余两项）；P1a 节点 onboarding；P1b REALITY preset + ACME。
+- **P0 完成**：改名、`KEY_SECRET` 统一、`/api/admin/*` 的 `ADMIN_KEY` 认证、SPA 登录、部署脚本。
+- **P1a 完成（2026-10-25）**：面板部署在 `cp.example.com`（自定义域 + 证书，health 200，auth 401/401/200，secrets 只有 ADMIN_KEY/KEY_SECRET，remote migrations 应用）；真实 VPS（Linode `lessv-server`，Debian 12）装 Xray 26.10.21 + agent 0.1.0，enroll 健康心跳；临时 REALITY 配置（公网 dest `www.microsoft.com:443`）应用收敛（applied = desired，health ok，Xray 监听 443）；用户/订阅打通；第二台 VPS 的真实 Xray 客户端探针出口 IP = 节点公网 IP；agent/Xray/面板重启、禁用/过期恢复全部收敛验收；agent 安装器加固（PYTHONPATH、Xray 检查、目录布局、systemd drop-in）；agent E2E 重写为本仓库 workerd plane，0 E2E skip。
+- **测试矩阵**：Worker 242 passed / 32 files；前端 27 passed；agent 54 passed / 1 skipped（仅一个 POSIX 文件模式测试在 Windows skip，Linux 上运行）。
+- **待办**：P1b REALITY preset（自偷 + LE 证书，替换临时公网 dest）；P1c 收尾。
