@@ -335,9 +335,15 @@ export const ReportIn = z.object({
   protocol: z.int(),
   hash: z.string(),
   ok: z.boolean(),
-  stage: z.enum(["fetched", "test", "applied", "started", "rolled_back"]),
+  stage: z.enum(["fetched", "test", "applied", "started", "rolled_back", "cert"]),
   xray_exit_code: z.int().nullable().default(null),
   error: z.string().nullable().default(null),
+  // Certificate/nginx facts (P1b). Present on stage=cert reports and on
+  // ordinary apply reports that carry them; the server writes them for both.
+  nginx_ok: z.boolean().nullable().default(null),
+  nginx_error: z.string().nullable().default(null),
+  cert_etag: z.string().nullable().default(null),
+  cert_synced_at: z.int().nullable().default(null),
 });
 export type ReportIn = z.infer<typeof ReportIn>;
 
@@ -453,5 +459,19 @@ export const NodeSyncOut = z.object({
   xray_version: z.string().nullable(),
   last_error: z.string().nullable(),
   warnings: z.array(z.string()),
+  // Agent-reported certificate/nginx status (P1b), NULL until reported.
+  nginx_ok: z.int().nullable().default(null),
+  nginx_error: z.string().nullable().default(null),
+  cert_synced_at: z.int().nullable().default(null),
+  // The node's assigned production certificates (expiry/profile per domain).
+  certs: z
+    .array(
+      z.object({
+        domain: z.string(),
+        not_after: z.string(),
+        profile: z.string(),
+      }),
+    )
+    .default([]),
 });
 export type NodeSyncOut = z.infer<typeof NodeSyncOut>;

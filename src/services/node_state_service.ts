@@ -12,6 +12,9 @@
 import * as db from "../db";
 import type { HeartbeatIn, NodeSyncOut, ReportIn } from "../models";
 import { configHash, desiredConfig } from "./render_service";
+import { certLintWarnings, type LintCert } from "../cert/lint";
+import { listNodeAssignedDomains } from "../cert/store/d1";
+import { certPathName } from "../cert/store/r2";
 
 export const HEARTBEAT_STALE_AFTER = 60;
 export const SUCCESS_STAGES = ["applied", "started"] as const;
@@ -185,18 +188,78 @@ export async function syncState(
   if (node === null) {
     return null;
   }
-  const [wanted, warnings] = await desiredHash(env, nodeId);
+  const [runtime, warnings] = await desiredConfig(env, nodeId);
+  // Lint is additive and read-only: its warnings follow the render
+  // warnings, its failure (a store hiccup) never hides the render itself.
+  let lintWarnings: string[] = [];
+  let certSummaries: Array<{ domain: string; not_after: string; profile: string }> = [];
+  try {
+    const lint = await certLintState(env, nodeId, runtime, node, new Date());
+    lintWarnings = lint.warnings;
+    certSummaries = lint.certs;
+  } catch (error) {
+    lintWarnings = [`cert lint failed: ${error instanceof Error ? error.message : String(error)}`];
+  }
   return {
     node_id: nodeId,
     state: node.last_seen !== null ? "active" : "pending",
-    desired_hash: wanted,
+    desired_hash: runtime !== null ? await configHash(runtime) : null,
     applied_hash: node.applied_hash,
-    in_sync: wanted !== null && node.applied_hash === wanted,
+    in_sync:
+      runtime !== null &&
+      node.applied_hash === (await configHash(runtime)),
     last_seen: node.last_seen,
     health: node.health,
     agent_version: node.agent_version,
     xray_version: node.xray_version,
     last_error: node.last_error,
-    warnings,
+    warnings: [...warnings, ...lintWarnings],
+    nginx_ok: node.nginx_ok,
+    nginx_error: node.nginx_error,
+    cert_synced_at: node.cert_synced_at,
+    certs: certSummaries,
+  };
+}
+
+/**
+ * WHAT: lint warnings for one node's assigned production certificates plus
+ * the per-domain expiry summaries the fleet view renders.
+ *
+ * WHY the store import and not the service: `cert/service` pulls the
+ * render path in, which pulls this module — a cycle. The store + pure lint
+ * are all the sync view needs.
+ */
+export async function certLintState(
+  env: Env,
+  nodeId: string,
+  config: Record<string, unknown> | null,
+  node: Pick<db.NodeRow, "nginx_ok" | "nginx_error">,
+  now: Date,
+): Promise<{ warnings: string[]; certs: Array<{ domain: string; not_after: string; profile: string }> }> {
+  const rows = await listNodeAssignedDomains(env.DB, nodeId);
+  const certs: LintCert[] = [];
+  const summaries: Array<{ domain: string; not_after: string; profile: string }> = [];
+  for (const row of rows) {
+    if (row.certificate_id === null) continue;
+    let sans: string[] = [];
+    try {
+      const parsed: unknown = JSON.parse(row.certificate_sans_json ?? "[]");
+      if (Array.isArray(parsed) && parsed.every((name) => typeof name === "string")) {
+        sans = parsed;
+      }
+    } catch {
+      sans = [];
+    }
+    const notAfter = row.certificate_not_after ?? "";
+    certs.push({ domain: row.domain_name, sans, not_after: notAfter });
+    summaries.push({
+      domain: certPathName(row.domain_name),
+      not_after: notAfter,
+      profile: row.certificate_profile ?? "",
+    });
+  }
+  return {
+    warnings: certLintWarnings({ config, certs, node, now }),
+    certs: summaries,
   };
 }

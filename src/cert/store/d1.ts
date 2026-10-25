@@ -293,6 +293,39 @@ export interface CertificateSummary {
   created_at: string;
 }
 
+/**
+ * WHAT: one domain row joined with both current certificates.
+ *
+ * WHY a dedicated function: the detail view needs exactly one row; reusing
+ * the list query's shape keeps the OUT mapping (`domainOut`) identical.
+ */
+export async function getCertDomainWithCertificates(
+  db: D1Database,
+  id: string,
+): Promise<CertDomainWithCertificatesRow | null> {
+  return db.prepare(
+    `SELECT d.*,
+            p.id AS production_id, p.serial AS production_serial,
+            p.fingerprint_sha256 AS production_fingerprint_sha256,
+            p.sans_json AS production_sans_json,
+            p.not_before AS production_not_before, p.not_after AS production_not_after,
+            p.profile AS production_profile, p.purged_at AS production_purged_at,
+            p.created_at AS production_created_at,
+            s.id AS staging_id, s.serial AS staging_serial,
+            s.fingerprint_sha256 AS staging_fingerprint_sha256,
+            s.sans_json AS staging_sans_json,
+            s.not_before AS staging_not_before, s.not_after AS staging_not_after,
+            s.profile AS staging_profile, s.purged_at AS staging_purged_at,
+            s.created_at AS staging_created_at
+       FROM cert_domains d
+       LEFT JOIN certificates p ON p.domain_id = d.id
+         AND p.environment = 'production' AND p.is_current = 1
+       LEFT JOIN certificates s ON s.domain_id = d.id
+         AND s.environment = 'staging' AND s.is_current = 1
+      WHERE d.id = ?`,
+  ).bind(id).first<CertDomainWithCertificatesRow>();
+}
+
 export interface CertDomainWithCertificatesRow extends CertDomainRow {
   production_id: string | null;
   production_serial: string | null;
@@ -629,6 +662,21 @@ export async function listIssueRuns(
 
 export interface IssueRunWithDomainRow extends IssueRunRow {
   domain_name: string;
+}
+
+/** WHAT: a domain's runs, newest first (rowid order), capped. */
+export async function listIssueRunsByDomain(
+  db: D1Database,
+  domainId: string,
+  limit: number,
+): Promise<IssueRunWithDomainRow[]> {
+  const { results } = await db.prepare(
+    `SELECT r.*, d.name AS domain_name
+       FROM issue_runs r JOIN cert_domains d ON d.id = r.domain_id
+      WHERE r.domain_id = ?
+      ORDER BY r.rowid DESC LIMIT ?`,
+  ).bind(domainId, limit).all<IssueRunWithDomainRow>();
+  return results;
 }
 
 /** WHAT: finished runs older than the cutoff, for the 30-day retention sweep. */
