@@ -8,7 +8,7 @@
   // writes back. Both live in the gitignored wrangler.jsonc; this template
   // holds only a placeholder hostname. Copy it to wrangler.jsonc (the npm
   // pre-hooks do that automatically when the file is missing) and edit the
-  // fields marked EDIT below. See WORKBOOK.md Part 1.
+  // field marked EDIT below before deploying.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "lessv",
   "main": "src/worker.ts",
@@ -17,26 +17,21 @@
   // test suite and the deploy both run on this date's runtime.
   "compatibility_date": "2026-09-17",
 
-  // Access is the admin auth and attaches to a hostname on a zone you
-  // control, so workers.dev is disabled and the Worker takes the whole
-  // hostname as a custom domain.
+  // The panel takes a custom domain on a zone of this account, so
+  // workers.dev and preview URLs are both off: exactly one address
+  // exists, and it is the one DNS points at.
   "workers_dev": false,
-  // Preview URLs live on *.workers.dev too and do not inherit per-path
-  // Access from the custom domain. Both switches false = no URL exists
-  // except the one Access protects. See WORKBOOK.md Part 3.
   "preview_urls": false,
   // EDIT before deploying: hostname on a proxied zone of your account.
   // `wrangler deploy` creates the DNS record and attaches the domain.
-  "routes": [{ "pattern": "cp.example.org", "custom_domain": true }],
+  "routes": [{ "pattern": "cp.example.com", "custom_domain": true }],
 
   // No database_id on purpose: `wrangler deploy` auto-provisions a D1
   // named `database_name` (or `<worker>-db` when this field is absent)
   // and writes the real id back into wrangler.jsonc; `wrangler dev`
-  // creates the local database with the same binding. If a database with
-  // this name already exists in the account, deploy links it instead of
-  // creating a second one. Migrations are NOT run by deploy — apply them
-  // explicitly (WORKBOOK.md Part 1); this is the directory that command
-  // reads.
+  // creates the local database with the same binding. Migrations are NOT
+  // run by deploy — apply them explicitly (npm run deploy does, after
+  // wrangler deploy); this is the directory that command reads.
   "d1_databases": [
     {
       "binding": "DB",
@@ -51,6 +46,10 @@
   // on the FIRST deploy, can only be supplied via
   // `wrangler deploy --secrets-file <file>` because `wrangler secret
   // put` cannot address a Worker that does not exist yet.
+  //
+  // WHY both names matter locally too: `wrangler dev` binds a .dev.vars
+  // key only when the config declares it, so an undeclared key silently
+  // stays missing at runtime (401s that look like a wrong value).
   "secrets": {
     "required": ["ADMIN_KEY", "KEY_SECRET"]
   },

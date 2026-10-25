@@ -15,8 +15,7 @@
     "pretest:watch": "node scripts/ensure_wrangler_config.mjs",
     "pretypes": "node scripts/ensure_wrangler_config.mjs",
     "build": "wrangler deploy --dry-run",
-    "predeploy": "node scripts/stub_frontend_dist.mjs && node scripts/ensure_wrangler_config.mjs",
-    "deploy": "wrangler deploy"
+    "deploy": "node scripts/deploy.mjs"
   },
   "dependencies": {
     "@noble/curves": "^2.4.0",

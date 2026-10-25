@@ -221,9 +221,9 @@ client --REALITY--> Xray:443 --dest--> 127.0.0.1:8443 nginx (LE 证书 + 假站�
 保留现有：
 
 - `GET/POST /nodes`；`GET/PUT /nodes/:id`；`POST /nodes/:id/token`
-- `GET/PUT /nodes/:id/config`；`GET /nodes/:id/runtime`；`GET /nodes/:id/sync`
+- `GET/PUT /nodes/:id/config`；`GET /nodes/:id/config/runtime`；`GET /nodes/:id/sync`
 - `GET /nodes/:id/inbounds`；`GET /nodes/:id/outbounds`
-- REALITY keys：`GET/POST/DELETE /nodes/:id/reality-keys`（沿用现有形状）
+- REALITY keys：`GET /nodes/:id/reality`（列表）、`POST /nodes/:id/reality/rotate`（全部轮换）、`POST /nodes/:id/reality/:tag/rotate`（单个轮换；沿用现有形状）
 - link profiles：保留接口，UI 隐藏
 - `GET/POST /users`；`GET/PUT/DELETE /users/:username`；`POST /users/:username/sub-token`；`GET /users/:username/links`
 
@@ -623,7 +623,7 @@ P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模
 5. **ADMIN_KEY 存 localStorage**；提供 logout；不做 sessionStorage 切换。
 6. **保留 `/api/node/stats` 端点但不上报/不存储**；agent 默认关闭。
 7. **agent 包名/路径统一改为 `lessv_agent` / `/etc/lessv` / `/var/lib/lessv`**。
-8. **协议版本 `protocol: 2`**。
+8. **协议版本 `protocol: 2`**。节点身份头 `X-Lesserv-Node` 同批在 P1b 随协议一起改名（P0 保持不变）。
 9. **`KEY_SECRET` 统一封装** REALITY + 证书 + ACME account key。
 10. **`node_cert_domains` 按域名分配**，不按 cert id；续期自动生效。
 
@@ -633,12 +633,12 @@ P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模
 
 ### P0
 
-- [ ] 面板部署在自定义域；`/api/health` 200。
-- [ ] 无 Access；未带 key 的 `/api/admin/*` 返回 401。
+- [ ] 面板部署在自定义域；`/api/health` 200。（云部署可与 P1a 合并）
+- [x] 无 Access；未带 key 的 `/api/admin/*` 返回 401。
 - [ ] 粘贴 `ADMIN_KEY` 能登录；刷新保持；logout 清除。
 - [ ] 创建节点、拿 token、看 fleet。
-- [ ] 全部测试/类型检查/构建绿。
-- [ ] 三个源仓库未被修改。
+- [x] 全部测试/类型检查/构建绿。
+- [x] 三个源仓库未被修改。
 
 ### P1a
 
