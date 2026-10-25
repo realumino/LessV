@@ -21,6 +21,7 @@ import HashChip from "../components/HashChip";
 import { inputClass, primaryButton, secondaryButton } from "../components/styles";
 import type { FleetRow } from "../lib/fleet";
 import { STATE_LABEL, STATE_TONE, fleetRows } from "../lib/fleet";
+import { nearestCert } from "../lib/cert";
 import { relativeTime } from "../lib/format";
 import type { NodeOut, NodeSyncOut } from "../types";
 
@@ -87,6 +88,7 @@ function FleetTable({ rows }: { rows: FleetRow[] }) {
             <Th>Reported IP</Th>
             <Th>State</Th>
             <Th>Health</Th>
+            <Th>TLS cert</Th>
             <Th>Last seen</Th>
             <Th>Applied</Th>
             <Th>Desired</Th>
@@ -122,6 +124,9 @@ function FleetTable({ rows }: { rows: FleetRow[] }) {
                 </span>
               </Td>
               <Td className="text-apple-muted">{sync?.health ?? "—"}</Td>
+              <Td>
+                <TlsCertCell certs={sync?.certs ?? []} />
+              </Td>
               <Td className="text-apple-muted">{relativeTime(sync?.last_seen ?? null)}</Td>
               <Td>
                 <HashChip hash={sync?.applied_hash ?? null} />
@@ -140,6 +145,34 @@ function FleetTable({ rows }: { rows: FleetRow[] }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * The fleet TLS column: the nearest expiry across the node's assigned
+ * certificates. WHY the nearest: the admin's renewal attention goes to
+ * the soonest deadline, and the cron renews per-domain anyway.
+ */
+function TlsCertCell({
+  certs,
+}: {
+  certs: Array<{ domain: string; not_after: string; profile: string }>;
+}) {
+  const nearest = nearestCert(certs);
+  if (!nearest) {
+    return <span className="text-apple-muted">—</span>;
+  }
+  return (
+    <span
+      className="text-apple-muted"
+      title={certs
+        .map((cert) => `${cert.domain} · ${cert.profile}`)
+        .join("\n")}
+    >
+      {certs.length === 1 ? nearest.domain : `${certs.length} domains`} ·
+      {" "}
+      {nearest.days}d
+    </span>
   );
 }
 

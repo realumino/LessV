@@ -22,9 +22,16 @@ import {
   getAdminKey,
 } from "./lib/auth";
 import type {
+  CertDomainCreateIn,
+  CertDomainOut,
+  CertDomainUpdateIn,
+  CertRunOut,
+  CertificateOut,
   InboundSummary,
   LinkProfileIn,
   LinkProfileOut,
+  NodeCertDomainsOut,
+  NodeCertsOut,
   NodeOut,
   NodeRuntimeOut,
   NodeSyncOut,
@@ -36,6 +43,7 @@ import type {
   UserLinksOut,
   UserOut,
   UserUpdateIn,
+  ZoneOut,
 } from "./types";
 
 const BASE = "/api/admin";
@@ -288,3 +296,110 @@ export const rotateSubToken = (username: string) =>
 // --- Status ----------------------------------------------------------------
 
 export const getStatus = () => request<StatusOut>("/status");
+
+// --- Certificates (P1b) ------------------------------------------------------
+
+export const listZones = () => request<ZoneOut[]>("/zones");
+
+export const listCertDomains = () => request<CertDomainOut[]>("/cert-domains");
+
+export const getCertDomain = (id: string) =>
+  request<CertDomainOut>(`/cert-domains/${encodeURIComponent(id)}`);
+
+export const createCertDomain = (body: CertDomainCreateIn) =>
+  request<CertDomainOut>("/cert-domains", json(body));
+
+export const updateCertDomain = (id: string, body: CertDomainUpdateIn) =>
+  request<CertDomainOut>(`/cert-domains/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+export const deleteCertDomain = (id: string) =>
+  request<{ deleted: boolean }>(`/cert-domains/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+
+export const issueCertDomain = (id: string, confirm: string) =>
+  request<{ run_id: string; workflow_id: string; status: string; environment: string }>(
+    `/cert-domains/${encodeURIComponent(id)}/issue`,
+    json({ confirm }),
+  );
+
+export const testIssueCertDomain = (id: string) =>
+  request<{ run_id: string; workflow_id: string; status: string; environment: string }>(
+    `/cert-domains/${encodeURIComponent(id)}/test-issue`,
+    { method: "POST" },
+  );
+
+export const listCertDomainRuns = (id: string) =>
+  request<CertRunOut[]>(`/cert-domains/${encodeURIComponent(id)}/runs`);
+
+export const getCertRun = (id: string) =>
+  request<CertRunOut>(`/cert-runs/${encodeURIComponent(id)}`);
+
+export const listDomainCertificates = (id: string) =>
+  request<CertificateOut[]>(`/cert-domains/${encodeURIComponent(id)}/certs`);
+
+export const getCertificate = (id: string) =>
+  request<CertificateOut>(`/certificates/${encodeURIComponent(id)}`);
+
+export const getNodeCertDomains = (nodeId: string) =>
+  request<NodeCertDomainsOut>(
+    `/nodes/${encodeURIComponent(nodeId)}/cert-domains`,
+  );
+
+export const putNodeCertDomains = (nodeId: string, domainIds: string[]) =>
+  request<NodeCertDomainsOut>(
+    `/nodes/${encodeURIComponent(nodeId)}/cert-domains`,
+    { method: "PUT", body: JSON.stringify({ domain_ids: domainIds }) },
+  );
+
+export const getNodeCerts = (nodeId: string) =>
+  request<NodeCertsOut>(`/nodes/${encodeURIComponent(nodeId)}/certs`);
+
+/**
+ * WHAT: download one certificate artifact as a blob.
+ *
+ * WHY raw fetch and not request(): the body is PEM text, not JSON, and
+ * it must reach the browser as a file; a 401 still clears the key so a
+ * stale login degrades to the sign-in page like every other call.
+ */
+export async function downloadCertificateArtifact(
+  id: string,
+  file: "cert" | "chain" | "fullchain" | "key",
+): Promise<void> {
+  const key = getAdminKey();
+  let response: Response;
+  try {
+    response = await fetch(
+      `${BASE}/certificates/${encodeURIComponent(id)}/download?file=${file}`,
+      key ? { headers: { Authorization: `Bearer ${key}` } } : {},
+    );
+  } catch {
+    throw new Error("Network error — is the control plane running?");
+  }
+  if (response.status === 401) {
+    clearAdminKey();
+    throw new Error("Admin key rejected — sign in again.");
+  }
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const body = (await response.json()) as { detail?: unknown };
+      if (body && typeof body.detail === "string") detail = body.detail;
+    } catch {
+      // keep the HTTP line
+    }
+    throw new Error(detail);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${id}.${file}.pem`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}

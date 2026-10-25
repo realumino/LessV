@@ -17,8 +17,10 @@ import { Navigate, NavLink, Route, Routes } from "react-router";
 
 import { clearAdminKey, getAdminKey, onAuthChange } from "./lib/auth";
 import { secondaryButton } from "./components/styles";
+import CertificatesPage from "./pages/CertificatesPage";
 import FleetPage from "./pages/FleetPage";
 import LoginPage from "./pages/LoginPage";
+import NodeCertsPage from "./pages/NodeCertsPage";
 import NodeConfigPage from "./pages/NodeConfigPage";
 import NodeKeysPage from "./pages/NodeKeysPage";
 import NodeLayout from "./pages/NodeLayout";
@@ -49,11 +51,13 @@ export default function App() {
       <main className="mt-5">
         <Routes>
           <Route path="/" element={<Navigate to="/nodes" replace />} />
+          <Route path="/certs" element={<CertificatesPage />} />
           <Route path="/nodes" element={<FleetPage />} />
           <Route path="/nodes/:nodeId" element={<NodeLayout />}>
             <Route index element={<Navigate to="config" replace />} />
             <Route path="config" element={<NodeConfigPage />} />
             <Route path="keys" element={<NodeKeysPage />} />
+            <Route path="certs" element={<NodeCertsPage />} />
             <Route path="users" element={<NodeUsersPage />} />
             <Route path="profiles" element={<NodeProfilesPage />} />
           </Route>
@@ -74,6 +78,9 @@ function Header() {
       <span className="text-lg font-bold tracking-tight">LessV</span>
       <NavLink to="/nodes" className={navClass}>
         Nodes
+      </NavLink>
+      <NavLink to="/certs" className={navClass}>
+        Certificates
       </NavLink>
       <NavLink to="/users" className={navClass}>
         Users

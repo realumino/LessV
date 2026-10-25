@@ -39,6 +39,10 @@ export interface NodeSyncOut {
   xray_version: string | null;
   last_error: string | null;
   warnings: string[];
+  nginx_ok: number | null;
+  nginx_error: string | null;
+  cert_synced_at: number | null;
+  certs: Array<{ domain: string; not_after: string; profile: string }>;
 }
 
 /** One node's access section in a user response (server-generated uuids). */
@@ -151,4 +155,140 @@ export interface LinkProfileIn {
 export interface StatusOut {
   node_count: number;
   user_count: number;
+}
+
+// --- Certificates (P1b) ------------------------------------------------------
+
+/** GET /api/admin/zones — the zones the DNS token can read. */
+export interface ZoneOut {
+  id: string;
+  name: string;
+  status: string;
+}
+
+/** One current-certificate summary embedded in domain/node views. */
+export interface CertificateSummaryOut {
+  id: string;
+  environment: "production" | "staging";
+  serial: string;
+  fingerprint_sha256: string;
+  sans: string[];
+  not_before: string;
+  not_after: string;
+  profile: string;
+  purged_at: string | null;
+  created_at: string;
+}
+
+/** GET/POST/PATCH /api/admin/cert-domains — one cert domain. */
+export interface CertDomainOut {
+  id: string;
+  name: string;
+  path: string;
+  zone_id: string;
+  include_wildcard: boolean;
+  acme_profile: string;
+  renew_before_days: number | null;
+  status: string;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  production_certificate: CertificateSummaryOut | null;
+  staging_certificate: CertificateSummaryOut | null;
+}
+
+/** POST /api/admin/cert-domains body. */
+export interface CertDomainCreateIn {
+  name: string;
+  zone_id?: string;
+  include_wildcard?: boolean;
+  acme_profile?: string;
+  renew_before_days?: number | null;
+}
+
+/** PATCH /api/admin/cert-domains/{id} body (null = reset/unchanged). */
+export interface CertDomainUpdateIn {
+  include_wildcard?: boolean | null;
+  acme_profile?: string | null;
+  renew_before_days?: number | null;
+  status?: string | null;
+}
+
+/** One recorded step of an issue run. */
+export interface CertRunStep {
+  phase: string;
+  at: string;
+}
+
+/** GET /api/admin/cert-runs/{id} and the domain runs list. */
+export interface CertRunOut {
+  id: string;
+  domain_id: string;
+  domain_name: string;
+  environment: "production" | "staging";
+  trigger: string;
+  status: string;
+  phase: string | null;
+  error: string | null;
+  workflow_id: string;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  steps: CertRunStep[];
+}
+
+/** GET /api/admin/cert-domains/{id}/certs and /api/admin/certificates/{id}. */
+export interface CertificateOut {
+  id: string;
+  domain_id: string;
+  domain_name: string;
+  environment: "production" | "staging";
+  serial: string;
+  fingerprint_sha256: string;
+  sans: string[];
+  not_before: string;
+  not_after: string;
+  profile: string;
+  is_current: boolean;
+  purged_at: string | null;
+  created_at: string;
+}
+
+/** One domain in a node's assignment view. */
+export interface NodeCertDomainOut {
+  id: string;
+  name: string;
+  status: string;
+  assigned: boolean;
+  current_certificate: CertificateSummaryOut | null;
+}
+
+/** GET/PUT /api/admin/nodes/{id}/cert-domains. */
+export interface NodeCertDomainsOut {
+  node_id: string;
+  domains: NodeCertDomainOut[];
+  nginx_ok: number | null;
+  nginx_error: string | null;
+  cert_synced_at: number | null;
+}
+
+/** One assigned certificate summary for a node. */
+export interface NodeCertSummary {
+  domain: string;
+  path: string;
+  sans: string[];
+  serial: string;
+  fingerprint_sha256: string;
+  not_before: string;
+  not_after: string;
+  profile: string;
+}
+
+/** GET /api/admin/nodes/{id}/certs. */
+export interface NodeCertsOut {
+  node_id: string;
+  nginx_ok: number | null;
+  nginx_error: string | null;
+  cert_synced_at: number | null;
+  certs: NodeCertSummary[];
 }

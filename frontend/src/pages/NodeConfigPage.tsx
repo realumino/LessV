@@ -15,6 +15,7 @@ import { getNodeConfig, getNodeRuntime, putNodeConfig } from "../api";
 import EmptyState from "../components/EmptyState";
 import ErrorNote from "../components/ErrorNote";
 import JsonPanel from "../components/JsonPanel";
+import RealityPresetDialog from "../components/RealityPresetDialog";
 import { inputClass, primaryButton, secondaryButton } from "../components/styles";
 import { shortHash } from "../lib/format";
 import type { NodeRuntimeOut } from "../types";
@@ -26,7 +27,7 @@ interface Notice {
 }
 
 export default function NodeConfigPage() {
-  const { nodeId, reload } = useOutletContext<NodeOutletContext>();
+  const { nodeId, nodeAddress, reload } = useOutletContext<NodeOutletContext>();
   const [authored, setAuthored] = useState<unknown>(undefined);
   const [runtime, setRuntime] = useState<NodeRuntimeOut | null | undefined>(
     undefined,
@@ -35,6 +36,7 @@ export default function NodeConfigPage() {
   const [text, setText] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
+  const [presetOpen, setPresetOpen] = useState(false);
 
   const load = useCallback(async () => {
     const [authoredResult, runtimeResult] = await Promise.all([
@@ -139,6 +141,13 @@ export default function NodeConfigPage() {
           <button
             type="button"
             className={secondaryButton}
+            onClick={() => setPresetOpen(true)}
+          >
+            REALITY preset
+          </button>
+          <button
+            type="button"
+            className={secondaryButton}
             onClick={() => void load()}
           >
             Reload
@@ -154,6 +163,19 @@ export default function NodeConfigPage() {
           <EmptyState>This node has no config yet — paste one above.</EmptyState>
         )}
       </form>
+      {presetOpen && (
+        <RealityPresetDialog
+          nodeAddress={nodeAddress}
+          onClose={() => setPresetOpen(false)}
+          onFill={(json) => {
+            setText(json);
+            setNotice({
+              ok: true,
+              text: "Preset filled — review it, then press Save config.",
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

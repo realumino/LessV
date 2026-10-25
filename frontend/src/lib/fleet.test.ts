@@ -29,6 +29,10 @@ function sync(overrides: Partial<NodeSyncOut>): NodeSyncOut {
     xray_version: null,
     last_error: null,
     warnings: [],
+    nginx_ok: null,
+    nginx_error: null,
+    cert_synced_at: null,
+    certs: [],
     ...overrides,
   };
 }

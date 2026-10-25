@@ -25,10 +25,12 @@ import { STATE_LABEL, STATE_TONE, fleetState } from "../lib/fleet";
 import { relativeTime } from "../lib/format";
 import type { NodeOut, NodeSyncOut } from "../types";
 
-/** What every node tab gets from the layout: the id and a refetch. */
+/** What every node tab gets from the layout: the id, a refetch, and the
+ * node's address (preset dialogs need a default domain). */
 export interface NodeOutletContext {
   nodeId: string;
   reload: () => Promise<void>;
+  nodeAddress: string;
 }
 
 export default function NodeLayout() {
@@ -92,15 +94,40 @@ export default function NodeLayout() {
       <nav className="flex gap-2">
         <Tab to="config">Config</Tab>
         <Tab to="keys">Keys</Tab>
+        <Tab to="certs">Certs</Tab>
         <Tab to="users">Users</Tab>
         <Tab to="profiles">Profiles</Tab>
       </nav>
-      <Outlet context={{ nodeId, reload } satisfies NodeOutletContext} />
+      <Outlet
+        context={{
+          nodeId,
+          reload,
+          nodeAddress: node.address ?? "",
+        } satisfies NodeOutletContext}
+      />
       {token && (
         <TokenDialog nodeId={nodeId} token={token} onClose={() => setToken(null)} />
       )}
     </section>
   );
+}
+
+/**
+ * The nginx certificate state: synced/ok/failed + when the agent last
+ * pulled. WHY a mini component: the sync payload mixes timestamps and
+ * error strings, and the layout keeps facts as plain values.
+ */
+function NginxFact({ sync }: { sync: NodeSyncOut | null }) {
+  if (!sync) {
+    return <>—</>;
+  }
+  if (sync.nginx_ok === 1) {
+    return <>ok · {relativeTime(sync.cert_synced_at)}</>;
+  }
+  if (sync.nginx_ok === 0) {
+    return <span className="text-apple-red">failed</span>;
+  }
+  return <>—</>;
 }
 
 /** The header card: identity, drift facts, and the two node-level actions. */
@@ -158,6 +185,7 @@ function NodeHeader({
         <Fact label="Applied" value={<HashChip hash={sync?.applied_hash ?? null} />} />
         <Fact label="Desired" value={<HashChip hash={sync?.desired_hash ?? null} />} />
         <Fact label="Xray" value={sync?.xray_version ?? "—"} />
+        <Fact label="nginx" value={<NginxFact sync={sync} />} />
         <Fact label="Last error" value={sync?.last_error ?? "—"} />
       </dl>
       {sync && sync.warnings.length > 0 && (
