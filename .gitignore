@@ -16,6 +16,8 @@ wrangler.jsonc
 # frontend
 frontend/node_modules/
 frontend/dist/
+# incremental tsc build state (tsc -b writes it next to tsconfig.json)
+frontend/tsconfig.tsbuildinfo
 
 # release artifacts (agent tarballs)
 dist/

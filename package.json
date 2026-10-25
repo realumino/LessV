@@ -26,11 +26,11 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^0.0.0",
+    "@cloudflare/vitest-plugin": "^1.4.7",
     "@types/node": "^26.6.2",
     "typescript": "^5.9.3",
     "vitest": "^4.1.12",
-    "wrangler": "^4.35.0"
+    "wrangler": "^4.152.0"
   },
   "allowScripts": {
     "workerd@1.20261019.1": true,
