@@ -12,8 +12,11 @@ describe("buildRealityPreset", () => {
       listen: "0.0.0.0",
       port: 443,
       protocol: "vless",
-      flow: "xtls-rprx-vision",
     });
+    // WHAT: flow is the panel's inbound-declared convention (附录 A: inside
+    // settings); share_service echoes it into links, the render copies it
+    // onto allocated clients.
+    expect((inbound.settings as Record<string, unknown>).flow).toBe("xtls-rprx-vision");
     const stream = inbound.streamSettings as Record<string, unknown>;
     const reality = stream.realitySettings as Record<string, unknown>;
     expect(stream).toMatchObject({ network: "tcp", security: "reality" });
@@ -40,7 +43,7 @@ describe("buildRealityPreset", () => {
     });
     const inbound = (config.inbounds as Array<Record<string, unknown>>)[0];
     expect(inbound.tag).toBe("tls-in");
-    expect(inbound.flow).toBe("none");
+    expect((inbound.settings as Record<string, unknown>).flow).toBe("none");
     expect(
       ((inbound.streamSettings as Record<string, unknown>).realitySettings as Record<string, unknown>).dest,
     ).toBe("127.0.0.1:9443");

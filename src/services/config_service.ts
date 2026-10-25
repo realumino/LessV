@@ -262,7 +262,19 @@ export function buildConfig(config: Dict, users: User[]): [Dict, string[]] {
       continue;
     }
     const settings = inbound["settings"] as Dict;
-    settings["clients"] = clients[inbound["tag"] as string] ?? [];
+    const allocated = clients[inbound["tag"] as string] ?? [];
+    // WHY flow inheritance: Xray enforces VLESS flow per client
+    // (`VLessInboundUser.flow`), but the panel's operator-facing
+    // convention is one inbound-declared `settings.flow`
+    // (share_service echoes it into every link). Without copying it onto
+    // each allocated client, a REALITY+vision link advertises a flow the
+    // server side never enforces, and Xray closes the connection at the
+    // inner TLS handshake. Copying at render (not in the allocator) keeps
+    // the pure core free of panel policy.
+    settings["clients"] =
+      typeof settings["flow"] === "string" && settings["flow"]
+        ? allocated.map((client) => ({ ...client, flow: settings["flow"] as string }))
+        : allocated;
   }
   const routing = (runtime["routing"] ??= {}) as Dict;
   routing["rules"] = ((routing["rules"] ?? []) as unknown[]).concat(rules);

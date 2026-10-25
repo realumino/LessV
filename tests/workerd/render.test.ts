@@ -107,6 +107,29 @@ describe("render invariants", () => {
     expect(clients[0]!.email.endsWith(`@${node}-niigata`)).toBe(true);
   });
 
+  it("copies an inbound-declared flow onto allocated clients", async () => {
+    // WHY: Xray enforces VLESS flow per client; the operator declares it
+    // once on the inbound (share_service echoes it into links). The render
+    // must close that gap or advertised vision links fail handshakes.
+    const node = await makeNode();
+    const declared = config();
+    (declared.inbounds as Array<Record<string, unknown>>)[0]!.settings = {
+      clients: [],
+      flow: "xtls-rprx-vision",
+    };
+    await planeJson("PUT", `/api/admin/nodes/${node}/config`, declared);
+    await makeUser(node, "active");
+
+    const pane = await runtime(node);
+
+    const clients = pane.config.inbounds[0]!.settings.clients as Array<{
+      email: string;
+      flow?: string;
+    }>;
+    expect(clients).toHaveLength(1);
+    expect(clients[0]!.flow).toBe("xtls-rprx-vision");
+  });
+
   it("skips a malformed config with a warning", async () => {
     const node = await makeNode();
     await planeJson("PUT", `/api/admin/nodes/${node}/config`, {

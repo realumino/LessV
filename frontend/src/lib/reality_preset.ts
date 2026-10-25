@@ -60,8 +60,7 @@ export function buildRealityPreset(input: RealityPresetInput): RealityPresetResu
         listen: "0.0.0.0",
         port: 443,
         protocol: "vless",
-        settings: { clients: [], decryption: "none" },
-        flow: input.flow ?? "xtls-rprx-vision",
+        settings: { clients: [], decryption: "none", flow: input.flow ?? "xtls-rprx-vision" },
         streamSettings: {
           network: "tcp",
           security: "reality",
