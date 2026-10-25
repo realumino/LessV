@@ -1,7 +1,8 @@
 /**
  * Seal and open REALITY private keys at rest.
  *
- * WHY this module exists: the plane owns every REALITY private key, and
+ * WHY this module exists: the plane owns every private key it seals —
+ * REALITY keys, certificate leaf keys, and ACME account keys (P1b) — and
  * they are stored as AES-256-GCM ciphertext (`crypto.ts`,
  * `v1:<base64(iv || ct+tag)>`) with the key held in the Worker secret
  * `KEY_SECRET`. A database dump then yields only ciphertext — that
@@ -31,7 +32,7 @@ const V1_PREFIX = "v1:";
  * `upsertRealityKey`; the usable key never needs to be re-derived from
  * storage before a render decrypts it.
  */
-export async function seal(env: Env, privateKey: string): Promise<string> {
+export async function seal(env: { KEY_SECRET?: string }, privateKey: string): Promise<string> {
   return await encrypt(secretBytes(env), new TextEncoder().encode(privateKey));
 }
 
@@ -43,7 +44,7 @@ export async function seal(env: Env, privateKey: string): Promise<string> {
  * render. Raising here keeps the failure at the first reader instead of
  * letting unusable key material flow into a render.
  */
-export async function unseal(env: Env, stored: string): Promise<string> {
+export async function unseal(env: { KEY_SECRET?: string }, stored: string): Promise<string> {
   if (!stored.startsWith(V1_PREFIX)) {
     throw new Error(
       "REALITY key is not a v1 ciphertext: it was written without the " +

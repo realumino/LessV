@@ -94,6 +94,39 @@ export interface NodeCertDomainRow {
   assigned_at: number;
 }
 
+/**
+ * WHAT: one active domain with its current production certificate columns
+ * (all NULL when there is none) — the cron's renewal candidate list.
+ *
+ * WHY the window is not SQL: the renewal rule (1/3 of actual lifetime,
+ * floor 1 day, `renew_before_days` override) is date arithmetic D1's
+ * datetime functions cannot express cleanly; domain counts are small, so
+ * the JS filter in `cron.ts` is simpler and testable.
+ */
+export interface RenewalCandidateRow {
+  id: string;
+  name: string;
+  acme_profile: string;
+  renew_before_days: number | null;
+  current_certificate_id: string | null;
+  current_not_before: string | null;
+  current_not_after: string | null;
+}
+
+export async function listRenewalCandidates(db: D1Database): Promise<RenewalCandidateRow[]> {
+  const { results } = await db.prepare(
+    `SELECT d.id, d.name, d.acme_profile, d.renew_before_days,
+            c.id AS current_certificate_id, c.not_before AS current_not_before,
+            c.not_after AS current_not_after
+       FROM cert_domains d
+       LEFT JOIN certificates c ON c.domain_id = d.id
+         AND c.environment = 'production' AND c.is_current = 1
+      WHERE d.status = 'active'
+      ORDER BY COALESCE(c.not_after, '') ASC, d.name`,
+  ).all<RenewalCandidateRow>();
+  return results;
+}
+
 export class ActiveIssueRunError extends Error {
   constructor(domainId: string) {
     super(`An issue run is already active for domain ${domainId}`);
@@ -395,10 +428,12 @@ export async function listUnpurgedProductionCertificates(db: D1Database): Promis
 }
 
 /**
- * WHAT: staging current certificates older than `cutoffIso`.
+ * WHAT: staging certificates due for deletion by the sweeper —
+ * non-current rows (immediately eligible) plus current rows older than the
+ * cutoff (staging keeps a current for at most 7 days).
  *
- * WHY staging only: production currents live until superseded; staging
- * certificates are throwaway test artifacts kept for exactly 7 days.
+ * WHY staging only: production currents live until superseded and stay
+ * queryable history forever; staging certificates are throwaway artifacts.
  */
 export async function listExpiredStagingCertificates(
   db: D1Database,
@@ -406,8 +441,8 @@ export async function listExpiredStagingCertificates(
 ): Promise<CertificateRow[]> {
   const { results } = await db.prepare(
     `SELECT * FROM certificates
-      WHERE environment = 'staging' AND is_current = 1
-        AND (purged_at IS NULL OR purged_at = '') AND created_at < ?
+      WHERE environment = 'staging'
+        AND (is_current = 0 OR (created_at < ? AND (purged_at IS NULL OR purged_at = '')))
       ORDER BY created_at, id`,
   ).bind(cutoffIso).all<CertificateRow>();
   return results;
@@ -416,7 +451,7 @@ export async function listExpiredStagingCertificates(
 /** WHAT: hard-delete one staging certificate row (artifacts already gone). */
 export async function deleteStagingCertificate(db: D1Database, id: string): Promise<void> {
   await db.prepare(
-    "DELETE FROM certificates WHERE id = ? AND environment = 'staging' AND is_current = 0",
+    "DELETE FROM certificates WHERE id = ? AND environment = 'staging'",
   ).bind(id).run();
 }
 

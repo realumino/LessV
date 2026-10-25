@@ -1,0 +1,234 @@
+/**
+ * Issuance workflow steps tests, adapted from certworker's
+ * workflow-steps.spec.ts: full staging issuance through the offline ACME +
+ * DNS mocks, artifacts sealed with key_cipher, environment isolation, and
+ * failure cleanup.
+ */
+
+import { env } from "cloudflare:workers";
+import { describe, expect, it } from "vitest";
+import { createScriptedFetch } from "./support/fake-fetch";
+import { seedCertificate, seedCertDomain, seedIssueRun } from "./support/fixtures";
+import { MockAcme, type MockAcmeOptions } from "./support/mock-acme";
+import { MockCloudflareDns } from "./support/mock-dns";
+import {
+  acceptChallenges,
+  awaitAuthorizations,
+  cleanupFailedArtifacts,
+  cleanupTxtRecords,
+  createIssueDependencies,
+  createLeafKeyAndCsr,
+  createOrder,
+  ensureAcmeAccount,
+  finalizeAndStore,
+  issueErrorMessage,
+  loadIssue,
+  publishTxtChallenges,
+  purgePreviousCertificate,
+  waitForPropagation,
+  type IssueDependencies,
+} from "../../src/cert/issue/steps";
+import {
+  finishIssueRun,
+  getCertificate,
+  getCurrentCertificate,
+  getIssueRun,
+  listPendingChallengeRecords,
+} from "../../src/cert/store/d1";
+import { certificatePrefix, certPathName } from "../../src/cert/store/r2";
+
+describe("issuance workflow steps", () => {
+  it("removes a key prefix when issuance fails before the certificate is committed in D1", async () => {
+    const domain = await seedCertDomain(env.DB, { includeWildcard: false });
+    const { runId } = await seedIssueRun(env.DB, domain.id);
+    const { deps } = makeDependencies({});
+    const loaded = await loadIssue(deps, runId, domain.id);
+    const leaf = await createLeafKeyAndCsr(deps, runId, loaded.domain, loaded.identifiers);
+
+    expect((await env.CERTS.list({ prefix: `${leaf.r2Prefix}/` })).objects).toHaveLength(1);
+    await expect(cleanupFailedArtifacts(deps, domain.name, runId)).resolves.toEqual({
+      deleted: true,
+    });
+    expect((await env.CERTS.list({ prefix: `${leaf.r2Prefix}/` })).objects).toHaveLength(0);
+  });
+
+  it("issues, persists, activates, purges the previous prefix, and cleans TXT records", async () => {
+    const domain = await seedCertDomain(env.DB);
+    const { runId } = await seedIssueRun(env.DB, domain.id, "manual", "staging");
+    const oldCertId = crypto.randomUUID();
+    const oldPrefix = certificatePrefix("staging", certPathName(domain.name), oldCertId);
+    await seedCertificate(env.DB, env.CERTS, domain.id, {
+      domainName: domain.name,
+      id: oldCertId,
+      environment: "staging",
+      current: true,
+    });
+
+    const { deps, dns, requests } = makeDependencies({});
+    const loaded = await loadIssue(deps, runId, domain.id);
+    expect(loaded.previousCertificate?.id).toBe(oldCertId);
+    expect(loaded.identifiers.map(({ value }) => value)).toEqual([domain.name, `*.${domain.name}`]);
+
+    await ensureAcmeAccount(deps);
+    const order = await createOrder(deps, loaded.domain, loaded.identifiers);
+    const published = await publishTxtChallenges(
+      deps,
+      runId,
+      loaded.domain,
+      order.authorizations,
+    );
+    expect(published.targets).toHaveLength(1);
+    expect(published.targets[0].values).toHaveLength(2);
+    expect(dns.records).toHaveLength(2);
+
+    await waitForPropagation(deps, published);
+    await acceptChallenges(deps, published);
+    await awaitAuthorizations(deps, published);
+    const leaf = await createLeafKeyAndCsr(deps, runId, loaded.domain, loaded.identifiers);
+    const issued = await finalizeAndStore(
+      deps,
+      loaded.domain,
+      loaded.identifiers,
+      order,
+      leaf,
+    );
+    const purge = await purgePreviousCertificate(deps, loaded.previousCertificate);
+    const cleanup = await cleanupTxtRecords(deps, runId);
+    await finishIssueRun(env.DB, runId, domain.id, { status: "succeeded" }, {
+      recordDomainError: false,
+    });
+
+    const current = await getCurrentCertificate(env.DB, domain.id, "staging");
+    expect(current).toMatchObject({ id: runId, is_current: 1, environment: "staging" });
+    expect(JSON.parse(current?.sans_json ?? "[]")).toEqual(
+      loaded.identifiers.map(({ value }) => value),
+    );
+    expect(issued).toMatchObject({
+      certificateId: runId,
+      sans: loaded.identifiers.map(({ value }) => value),
+      profile: "tlsserver",
+    });
+    expect(await getCertificate(env.DB, oldCertId)).toMatchObject({
+      is_current: 0,
+      purged_at: expect.any(String),
+    });
+    expect((await env.CERTS.list({ prefix: `${oldPrefix}/` })).objects).toHaveLength(0);
+
+    const artifacts = await env.CERTS.list({ prefix: `${issued.r2Prefix}/` });
+    expect(artifacts.objects.map(({ key }) => key.split("/").at(-1)).sort()).toEqual([
+      "cert.pem",
+      "chain.pem",
+      "fullchain.pem",
+      "meta.json",
+      "privkey.pem.enc",
+    ]);
+    expect(await env.CERTS.get(`${issued.r2Prefix}/cert.pem`)).not.toBeNull();
+    expect(await env.CERTS.get(`${issued.r2Prefix}/fullchain.pem`)).not.toBeNull();
+    const encryptedKey = await (await env.CERTS.get(`${issued.r2Prefix}/privkey.pem.enc`))?.text();
+    expect(encryptedKey ?? "").not.toContain("BEGIN PRIVATE KEY");
+    expect(encryptedKey ?? "").toMatch(/^v1:/);
+    // ACME account lives in D1 now; R2 has no acme/ path.
+    const accounts = await env.DB.prepare("SELECT environment FROM acme_accounts").all();
+    expect(accounts.results).toHaveLength(1);
+    expect((await env.CERTS.list({ prefix: "acme/" })).objects).toHaveLength(0);
+    expect(purge).toEqual({ purged: true });
+    expect(cleanup.deleted).toBe(2);
+    expect(dns.records).toHaveLength(0);
+    expect(await listPendingChallengeRecords(env.DB, runId)).toEqual([]);
+    expect(await getIssueRun(env.DB, runId)).toMatchObject({ status: "succeeded" });
+    expect(requests.some(({ url }) => url.origin === "https://dns.google")).toBe(true);
+  });
+
+  it("keeps production state untouched by a staging run and vice versa", async () => {
+    const domain = await seedCertDomain(env.DB, { includeWildcard: false });
+    const productionCurrent = await seedCertificate(env.DB, env.CERTS, domain.id, {
+      domainName: domain.name,
+      environment: "production",
+      current: true,
+    });
+
+    const { deps } = makeDependencies({}); // staging directory by default
+    const { runId } = await seedIssueRun(env.DB, domain.id, "test", "staging");
+    const loaded = await loadIssue(deps, runId, domain.id);
+    expect(loaded.previousCertificate).toBeNull();
+
+    await ensureAcmeAccount(deps);
+    const order = await createOrder(deps, loaded.domain, loaded.identifiers);
+    const published = await publishTxtChallenges(deps, runId, loaded.domain, order.authorizations);
+    await waitForPropagation(deps, published);
+    await acceptChallenges(deps, published);
+    await awaitAuthorizations(deps, published);
+    const leaf = await createLeafKeyAndCsr(deps, runId, loaded.domain, loaded.identifiers);
+    await finalizeAndStore(deps, loaded.domain, loaded.identifiers, order, leaf);
+
+    const stagingCurrent = await getCurrentCertificate(env.DB, domain.id, "staging");
+    expect(stagingCurrent).not.toBeNull();
+    const stillProduction = await getCurrentCertificate(env.DB, domain.id, "production");
+    expect(stillProduction?.id).toBe(productionCurrent.id);
+  });
+
+  it("preserves an invalid authorization problem and cleans published TXT records", async () => {
+    const domain = await seedCertDomain(env.DB, { includeWildcard: false });
+    const { runId } = await seedIssueRun(env.DB, domain.id);
+    const { deps, dns } = makeDependencies({ invalidAuthorization: true });
+    const loaded = await loadIssue(deps, runId, domain.id);
+    await ensureAcmeAccount(deps);
+    const order = await createOrder(deps, loaded.domain, loaded.identifiers);
+    const published = await publishTxtChallenges(deps, runId, loaded.domain, order.authorizations);
+    await waitForPropagation(deps, published);
+    await acceptChallenges(deps, published);
+
+    let failure: unknown;
+    try {
+      await awaitAuthorizations(deps, published);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    const error = issueErrorMessage(failure);
+    expect(error).toContain('"type":"urn:ietf:params:acme:error:unauthorized"');
+    expect(error).toContain("mock authorization rejected");
+
+    await cleanupTxtRecords(deps, runId);
+    await finishIssueRun(env.DB, runId, domain.id, { status: "failed", error }, {
+      recordDomainError: false,
+    });
+
+    expect((await getIssueRun(env.DB, runId))?.error).toBe(error);
+    expect(await getCurrentCertificate(env.DB, domain.id, "staging")).toBeNull();
+    expect(dns.records).toHaveLength(0);
+    expect(await listPendingChallengeRecords(env.DB, runId)).toEqual([]);
+  });
+});
+
+function makeDependencies(options: MockAcmeOptions): {
+  deps: IssueDependencies;
+  dns: MockCloudflareDns;
+  requests: ReturnType<typeof createScriptedFetch>["requests"];
+} {
+  const acme = new MockAcme(options);
+  const dns = new MockCloudflareDns();
+  const scripted = createScriptedFetch(async (request) => {
+    const acmeResponse = await acme.handle(request);
+    if (acmeResponse) return acmeResponse;
+    const dnsResponse = await dns.handle(request);
+    if (dnsResponse) return dnsResponse;
+    throw new Error(`No offline mock for ${request.request.method} ${request.url.href}`);
+  });
+  return {
+    deps: createIssueDependencies(env, "staging", {
+      fetcher: scripted.fetch,
+      timings: {
+        dnsTimeoutMs: 1_000,
+        dnsPollIntervalMs: 1,
+        dnsSettleMs: 0,
+        dnsRequestTimeoutMs: 100,
+        acmeTimeoutMs: 1_000,
+        acmePollIntervalMs: 1,
+        acmeRequestTimeoutMs: 1_000,
+      },
+    }),
+    dns,
+    requests: scripted.requests,
+  };
+}

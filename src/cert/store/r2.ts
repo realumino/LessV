@@ -26,6 +26,20 @@ export interface CertificateArtifacts {
 }
 
 /**
+ * WHAT: the filesystem/R2 path name for one domain: lowercase; wildcard
+ * domains lose the leading `*.` and gain a `wildcard.` prefix.
+ *
+ * WHY it lives here: both the R2 prefix and the agent's nginx paths need
+ * the same naming, and `*` must never reach a path or a command line
+ * (P1B-PLAN.md §3.2/C6). The domain is already normalized
+ * (`normalizeDomainName`) by the time it gets here; this only renames the
+ * wildcard form.
+ */
+export function certPathName(domainName: string): string {
+  return domainName.toLowerCase().replace(/^\*\./, "wildcard.");
+}
+
+/**
  * WHAT: the R2 prefix for one certificate.
  *
  * WHY `pathName` is passed in, not derived here: wildcard naming
