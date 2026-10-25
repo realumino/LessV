@@ -40,6 +40,13 @@ export type NodeRow = {
   agent_version: string | null;
   xray_version: string | null;
   last_error: string | null;
+  /** Agent-reported nginx health (P1b): NULL unknown, 0 failed, 1 ok. */
+  nginx_ok: number | null;
+  nginx_error: string | null;
+  /** The certificate-manifest ETag the node last synced successfully. */
+  cert_etag: string | null;
+  /** Unix seconds of the last successful certificate sync. */
+  cert_synced_at: number | null;
   created_at: number;
 };
 
@@ -299,6 +306,36 @@ export async function touchNode(
         WHERE id = ?
         `,
     [lastSeen, health, agentVersion, xrayVersion, lastError, appliedHash, nodeId],
+  );
+}
+
+/**
+ * WHAT: store one node's agent-reported certificate/nginx status columns.
+ *
+ * WHY a separate setter from `touchNode`: the cert stage report (P1b) must
+ * not touch `applied_hash`/`health`/`last_error` — a `stage=cert` report
+ * carries nginx/cert facts only, and one statement per concern keeps that
+ * separation mechanically true. `cert_etag` is stored in the quoted form
+ * the agent sent ("\"<hex>\"").
+ */
+export async function setNodeCertStatus(
+  db: D1Database,
+  nodeId: string,
+  values: {
+    nginx_ok: number | null;
+    nginx_error: string | null;
+    cert_etag: string | null;
+    cert_synced_at: number | null;
+  },
+): Promise<void> {
+  await executeWrite(
+    db,
+    `
+        UPDATE nodes
+        SET nginx_ok = ?, nginx_error = ?, cert_etag = ?, cert_synced_at = ?
+        WHERE id = ?
+        `,
+    [values.nginx_ok, values.nginx_error, values.cert_etag, values.cert_synced_at, nodeId],
   );
 }
 
