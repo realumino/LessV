@@ -301,7 +301,7 @@ export const TokenOut = z.object({
 });
 export type TokenOut = z.infer<typeof TokenOut>;
 
-/** WHAT: request body for POST /api/node/enroll (PROTOCOL.md, protocol 1). */
+/** WHAT: request body for POST /api/node/enroll (PROTOCOL.md, protocol 2). */
 export const EnrollIn = z.object({
   protocol: z.int(),
   agent_version: z.string().default(""),
@@ -312,7 +312,7 @@ export const EnrollIn = z.object({
 export type EnrollIn = z.infer<typeof EnrollIn>;
 
 /**
- * WHAT: request body for POST /api/node/heartbeat (PROTOCOL.md, protocol 1).
+ * WHAT: request body for POST /api/node/heartbeat (PROTOCOL.md, protocol 2).
  *
  * WHY every fact but `protocol` is optional: the heartbeat must stay cheap
  * and forward-compatible — a missing field means "no report", never a
@@ -330,7 +330,7 @@ export const HeartbeatIn = z.object({
 });
 export type HeartbeatIn = z.infer<typeof HeartbeatIn>;
 
-/** WHAT: request body for POST /api/node/report (PROTOCOL.md, protocol 1). */
+/** WHAT: request body for POST /api/node/report (PROTOCOL.md, protocol 2). */
 export const ReportIn = z.object({
   protocol: z.int(),
   hash: z.string(),
@@ -348,7 +348,7 @@ export const ReportIn = z.object({
 export type ReportIn = z.infer<typeof ReportIn>;
 
 /**
- * WHAT: request body for POST /api/node/stats (PROTOCOL.md, protocol 1).
+ * WHAT: request body for POST /api/node/stats (PROTOCOL.md, protocol 2).
  *
  * WHY validated then discarded today: the agent ships absolute counters
  * from v1 so history can accumulate, but accumulation (`node_stats`) does

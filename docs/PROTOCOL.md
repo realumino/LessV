@@ -4,7 +4,7 @@ The agent ↔ plane contract. Protocol 1 was the P0/P1a pull contract
 (`X-Lesserv-Node`); protocol 2 (P1b) adds the certificate endpoint, the
 `stage: "cert"` report, and renames the node-identity header to
 `X-Lessv-Node`. There are no deployed protocol-1 agents to stay compatible
-with; after deploying this plane, upgrade every node's agent to 0.2.1.
+with; every agent in this repository has spoken protocol 2 since 0.2.1.
 
 Changes are made in three places at once: this file, `src/routers/node.ts`
 (`PROTOCOL_VERSION`), and `agent/lessv_agent/__init__.py`.
@@ -23,8 +23,9 @@ Changes are made in three places at once: this file, `src/routers/node.ts`
 - Every write request body carries `"protocol": 2`; anything else answers
   `400 {"detail":"unsupported protocol N"}`. The agent's correct response is
   to keep serving its current config.
-- Every response is JSON with the error envelope `{ "detail": <string> }` on
-  failure (4xx/5xx). Success bodies are the objects below.
+- Every response is JSON. Failures (4xx/5xx) use the error envelope
+  `{ "detail": <string | object | array> }` — see [Error shape](#error-shape).
+  Success bodies are the objects below.
 
 ## Endpoints
 
@@ -64,18 +65,40 @@ Response:
 
 The 30s poll: cheap hash comparison, rarely a write.
 
-Request: `{ "protocol": 2, "status": "ok" | "drift" | "error" }`.
+Request (every field but `protocol` is optional; a missing field means
+"nothing to report", never a failure):
 
-Response: `{ "desired_hash": <hex|null>, "actions": [] }` — `actions` is
-reserved (always empty in v1/v2 pull mode).
+```json
+{
+  "protocol": 2,
+  "applied_hash": "<sha-256 hex>",
+  "applied_at": 1792937643,
+  "xray_running": true,
+  "xray_pid": 4242,
+  "agent_uptime": 3600,
+  "last_error": null
+}
+```
+
+Response: `{ "desired_hash": <hex|null>, "actions": [] }`.
+
+- The plane persists `applied_hash` from the heartbeat at face value when it
+  changes (it is the agent's local truth), and never writes `health` or
+  `last_error` from a heartbeat. ALWAYS send `applied_hash`: omitting it
+  sends `null` and clears the column. The agent always sends it.
+- The request's `last_error` is accepted for forward compatibility but not
+  stored; the plane keeps the error from the last report.
+- The plane never emits actions today. The agent still honors
+  `"restart_xray"` if one ever appears (restart Xray unchanged).
+- A heartbeat never clears `last_error`; only an apply report does.
 
 ### `GET /api/node/config?hash=<heartbeat's value>`
 
 The full rendered runtime config, byte-for-byte what the node runs.
 
 - `hash` omitted → current body.
-- `hash` stale (the desired config moved since) → `409` with
-  `{ "message": "desired config moved; re-heartbeat", "desired_hash": "..." }`;
+- `hash` stale →
+  `409 {"detail":{"message":"desired config moved; re-heartbeat","desired_hash":"..."}}`;
   the agent must NOT serve stale bytes as if applied — it re-heartbeats.
 - No renderable config → `404 {"detail":"no renderable config"}`.
 - `Cache-Control: no-store` always: the body carries every UUID plus the
@@ -128,16 +151,37 @@ Wildcard entries use `path: "wildcard.<zone>"` and `sans: ["<zone>", "*.<zone>"]
 
 ### `POST /api/node/report`
 
-Records one apply attempt; failures keep the old issued hash. Duplicate
+Records one apply attempt; failures keep the old applied hash. Duplicate
 reports are safe.
 
-Base request:
+Request (`hash` and `ok` are required):
 
 ```json
-{ "protocol": 2, "applied_hash": "...", "health": "ok", "last_error": null }
+{
+  "protocol": 2,
+  "hash": "<sha-256 hex this report is about>",
+  "ok": true,
+  "stage": "applied",
+  "error": null,
+  "xray_exit_code": null
+}
 ```
 
-The P1b additions ride on this object:
+`stage` is one of `fetched`, `test`, `applied`, `started`,
+`rolled_back`, `cert`.
+
+- `ok: true` with `stage` `applied` or `started` → `nodes.applied_hash`
+  becomes `hash`, `health` becomes `ok`, `last_error` becomes `null`.
+- `ok: false` → `health` becomes `error:<stage>` and `last_error`
+  becomes `error` (truncated to 500 chars by the agent). `applied_hash`
+  does not move.
+- Any other stage with `ok: true` (e.g. `test`, `rolled_back`) leaves
+  the liveness columns untouched.
+- `stage: "cert"` leaves `applied_hash`, `health`, and `last_error`
+  untouched in every case — only `last_seen` and the cert columns move.
+
+Certificate fields ride on the same object and are written when present
+on a plain report, or whenever `stage` is `cert`:
 
 ```json
 {
@@ -149,26 +193,24 @@ The P1b additions ride on this object:
 }
 ```
 
-- `stage: "cert"` is the discriminator: the agent reports it when the Xray
-  config did NOT change but the certificate/nginx state changed (for
-  example an nginx process-state flip). The plane updates `last_seen` and
-  the cert columns only — never `applied_hash`, `health`, or `last_error`
-  — because only a real apply may move those.
-- Ordinary apply reports may also carry the cert fields; the server writes
-  them all.
-- Absent cert fields stay untouched on a plain report; a `stage:"cert"`
-  report writes every cert field it carries, NULLs included when the agent
-  state has nothing to repeat yet. From agent 0.2.1 the agent stops
-  nulling `cert_synced_at` after the first successful adoption: nginx
-  state reports and failure reports repeat the last successful epoch, so
-  an nginx stop/start cycle or a renewal failure never clears
-  `nodes.cert_synced_at`.
+Absent cert fields stay untouched on a plain report. A `stage:"cert"`
+report writes every cert field it carries, NULLs included when the agent
+state has nothing to repeat yet. From agent 0.2.1 the agent never clears
+`cert_synced_at`: nginx state flips and cert failures repeat the last
+successful epoch.
 
 ### `POST /api/node/stats`
 
-Accepted and validated (absolute counters + boot id); storage starts in a
-later milestone, so nothing is stored yet. The agent ships this shape from
-v1 so history can begin the day the plane learns to keep it.
+Request:
+
+```json
+{ "protocol": 2, "boot_id": "<string>", "counters": { "<name>": <int> } }
+```
+
+Accepted and validated (absolute, non-negative counters + boot id);
+storage starts in a later milestone, so nothing is stored yet. The agent
+ships this shape from v1 so history can begin the day the plane learns to
+keep it.
 
 ## Renewal contract (agent-visible behavior)
 
@@ -181,3 +223,14 @@ v1 so history can begin the day the plane learns to keep it.
   a `stage:"cert"` report follows. Xray is never restarted by this path.
 - Renewal failures surface in the panel: `issue_runs` rows and the domain
   `last_error` (production only). The agent's on-disk files stay untouched.
+
+## Error shape
+
+Every 4xx/5xx body is `{ "detail": <string | object | array> }`:
+
+- semantic failures → `{"detail":"node not found"}`;
+- schema failures (`parseJsonBody`) → `422 {"detail":[{"msg":"..."}]}`;
+- protocol mismatch → `400 {"detail":"unsupported protocol N"}`;
+- stale config fetch → `409 {"detail":{"message":"...","desired_hash":"..."}}`;
+- an unreadable certificate artifact → `500 {"detail":"<R2 object path>"}`,
+  never a partial manifest.

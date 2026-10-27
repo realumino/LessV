@@ -20,6 +20,21 @@ Internet ── :443 ──► Xray (REALITY, stream proxy)
 - 443 belongs to Xray. Never configure nginx to listen on 443.
 - Certificates belong to nginx (the self-stealed origin); Xray has none.
 
+## What the REALITY preset generates
+
+The panel's REALITY preset button authors one inbound plus two outbounds:
+
+- inbound `reality` (VLESS + REALITY, `dest=127.0.0.1:8443`). `privateKey`
+  stays empty; the plane injects/stores keys per inbound at render time
+  (`ensureKeys`), so the private key never appears in the frontend.
+- outbounds `BLOCK` (blackhole) first, then `direct` (freedom). The plane
+  guarantees `BLOCK` stays the first outbound and excludes it from routing
+  allocation — it is the default route, not an exit. Every other outbound
+  is rendered per node as `<node>-<tag>` (e.g. `tokyo01-direct`).
+- On the user authorization page select `direct` (and any exits the admin
+  added by editing the JSON). Nothing else is a real exit: routing a user
+  to `BLOCK` just blackholes their traffic.
+
 ## Certificate lifecycle (plane)
 
 1. **Admin UI → Certificates page** (`/certs`): pick a zone (from
@@ -44,9 +59,13 @@ Internet ── :443 ──► Xray (REALITY, stream proxy)
    are never renewed and are swept after 7 days.
 
 Every issuance records an `issue_runs` row with phases
-(`create-account` → `create-order` → `publish-txt` → `accept` →
-`wait-propagation` → `finalize` → `store`); failures keep the raw
-Let's Encrypt error text in `error` — that is the first place to look.
+(`load` → `ensure-account` → `new-order-<n>` → `publish-txt-<n>` →
+`wait-propagation-<n>` → `accept-challenges-<n>` → `await-authz-<n>` →
+`key+csr` → `finalize+store` → `purge-previous` → `cleanup-txt` →
+`finish-run`; `<n>` is the attempt number, an expired order reopens via
+`order-expired-<n>`, and a failed run adds `cleanup-failed-artifacts`);
+failures keep the raw Let's Encrypt error text in `error` — that is the
+first place to look.
 
 ## Node delivery layout (agent)
 
@@ -60,9 +79,12 @@ Let's Encrypt error text in `error` — that is the first place to look.
 
 - The agent validates the manifest (ETag + fingerprint shape + safe
   domain paths) before writing; any invalid entry aborts the whole sync.
-- Writes go to a temp directory, then `current` swaps via
-  temp-symlink + rename — readers never see a missing or half-updated
-  pointer.
+- Files are written straight into the content-addressed version directory
+  (`<fingerprint>/`, so re-syncing the same certificate is idempotent and a
+  crashed write leaves the old version intact); `current` then swaps via a
+  temp symlink + `os.replace` — readers never see a missing or half-updated
+  pointer, and a `current` that is a real directory is refused instead of
+  overwritten.
 - On any write/test/reload failure the agent rolls the symlinks back to
   the previous state and does NOT advance its stored ETag; the next loop
   retries.
@@ -150,9 +172,9 @@ nginx -t && systemctl reload nginx
 | `wait-propagation` loops then fails | TXT record not visible to DoH resolvers | check the `_acme-challenge` TXT in the Cloudflare dashboard; check the DNS token's zone scope |
 | LE CAA error on a name | a CAA record forbids issuance | fix/remove the CAA record (`0 issue "none"` blocks everything) |
 | `too many certificates already issued` | production rate limit | wait; use staging for any further testing |
-| `nginx unit is not active` in warnings | nginx stopped/crashed | `systemctl start nginx`; the next cert-report cycle clears it |
+| panel warning `nginx is not healthy: nginx unit is not active` | nginx stopped/crashed — the text after the colon is the agent's `nginx_error` field | `systemctl start nginx`; the next cert-report cycle clears it |
 | agent reports cert failure, files unchanged | artifact read/validate failed | check the object path from the error; do not edit files by hand |
-| renewed cert never appears on the node | assignment changed or ETag stuck | re-check assignment; the agent reports `cert_etag` — compare with the manifest |
+| renewed cert never appears on the node | assignment changed or ETag stuck | re-check assignment; compare `nodes.cert_etag` (the agent's adopted ETag) with the manifest ETag from `GET /api/node/certs` — equal means the node already has this version |
 
 ## Deleting an acceptance fixture
 
