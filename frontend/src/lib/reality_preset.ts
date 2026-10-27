@@ -75,7 +75,7 @@ export function buildRealityPreset(input: RealityPresetInput): RealityPresetResu
       },
     ],
     outbounds: [
-      { tag: "block", protocol: "blackhole" },
+      { tag: "BLOCK", protocol: "blackhole" },
       { tag: "direct", protocol: "freedom" },
     ],
     routing: { rules: [] },

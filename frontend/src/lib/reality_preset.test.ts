@@ -27,7 +27,7 @@ describe("buildRealityPreset", () => {
       shortIds: [expect.stringMatching(/^[0-9a-f]{8}$/)],
     });
     expect(config.outbounds).toEqual([
-      { tag: "block", protocol: "blackhole" },
+      { tag: "BLOCK", protocol: "blackhole" },
       { tag: "direct", protocol: "freedom" },
     ]);
     expect(config.routing).toEqual({ rules: [] });
