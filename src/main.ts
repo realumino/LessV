@@ -14,6 +14,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { adminKey } from "./auth/admin_key";
 import { ApiError } from "./models";
 import { ADMIN_PREFIX, isAllowedPath } from "./route_groups";
+import { adminAgent } from "./routers/admin_agent";
 import { adminLinkProfiles } from "./routers/admin_link_profiles";
 import { adminNodes } from "./routers/admin_nodes";
 import { adminReality } from "./routers/admin_reality";
@@ -81,6 +82,7 @@ app.onError((error, c) => {
 });
 
 app.route("/", health);
+app.route("/", adminAgent);
 app.route("/", adminNodes);
 app.route("/", adminLinkProfiles);
 app.route("/", adminUsers);

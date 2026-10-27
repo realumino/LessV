@@ -7,7 +7,7 @@
  * dist/lessv-agent-<version>.tar.gz + .sha256, verified against the
  * required contents.
  *
- * Usage: npm run release:agent
+ * Usage: npm run release:agent [-- --upload]
  */
 
 import { createHash } from "node:crypto";
@@ -42,6 +42,48 @@ const REQUIRED = [
   `${NAME}/systemd/lessv-agent.service`,
 ];
 const FORBIDDEN = ["tests/", "__pycache__"];
+
+/**
+ * WHAT: with `--upload`, after the build and verification, push the
+ * tarball and its sha256 sidecar to the plane's CERTS bucket.
+ *
+ * WHY wrangler and not the R2 binding: this runs on the operator's
+ * machine, outside any Worker, so the authenticated CLI is the only way
+ * up. Syntax verified against wrangler 4.152's `r2 object put --help`
+ * (`objectPath` = `{bucket}/{key}`, `--remote` for the live bucket).
+ */
+const UPLOAD = process.argv.includes("--upload");
+const BUCKET = "lessv-certs";
+
+function r2Put(bucketAndKey, file, contentType, byteCount) {
+  const result = spawnSync(
+    "npx",
+    [
+      "wrangler",
+      "r2",
+      "object",
+      "put",
+      bucketAndKey,
+      `--file=${file}`,
+      `--content-type=${contentType}`,
+      "--remote",
+    ],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      // npx resolves through the shell shim on Windows (no npx.exe);
+      // every argument here is space-free, so the shell join is safe.
+      shell: process.platform === "win32",
+    },
+  );
+  if (result.status !== 0) {
+    console.error(
+      `wrangler r2 object put ${bucketAndKey} failed:\n${result.stdout.trim()}\n${result.stderr.trim()}`,
+    );
+    process.exit(1);
+  }
+  console.log(`uploaded ${bucketAndKey} (${byteCount} bytes, ${contentType})`);
+}
 
 /** WHAT: run a git command, dying with its stderr on failure. */
 function git(args) {
@@ -110,3 +152,19 @@ for (const forbidden of FORBIDDEN) {
 console.log(`dist/${NAME}.tar.gz (${bytes.length} bytes)`);
 console.log(`sha256: ${sha}`);
 console.log(`${entries.length} entries, contents verified`);
+
+if (UPLOAD) {
+  const shaLine = readFileSync(`${TARBALL}.sha256`);
+  r2Put(
+    `${BUCKET}/agent/${NAME}.tar.gz`,
+    `dist/${NAME}.tar.gz`,
+    "application/gzip",
+    bytes.length,
+  );
+  r2Put(
+    `${BUCKET}/agent/${NAME}.tar.gz.sha256`,
+    `dist/${NAME}.tar.gz.sha256`,
+    "text/plain",
+    shaLine.length,
+  );
+}
