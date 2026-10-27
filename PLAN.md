@@ -244,6 +244,7 @@ client --REALITY--> Xray:443 --dest--> 127.0.0.1:8443 nginx (LE 证书 + 假站�
 | `GET /api/admin/certificates/:id/download?file=fullchain`（或 `?file=key`） | 管理员下载（测试证书排障用） |
 | `GET/PUT /api/admin/nodes/:id/cert-domains` | 给节点分配证书域名 |
 | `GET /api/admin/nodes/:id/certs` | 节点已分配域名的当前生产证书摘要（含到期/nginx 状态） |
+| `GET /api/admin/agent-release?version=x.y.z[&sha256]` | agent release 下载：从 `CERTS` 桶的 `agent/<name>.tar.gz`（加 `&sha256` 侧同名 `.sha256`）以 attachment 流式返回，admin key 保护；`version` 缺省取最新已知版本；版本非法或桶里无对象 → `404 {"detail":"release not found"}` |
 
 `GET /nodes/:id/sync` 的 warnings 追加证书 lint 结果（见 7.5）。
 
@@ -518,7 +519,7 @@ P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模
 1. README：部署、D1/R2、secrets、首节点、证书、测试签发、用户/订阅、排障。
 2. `docs/OPERATIONS.md`：nginx/假站点/证书路径/续期/回滚/日志。
 3. `docs/PROTOCOL.md` v2：节点端点、证书端点、报告字段、错误、版本。
-4. agent release tarball + 安装说明。
+4. agent release tarball + 安装说明。（实现注记：GitHub release 通道因发布通道不可用而失效，改为附录 B 方案 A2 落地——R2 `CERTS` 桶 `agent/` 前缀托管 + `GET /api/admin/agent-release` 端点 + `scripts/release_agent.mjs --upload` 上传。）
 5. 在全新 VPS + 全新域名上跑一遍验收清单。
 6. 归档三个源仓库（不删除）；更新 `PLAN.md` 状态。
 
@@ -527,6 +528,8 @@ P1a 只验证面板/agent/订阅；公网 dest 是开发夹具，不是用户模
 - 验收清单全部通过。
 - 新机器按 README 从零到“客户端能上网”不超过 30 分钟（不含 Xray 安装时间）。
 - 源仓库未被修改。
+
+> **状态（2026-10-27）：完成（GitHub 通道除外）。** P1c.0 基线冻结、P1c.1 文档校正 + preset `BLOCK` 修复（已部署）、P1c.3 验收脚本、P1c.4 全新 VPS（jp-tyo-3）+ `p1c.example.com` 验收 A01–A17 全绿（首节点实测 4 分 29 秒）均完成；agent release 因 GitHub 封号改为平面托管（附录 B 方案 A2）；夹具与 DNS 已清理，`tokyo01`/`p1c` 证书域已软删除（cron 只续 `status='active'`）。GitHub 发布通道不可用，源仓库归档与 `v0.1.0` 推送等恢复后补做。执行细节见 `P1C-PLAN.md` §8。
 
 ### P2 — 可选，不进 v1
 
@@ -697,11 +700,11 @@ Workflow 步骤测试无法移植。
 
 ### P1c
 
-- [ ] README 从零到可用 ≤ 30 分钟（不含 Xray 安装）。
-- [ ] OPERATIONS/PROTOCOL 与实际一致。
-- [ ] agent release 可下载安装。
-- [ ] 全新 VPS + 全新域名完整验收。
-- [ ] 源仓库归档，LessV 打 tag。
+- [x] README 从零到可用 ≤ 30 分钟（不含 Xray 安装）。实测 4m29s（`p1c.example.com`，2026-10-26）。
+- [x] OPERATIONS/PROTOCOL 与实际一致。
+- [x] agent release 可下载安装。（平面托管：`GET /api/admin/agent-release` + `sha256sum -c`。）
+- [x] 全新 VPS + 全新域名完整验收。A01–A17 全绿，证据见 `P1C-PLAN.md` §8。
+- [ ] 源仓库归档，LessV 打 tag。**阻塞：GitHub 发布通道不可用（`git ls-remote` → 403）**，归档与推送待恢复后补做；`v0.1.0` 已本地打 tag。
 
 ---
 

@@ -6,6 +6,7 @@
 .dev.vars*
 !.dev.vars.example
 .env*
+!.env.production.example
 node_modules/
 
 # local wrangler config (real domain, real D1 id): never commit.
