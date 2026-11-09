@@ -1,19 +1,21 @@
 /**
- * WHAT: provision the two P1a Linodes (server + client) and inventory them.
+ * WHAT: provision Linode fixtures (server + optional client) and inventory
+ * them.
  *
- * WHY a script and not dashboard clicks: the whole point of P1a is a
- * reproducible fixture — two `g6-nanode-1` Debian 12 instances with the
- * P1a SSH key injected, polled to `running`, recorded in
- * ~/.lessv/acceptance/linode.json and wired into ~/.ssh/config. Hand-clicking
+ * WHY a script and not dashboard clicks: a reproducible fixture —
+ * `g6-nanode-1` Debian 12 instances with an SSH key injected, polled to
+ * `running`, inventoried to a local file (0600, holds the root password)
+ * and wired into ~/.ssh/config between `--tag` marker comments so reruns
+ * replace exactly that block and cleanup is mechanical. Hand-clicking
  * loses the root password and the ids the cleanup steps need.
  *
  * Usage:
- *   node scripts/linode_provision.mjs create --token-file ~/.lessv/linode.env \
- *     --ssh-key ~/.ssh/lessv_p1a_ed25519.pub --out ~/.lessv/acceptance/linode.json
- *     [--server-only true]   # P1b.9: create only lessv-server
- *   node scripts/linode_provision.mjs list --token-file ~/.lessv/linode.env
- *   node scripts/linode_provision.mjs delete --token-file ~/.lessv/linode.env \
- *     --label lessv-client
+ *   node scripts/linode_provision.mjs create --token-file <token-file> \
+ *     --ssh-key <key.pub> --out <inventory.json> [--tag <tag>]
+ *     [--server-only true]   # create only the server
+ *   node scripts/linode_provision.mjs list --token-file <token-file> [--tag <tag>]
+ *   node scripts/linode_provision.mjs delete --token-file <token-file> \
+ *     --label <label> [--tag <tag>] [--out <inventory.json>]
  *
  * Secrets stay on disk: the token is read from the file, the root password
  * lands only in the inventory (0600), and nothing sensitive is printed.
@@ -32,7 +34,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const API = "https://api.linode.com/v4";
-const TAG = "lessv-p1a";
 const BOOT_TIMEOUT_S = 300;
 
 /** WHAT: read `KEY=value` lines of an env file into a map. */
@@ -152,7 +153,7 @@ async function createInstance(token, spec) {
     label: spec.label,
     root_pass: rootPass,
     authorized_keys: [spec.sshKey],
-    tags: [TAG, spec.label],
+    tags: [spec.tag, spec.label],
     booted: true,
   });
   if (status !== 200) {
@@ -174,15 +175,15 @@ async function createInstance(token, spec) {
 }
 
 /**
- * WHAT: rewrite the `# lessv-p1a` block of ~/.ssh/config.
+ * WHAT: rewrite the tagged block of ~/.ssh/config.
  *
  * WHY marker-delimited: reruns replace exactly this block, leaving any
  * other SSH config untouched.
  */
-function writeSshConfigBlock(inventory, sshKeyPath) {
+function writeSshConfigBlock(inventory, sshKeyPath, tag) {
   const configPath = join(homedir(), ".ssh", "config");
-  const BEGIN = `# ${TAG} begin`;
-  const END = `# ${TAG} end`;
+  const BEGIN = `# ${tag} begin`;
+  const END = `# ${tag} end`;
   const identity = sshKeyPath.replace(/\.pub$/, "").replace(/\\/g, "/");
   const identityLine = identity.startsWith("~")
     ? identity
@@ -228,14 +229,15 @@ async function cmdCreate(args) {
   const image = args.image ?? "linode/debian12";
   const serverRegion = args["server-region"] ?? "jp-tyo-3";
   const clientRegion = args["client-region"] ?? "sg-sin-2";
-  // P1b.9: acceptance needs exactly one node; creating a second would be
-  // a cost the plan does not authorize. Value-style flag keeps parseArgs
-  // (which always expects `--key value` pairs) unchanged.
+  const tag = args.tag ?? "lessv";
+  // Some runs need exactly one node; creating a second would be an
+  // unrequested cost. Value-style flag keeps parseArgs (which always
+  // expects `--key value` pairs) unchanged.
   const serverOnly = args["server-only"] === "true";
 
   // Sequential on purpose: parallel creates can hit the API rate limit.
   const server = await createInstance(token, {
-    region: serverRegion, type, image, label: "lessv-server", sshKey,
+    region: serverRegion, type, image, label: "lessv-server", sshKey, tag,
   });
   let client;
   if (serverOnly) {
@@ -243,7 +245,7 @@ async function cmdCreate(args) {
   } else {
     try {
       client = await createInstance(token, {
-        region: clientRegion, type, image, label: "lessv-client", sshKey,
+        region: clientRegion, type, image, label: "lessv-client", sshKey, tag,
       });
     } catch (error) {
       console.error(
@@ -266,7 +268,7 @@ async function cmdCreate(args) {
   } else {
     chmodSync(outPath, 0o600);
   }
-  writeSshConfigBlock(serverOnly ? { ...inventory, client: null } : inventory, expand(args["ssh-key"]));
+  writeSshConfigBlock(serverOnly ? { ...inventory, client: null } : inventory, expand(args["ssh-key"]), tag);
   console.log(`server ${server.ipv4}${serverOnly ? "" : `  client ${client.ipv4}`}`);
   console.log(`inventory written: ${outPath}`);
 }
@@ -282,9 +284,10 @@ async function cmdList(args) {
   if (status !== 200) {
     fail(`GET instances -> ${status}`);
   }
-  const mine = data.data.filter((i) => (i.tags ?? []).includes(TAG));
+  const tag = args.tag ?? "lessv";
+  const mine = data.data.filter((i) => (i.tags ?? []).includes(tag));
   if (mine.length === 0) {
-    console.log(`no instances tagged ${TAG}`);
+    console.log(`no instances tagged ${tag}`);
     return;
   }
   for (const instance of mine) {
@@ -301,11 +304,12 @@ async function cmdDelete(args) {
   if (status !== 200) {
     fail(`GET instances -> ${status}`);
   }
+  const tag = args.tag ?? "lessv";
   const match = data.data.find(
-    (i) => i.label === label && (i.tags ?? []).includes(TAG),
+    (i) => i.label === label && (i.tags ?? []).includes(tag),
   );
   if (!match) {
-    fail(`no instance tagged ${TAG} with label '${label}'`);
+    fail(`no instance tagged ${tag} with label '${label}'`);
   }
   const del = await api(token, "DELETE", `/linode/instances/${match.id}`);
   if (del.status !== 200) {
@@ -321,8 +325,8 @@ async function cmdDelete(args) {
   }
   console.log(`deleted ${label} (id ${match.id})`);
   // Drop it from the inventory file when present.
-  const inventoryPath = expand("~/.lessv/acceptance/linode.json");
-  if (existsSync(inventoryPath)) {
+  const inventoryPath = args.out ? expand(args.out) : null;
+  if (inventoryPath && existsSync(inventoryPath)) {
     const inventory = JSON.parse(readFileSync(inventoryPath, "utf8"));
     for (const role of ["server", "client"]) {
       if (inventory[role]?.label === label) {

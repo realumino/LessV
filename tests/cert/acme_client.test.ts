@@ -1,8 +1,8 @@
 /**
  * ACME v2 client tests, ported from certworker's acme-client.spec.ts:
  * account/order/challenge/finalize lifecycle, badNonce retry, problem
- * surfacing — plus the LessV-added profile support (P1B-PLAN.md §3.4).
- * The revoke tests are not ported: P1b does not implement revocation.
+ * surfacing — plus the LessV-added profile support. The revoke tests are
+ * not ported: this plane does not implement revocation.
  */
 
 import { describe, expect, it } from "vitest";

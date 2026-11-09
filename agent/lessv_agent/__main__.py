@@ -152,7 +152,7 @@ def _add_enroll_args(sub):
     enroll.add_argument("--xray-service", default="xray")
     enroll.add_argument("--restart-mode", default="systemd",
                         choices=["systemd", "docker"])
-    # P1b certificate/nginx flags (defaults live in config.DEFAULTS).
+    # Certificate/nginx flags (defaults live in config.DEFAULTS).
     enroll.add_argument("--manage-nginx", dest="no_manage_nginx",
                         action="store_false", default=False,
                         help="keep the nginx unit reloaded/started (default)")

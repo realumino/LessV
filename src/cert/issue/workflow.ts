@@ -1,7 +1,7 @@
 /**
  * The durable issuance pipeline. Ported from certworker's workflow.ts with
- * the environment dimension and the order/authz expiry retry ring
- * (P1B-PLAN.md §3.4): the order phases run under suffixed step names
+ * the environment dimension and the order/authz expiry retry ring. The
+ * order phases run under suffixed step names
  * (`new-order-1`, `publish-txt-1`, ...) and an AcmeError mentioning
  * `expired`/`orderNotReady` reopens the order at most once — LE staging
  * authorizations expire in ~5 minutes and an expired order must not fail

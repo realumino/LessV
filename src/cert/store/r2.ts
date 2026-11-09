@@ -30,8 +30,8 @@ export interface CertificateArtifacts {
  * domains lose the leading `*.` and gain a `wildcard.` prefix.
  *
  * WHY it lives here: both the R2 prefix and the agent's nginx paths need
- * the same naming, and `*` must never reach a path or a command line
- * (P1B-PLAN.md §3.2/C6). The domain is already normalized
+ * the same naming, and `*` must never reach a path or a command line.
+ * The domain is already normalized
  * (`normalizeDomainName`) by the time it gets here; this only renames the
  * wildcard form.
  */

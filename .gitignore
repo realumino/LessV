@@ -1,24 +1,26 @@
-# wrangler artifacts
-.wrangler/
-# local secret files: never commit. `.dev.vars*` also covers per-env
-# variants (.dev.vars.<env>); .env* covers .env.production and friends.
-# The example template is committed on purpose.
-.dev.vars*
-!.dev.vars.example
-.env*
-!.env.production.example
+# build & tooling state
 node_modules/
-
-# local wrangler config (real domain, real D1 id): never commit.
-# wrangler.example.jsonc is the committed template; the npm pre-hooks copy
-# it when this file is missing.
-wrangler.jsonc
-
-# frontend
 frontend/node_modules/
 frontend/dist/
 # incremental tsc build state (tsc -b writes it next to tsconfig.json)
 frontend/tsconfig.tsbuildinfo
-
 # release artifacts (agent tarballs)
 dist/
+.wrangler/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# ----- local-only, never commit -----
+# real secrets; the *.example templates are committed on purpose
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.production.example
+# real wrangler config (real domain, real D1 id): never commit.
+# wrangler.example.jsonc is the committed template; the npm pre-hooks copy
+# it when this file is missing.
+wrangler.jsonc
+# operator-local workspace: work-in-progress plans, acceptance run outputs,
+# run reports. The public repo stays clean.
+.plans/

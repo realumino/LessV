@@ -64,7 +64,7 @@ export interface UserOut {
   status: string;
   expire: number | null;
   note: string | null;
-  /** The subscription capability token, plaintext (docs/M6-PLAN.md). */
+  /** The subscription capability token, plaintext. */
   sub_token: string | null;
   sub_token_created_at: number | null;
   created_at: number;

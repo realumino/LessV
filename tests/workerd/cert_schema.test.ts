@@ -1,5 +1,5 @@
 /**
- * Schema contract tests for the P1b certificate tables.
+ * Schema contract tests for the certificate tables.
  *
  * WHY a dedicated file: the DDL in migrations/0005/0006 is part of the
  * product contract — the partial unique indexes ARE the staging/production
@@ -19,8 +19,8 @@ import {
   type CertificateRow,
 } from "../../src/cert/store/d1";
 
-describe("P1b schema", () => {
-  it("has every P1b table with its P1b columns", async () => {
+describe("cert schema", () => {
+  it("has every certificate table with its columns", async () => {
     const { results } = await env.DB.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table'
         AND name IN ('cert_domains','certificates','acme_accounts','issue_runs',

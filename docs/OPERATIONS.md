@@ -1,6 +1,6 @@
 # Operations — certificates, nginx, node troubleshooting
 
-Runbook for the P0/P1a/P1b product shape: Xray REALITY on 443 with
+Runbook for the product shape: Xray REALITY on 443 with
 loopback self-steal (`dest=127.0.0.1:8443`), nginx serving the decoy site
 with a Let's Encrypt certificate issued by the plane (DNS-01), and agents
 that pull their certificates from the plane.
@@ -89,7 +89,7 @@ first place to look.
   the previous state and does NOT advance its stored ETag; the next loop
   retries.
 
-## nginx snippet (manual, P1b)
+## nginx snippet (manual)
 
 Per node, with `<domain>` the cert domain and its `path`:
 
@@ -176,10 +176,12 @@ nginx -t && systemctl reload nginx
 | agent reports cert failure, files unchanged | artifact read/validate failed | check the object path from the error; do not edit files by hand |
 | renewed cert never appears on the node | assignment changed or ETag stuck | re-check assignment; compare `nodes.cert_etag` (the agent's adopted ETag) with the manifest ETag from `GET /api/node/certs` — equal means the node already has this version |
 
-## Deleting an acceptance fixture
+## Tearing down a provisioned node VPS
 
 When a VPS is no longer needed: `node scripts/linode_provision.mjs delete
---token-file ~/.lessv/linode.env --label <label>`. The plane has no
+--token-file <token-file> --label <label> [--tag <tag>]` (same tag as
+create; pass the same `--out` to strike the instance from the inventory).
+The plane has no
 node-delete API; leave the node row as history, or clean it with a
 deliberate D1 statement (and `node_cert_domains`) if you accept losing
 that evidence. The plane keeps domain/cert records; soft-deleted cert

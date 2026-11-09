@@ -289,8 +289,8 @@ export async function updateDomain(env: Env, id: string, patch: CertDomainUpdate
 /**
  * WHAT: soft-delete one domain.
  *
- * WHY no revocation: P1b deliberately has no revoke path (P1B-PLAN.md
- * §12/C10) — deletion stops future issuance and assignment; issued
+ * WHY no revocation: v1 deliberately has no revoke path — deletion stops
+ * future issuance and assignment; issued
  * certificates stay valid until they expire.
  */
 export async function deleteDomain(env: Env, id: string): Promise<void> {

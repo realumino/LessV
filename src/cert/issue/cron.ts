@@ -5,7 +5,7 @@
  * same day skips instead of reissuing; the `idx_run_active` partial unique
  * index additionally serializes against manual runs. Staging is never
  * touched — test certificates are issued manually and cleaned by the
- * sweeper, not renewed (P1B-PLAN.md §3.3).
+ * sweeper, not renewed.
  *
  * Failures are per-domain: one broken domain never blocks the others or
  * the sweeper.

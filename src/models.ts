@@ -338,7 +338,7 @@ export const ReportIn = z.object({
   stage: z.enum(["fetched", "test", "applied", "started", "rolled_back", "cert"]),
   xray_exit_code: z.int().nullable().default(null),
   error: z.string().nullable().default(null),
-  // Certificate/nginx facts (P1b). Present on stage=cert reports and on
+  // Certificate/nginx facts. Present on stage=cert reports and on
   // ordinary apply reports that carry them; the server writes them for both.
   nginx_ok: z.boolean().nullable().default(null),
   nginx_error: z.string().nullable().default(null),
@@ -459,7 +459,7 @@ export const NodeSyncOut = z.object({
   xray_version: z.string().nullable(),
   last_error: z.string().nullable(),
   warnings: z.array(z.string()),
-  // Agent-reported certificate/nginx status (P1b), NULL until reported.
+  // Agent-reported certificate/nginx status, NULL until reported.
   nginx_ok: z.int().nullable().default(null),
   nginx_error: z.string().nullable().default(null),
   cert_synced_at: z.int().nullable().default(null),

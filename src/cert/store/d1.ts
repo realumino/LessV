@@ -1,6 +1,6 @@
 /**
  * D1 access for the certificate subsystem: the only file that speaks SQL
- * to the P1b tables (`cert_domains`, `certificates`, `acme_accounts`,
+ * to the cert tables (`cert_domains`, `certificates`, `acme_accounts`,
  * `issue_runs`, `challenge_records`, `node_cert_domains`).
  *
  * WHY a separate module and not `src/db.ts`: the cert tables use ISO-8601
@@ -10,7 +10,7 @@
  * seconds — the conversion is confined to the service layer's boundary.
  *
  * WHY environment is a parameter on every current-certificate read: the
- * staging/production isolation (P1B-PLAN.md §3.3) is enforced here — one
+ * staging/production isolation is enforced here — one
  * partial unique index per `(domain_id, environment)`, and the delivery
  * path queries `environment='production' AND is_current=1` only.
  */
@@ -227,7 +227,7 @@ export async function setCertDomainError(
  * WHAT: soft-delete one domain row.
  *
  * WHY soft and not hard: assigned nodes and old runs keep their references
- * readable for the UI, and no ACME revocation happens (P1B-PLAN.md C10) —
+ * readable for the UI, and no ACME revocation happens —
  * a hard delete would make the history unauditable.
  */
 export async function softDeleteCertDomain(db: D1Database, id: string): Promise<boolean> {

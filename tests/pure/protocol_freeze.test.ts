@@ -1,5 +1,5 @@
 /**
- * The pull contract version is frozen at protocol 2 (P1b: certificate
+ * The pull contract version is frozen at protocol 2 (certificate
  * endpoint, cert-stage reports, X-Lessv-Node header).
  *
  * Why a pin and not a docstring: both repos implement this number, and the

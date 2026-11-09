@@ -2,7 +2,7 @@
 
 一个跑在 Cloudflare Workers 上的 Xray 面板：REALITY、nginx 自偷、Let's Encrypt 自动签发、订阅。节点端是 Python agent（systemd 常驻，与面板心跳同步）。
 
-由 Lesserv-Cloud、Lesserv-Agent、ssl-cert-worker 三个仓库合并而来；合并的边界和理由见 `PLAN.md`。
+由 Lesserv-Cloud、Lesserv-Agent、ssl-cert-worker 三个仓库合并而来。
 
 ## 拓扑
 
@@ -18,7 +18,7 @@
 用户 ── /sub/{token} ──► 订阅 ◄── 用户/节点/REALITY/证书
 节点 ── Xray(REALITY 443) ──► agent (Python, systemd)
          ▲ nginx 假站点 (8443) │
-         └── 证书 ◄── ACME (P1b, DNS-01) ◄── Worker
+         └── 证书 ◄── ACME (DNS-01) ◄── Worker
 ```
 
 ## 仓库结构
@@ -26,7 +26,7 @@
 ```
 src/            Worker（Hono 路由 + 服务层）
 frontend/       管理面板 SPA（React + Vite，挂 /admin）
-migrations/     D1 schema（0001–0004 是 P0 全量，0005/0006 是 P1b 证书）
+migrations/     D1 schema（0001–0004 核心，0005/0006 证书）
 agent/          lessv_agent（Python）+ systemd + install.sh + pytest
 tests/          workerd 集成测试 + pure 单元测试
 scripts/        wrangler 配置引导 + deploy.mjs
@@ -234,12 +234,14 @@ admin key 保护；token 走 stdin，不要作为参数）。
 
 ## 当前状态
 
-- **P0 完成**：改名、`KEY_SECRET` 统一、`/api/admin/*` 的 `ADMIN_KEY` 认证、SPA 登录、部署脚本。
-- **P1a 完成（2026-10-25）**：面板部署在 `cp.example.com`（自定义域 + 证书，health 200，auth 401/401/200，secrets 只有 ADMIN_KEY/KEY_SECRET，remote migrations 应用）；真实 VPS（Linode `lessv-server`，Debian 12）装 Xray 26.10.21 + agent 0.1.0，enroll 健康心跳；临时 REALITY 配置（公网 dest `www.microsoft.com:443`）应用收敛（applied = desired，health ok，Xray 监听 443）；用户/订阅打通；第二台 VPS 的真实 Xray 客户端探针出口 IP = 节点公网 IP；agent/Xray/面板重启、禁用/过期恢复全部收敛验收；agent 安装器加固（PYTHONPATH、Xray 检查、目录布局、systemd drop-in）；agent E2E 重写为本仓库 workerd plane，0 E2E skip。
-- **P1b 完成（2026-10-25）**：REALITY 自偷 preset（dest=127.0.0.1:8443，渲染时注入密钥，流程见 Certificates 页）；从 ssl-cert-worker 移植 ACME/DNS-01（账户 key 分环境加密存 D1，生产/staging 目录常量隔离）；R2 `lessv-certs` 存证书产物；Workflow `lessv-cert-issuance` + 每日 cron（1/3 寿命窗口、按 domain 锁、抖动）+ sweeper（staging 7 天、run 30 天）；Certificates 管理页（zone、域名 CRUD、测试/生产签发、runs、下载、分配）+ 节点 Certs tab + fleet TLS 列 + 到期/lint 警告；`GET /api/node/certs`（复合 ETag、304、no-store）+ agent cert sync（manifest 校验、原子 `current` 切换、`nginx -t`/reload/回滚、stage:cert 报告）；protocol 2（`X-Lessv-Node`）。
-  **线上验收**：LE staging 测试签发成功（production current 不变、TXT 清理、CAA 失败路径可见）；生产签发 `tlsserver`（`tokyo01.example.com`，SAN/serial/有效期入库）；agent 落盘（fullchain 0644 / privkey 0600、`current` 指纹目录、ETag 推进）；nginx 自偷站点 `nginx -t` + reload；`curl https://<域名>` 无 `-k` 证书有效；REALITY+vision 客户端出口 IP = 节点；强制续期后 `current` 切换、nginx reload、Xray PID 不变；停 nginx → `nginx_ok=0` + 警告，恢复自动好转；`serverNames` 不覆盖 → lint 报警。执行状态与证据见 `P1B-PLAN-CONTINUE.md`。
-- **P1c 完成（2026-10-27，GitHub 通道除外）**：文档与代码校正——REALITY preset 的黑洞 outbound tag 统一为大写 `BLOCK`（渲染器把精确的 `BLOCK` 当默认路由，不参与出口分配），协议/运维文档按实现重写；agent release 改为面板托管（`GET /api/admin/agent-release`，R2 `CERTS` 桶）；全新 VPS（jp-tyo-3）+ 新域名 `p1c.example.com` 验收 A01–A17 全绿：首节点从装 nginx 到隧道内 `https://` 200 实测 **4 分 29 秒**，staging/生产签发、节点落盘（644/600）、自偷站点、REALITY 客户端出口 IP、强制续期（`current` 切换 + nginx reload + Xray MainPID 不变 + `cert_synced_at` 前进）、停 nginx 不清空 `cert_synced_at`、lint 负例、重启收敛均实测；验收夹具（两台 Linode + DNS + SSH key）已删除，`tokyo01`/`p1c` 证书域按 D-D 软删除（证书行保留，cron 只续 `status='active'`）。GitHub 发布通道仍不可用，源仓库归档与 `v0.1.0` 推送待通道恢复后补做。
-- **测试矩阵**：Worker 393 passed / 56 files；前端 37 passed；agent 63 passed / 13 skipped（POSIX 文件模式/符号链接测试在 Windows skip，Linux 上 70 passed / 0 skipped）。
+- 发布物：平面 `v0.1.0`（本地 tag），agent `0.2.1`（tarball 由平面托管：
+  `GET /api/admin/agent-release` + `.sha256` 校验文件，构建/上传见
+  `npm run release:agent`）。
+- 测试矩阵：Worker 393 passed / 56 files；前端 37 passed；agent 63 passed /
+  13 skipped（POSIX 文件模式/符号链接测试在 Windows skip，Linux 上
+  70 passed / 0 skipped）。
+- 未做（候选方向）：nginx 配置面板托管、B 拓扑（TLS/WS/xhttp）、Clash
+  订阅、stats/quota、到期通知、多管理员。
 
 ## 已知限制
 
@@ -248,7 +250,7 @@ admin key 保护；token 走 stdin，不要作为参数）。
 - `PUT /api/admin/users` 无法把 `expire` 改回 `null`（null 表示“不变”），
   需要时用一个远期 epoch 替代。
 - 没有节点删除 API：节点行保留作历史。
-- nginx 假站点片段手工管理（面板托管是 P2）。
+- nginx 假站点片段手工管理（面板托管未做）。
 - `ADMIN_KEY` 等价 root：持有它即可调用全部 admin API。
 - `KEY_SECRET` 不可轮换——换掉它，历史节点密钥全部不可读。
 - REALITY preset 发出的黑洞 outbound tag 是大写 `BLOCK`。0.2.x 早期 preset

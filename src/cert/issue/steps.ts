@@ -1,7 +1,7 @@
 /**
  * Issuance steps: the pure(ish) building blocks the Workflow binds into
  * durable steps. Ported from certworker's steps.ts with three LessV
- * changes (P1B-PLAN.md §3.2/§3.3/§3.4):
+ * changes:
  *
  * 1. The directory URL is chosen by `environment` from the ACME_DIRECTORIES
  *    constant — there is no `ACME_DIRECTORY` Worker variable to misread.
@@ -196,7 +196,7 @@ export async function loadIssue(
     domain,
     identifiers,
     // Same environment only: a staging run must never see (or purge) the
-    // production current, and vice versa (P1B-PLAN.md §3.3).
+    // production current, and vice versa.
     previousCertificate: await getCurrentCertificate(deps.db, domainId, deps.environment),
   };
 }

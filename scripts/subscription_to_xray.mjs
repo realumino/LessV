@@ -1,8 +1,8 @@
 /**
  * WHAT: turn a decoded subscription file into an Xray client config.
  *
- * WHY: the automated P1a probe runs a real Xray client on the second VPS
- * and never touches the panel's own services. The vless:// URI carries
+ * WHY: an acceptance probe runs a real Xray client on a client VPS and
+ * never touches the panel's own services. The vless:// URI carries
  * every parameter (uuid, REALITY pbk/sid/sni/flow); hand-copying them into
  * JSON both wastes effort and risks leaking the uuid into shell history.
  * This parses the first vless:// line and writes the client JSON (socks

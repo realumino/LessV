@@ -1,7 +1,8 @@
 /**
  * Offline ACME server mock for issuance tests. Adapted from certworker's
- * mock-acme.ts: revoke endpoints are gone (P1b does not revoke), and the
- * directory advertises `meta.profiles` with a `tlsserver` entry that the
+ * mock-acme.ts: revoke endpoints are gone (this plane does not revoke),
+ * and the directory advertises `meta.profiles` with a `tlsserver` entry
+ * that the
  * mock echoes back on the order, mirroring Let's Encrypt's 2026 behavior.
  */
 

@@ -24,7 +24,7 @@ DEFAULTS = {
     "restart_mode": "systemd",
     "auth": "bearer-v1",
     "stats_interval": 60,
-    # P1b certificate/nginx settings: the agent writes versioned cert files
+    # Certificate/nginx settings: the agent writes versioned cert files
     # under cert_dir and keeps the nginx unit healthy.
     "manage_nginx": True,
     "cert_dir": "/etc/lessv/certs",
@@ -135,7 +135,7 @@ def _check_tuning(cfg, path):
 
 
 def _check_cert_fields(cfg, path):
-    """Validate the P1b nginx/certificate settings.
+    """Validate the nginx/certificate settings.
 
     WHAT: manage_nginx boolean, absolute cert_dir, non-empty unit name.
     WHY: An empty or relative cert_dir would write into the CWD; a
@@ -188,7 +188,7 @@ def _to_toml(data):
     WHAT: Serialize known scalar fields.
     WHY: tomllib has no writer and a dependency is unjustifiable for
     eleven keys; emitting `key = "v"` / `key = N` is sufficient.
-    WHY the P1b fields are in the tuples: `_validate` accepts them and
+    WHY these fields are in the tuples: `_validate` accepts them and
     enroll always builds them, but a whitelist that forgot them would
     silently drop an operator's `--no-manage-nginx` (or a custom cert
     dir/service/group) on the round-trip to agent.toml.

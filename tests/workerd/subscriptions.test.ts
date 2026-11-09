@@ -1,7 +1,7 @@
 /**
  * Subscriptions: the capability URL and its body.
  *
- * The M6 done-when made testable (docs/M6-PLAN.md): a rotatable sub_token;
+ * Covered: a rotatable sub_token;
  * /sub/{token} returning base64 of the newline-joined link list across
  * every node with each link carrying its own node's address; disabled or
  * expired users getting an empty body rather than an error; and adding

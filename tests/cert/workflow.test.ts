@@ -1,6 +1,6 @@
 /**
  * Workflow orchestration tests via `introspectWorkflowInstance` (the reason
- * the vitest plugin had to be upgraded for P1b): mock each step, run the
+ * the vitest plugin had to be upgraded): mock each step, run the
  * real instance, verify the D1 run is finalized and cleanup runs.
  *
  * The step names here pin the orchestration contract: phase steps are

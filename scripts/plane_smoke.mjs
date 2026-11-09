@@ -1,17 +1,18 @@
 /**
- * WHAT: read-only acceptance checks for the deployed P1a plane.
+ * WHAT: read-only smoke checks for a deployed plane (health, auth,
+ * subscription bytes, REALITY link parameters).
  *
- * WHY a script and not curl-by-hand: the P1a gates repeat after every
- * restart/recovery drill (P1a.7), and the checks are coupled — sub bytes
+ * WHY a script and not curl-by-hand: these gates repeat after every
+ * restart/recovery drill, and the checks are coupled — sub bytes
  * must equal the links' URIs exactly, and the URI must carry every REALITY
  * parameter. Manual curling drifts; this either prints PASS lines or a
  * FAIL with the parameter name, and never prints a credential (no admin
  * key, no sub token, no URI, no uuid).
  *
  * Usage:
- *   node scripts/p1a_smoke.mjs --host https://cp.example.com \
- *     --admin-key-file .env.production --node tokyo01 --user alice \
- *     --expect-sni www.microsoft.com
+ *   node scripts/plane_smoke.mjs --host https://cp.example.com \
+ *     --admin-key-file .env.production --node <node-id> --user <username> \
+ *     --expect-sni <node-domain>
  */
 
 import { readFileSync } from "node:fs";

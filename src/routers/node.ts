@@ -31,7 +31,7 @@ import * as certService from "../cert/service";
  * WHY the constant lives here: both repos implement this number, and the
  * agent's zero-code-change guarantee against the plane depends on it not
  * drifting silently. Bumping it means editing this module, the agent, and
- * docs/PROTOCOL.md together. Protocol 2 (P1b): the certificate endpoint,
+ * docs/PROTOCOL.md together. Protocol 2: the certificate endpoint,
  * the cert stage report, and the renamed node-identity header.
  */
 export const PROTOCOL_VERSION = 2;

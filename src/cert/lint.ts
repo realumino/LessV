@@ -83,7 +83,8 @@ export function realityInbounds(
  * WHAT: return true when `dest` is the loopback form `127.0.0.1:<port>`.
  *
  * WHY the prefix is exact: self-steal means nginx on the same host; a
- * public `dest` is the P1a fixture the preset replaces and must be flagged.
+ * public `dest` is the temporary fixture the preset replaces and must be
+ * flagged.
  */
 export function destIsLoopback(dest: unknown): boolean {
   return typeof dest === "string" && /^127\.0\.0\.1:\d+$/.test(dest);

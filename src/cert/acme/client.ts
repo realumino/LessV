@@ -202,9 +202,9 @@ export class AcmeClient {
     await this.ensureAccount();
     const directory = await this.getDirectory();
     // Fail closed when a named profile is requested: the CA either
-    // advertises it in directory.meta.profiles or the order is not sent
-    // (P1B-PLAN.md §3.4) — silently omitting the field would issue a
-    // different certificate lifetime than the domain row promises.
+    // advertises it in directory.meta.profiles or the order is not sent,
+    // because silently omitting the field would issue a different
+    // certificate lifetime than the domain row promises.
     if (profile !== undefined) {
       const profiles = directory.meta?.profiles;
       if (!isObject(profiles) || !(profile in profiles)) {

@@ -2,7 +2,7 @@
  * Seal and open REALITY private keys at rest.
  *
  * WHY this module exists: the plane owns every private key it seals —
- * REALITY keys, certificate leaf keys, and ACME account keys (P1b) — and
+ * REALITY keys, certificate leaf keys, and ACME account keys — and
  * they are stored as AES-256-GCM ciphertext (`crypto.ts`,
  * `v1:<base64(iv || ct+tag)>`) with the key held in the Worker secret
  * `KEY_SECRET`. A database dump then yields only ciphertext — that

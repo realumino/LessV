@@ -40,7 +40,7 @@ export type NodeRow = {
   agent_version: string | null;
   xray_version: string | null;
   last_error: string | null;
-  /** Agent-reported nginx health (P1b): NULL unknown, 0 failed, 1 ok. */
+  /** Agent-reported nginx health: NULL unknown, 0 failed, 1 ok. */
   nginx_ok: number | null;
   nginx_error: string | null;
   /** The certificate-manifest ETag the node last synced successfully. */
@@ -56,7 +56,7 @@ export type UserRow = {
   status: string;
   expire: number | null;
   note: string | null;
-  /** The subscription capability token, plaintext (docs/M6-PLAN.md). */
+  /** The subscription capability token, plaintext. */
   sub_token: string | null;
   sub_token_created_at: number | null;
   created_at: number;
@@ -312,7 +312,7 @@ export async function touchNode(
 /**
  * WHAT: store one node's agent-reported certificate/nginx status columns.
  *
- * WHY a separate setter from `touchNode`: the cert stage report (P1b) must
+ * WHY a separate setter from `touchNode`: the cert stage report must
  * not touch `applied_hash`/`health`/`last_error` — a `stage=cert` report
  * carries nginx/cert facts only, and one statement per concern keeps that
  * separation mechanically true. `cert_etag` is stored in the quoted form

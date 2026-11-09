@@ -105,7 +105,7 @@ adminUsers.delete("/api/admin/users/:username", async (c) => {
  * new token is stored, so a leaked URL is fixed with one POST. Same posture
  * as the node token mint, but the value is displayed (never hashed) because
  * the subscription URL is the product — it must stay re-displayable — and
- * its 256 bits of entropy make the plaintext column safe (docs/M6-PLAN.md).
+ * its 256 bits of entropy make the plaintext column safe.
  */
 adminUsers.post("/api/admin/users/:username/sub-token", async (c) => {
   const token = await userService.rotateSubToken(

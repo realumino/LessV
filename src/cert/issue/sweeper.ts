@@ -1,6 +1,5 @@
 /**
- * Daily-cron cleanup for state the normal pipeline could not finish
- * (P1B-PLAN.md §3.3):
+ * Daily-cron cleanup for state the normal pipeline could not finish:
  *
  * - production non-current certificates whose R2 objects still exist
  *   (purge-previous is best-effort) → delete objects, mark purged, keep the row;

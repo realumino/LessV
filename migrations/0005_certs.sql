@@ -1,4 +1,4 @@
--- P1b: certificate subsystem tables (P1B-PLAN.md §3.1).
+-- Certificate subsystem tables.
 --
 -- WHY no foreign keys: migrations 0001-0004 in this project declare none, and
 -- deletion order (domain -> runs -> challenges -> assignments) is handled

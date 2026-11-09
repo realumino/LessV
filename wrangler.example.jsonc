@@ -41,7 +41,7 @@
     }
   ],
 
-  // P1b: certificate artifacts live in one bucket; the workflow runs the
+  // Certificate artifacts live in one bucket; the workflow runs the
   // issuance steps on a schedule. The cron is UTC 03:17 daily and only
   // touches production certificates.
   "r2_buckets": [{ "binding": "CERTS", "bucket_name": "lessv-certs" }],

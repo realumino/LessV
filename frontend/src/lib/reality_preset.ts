@@ -2,7 +2,7 @@
  * The REALITY self-steal preset generator.
  *
  * WHY a pure function and not a component: the preset is a documented
- * structure (PLAN.md appendix A) whose only judgment calls are defaults
+ * structure whose only judgment calls are defaults
  * and warnings; testing it without a browser keeps the contract honest,
  * and the dialog stays a thin field collector.
  */

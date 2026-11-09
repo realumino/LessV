@@ -13,7 +13,7 @@
 /**
  * WHAT: the script of a test-only worker that intercepts every outbound
  * request (via miniflare's `outboundService`) and answers the offline
- * zone/TXT API the certificate flows call. P1b.4: the plugin has no fetch
+ * zone/TXT API the certificate flows call. The plugin has no fetch
  * mock, so outbound interception is the only hermetic way to exercise
  * zone-dependent endpoints over HTTP.
  */
@@ -86,10 +86,10 @@ export default defineConfig({
           ],
           bindings: {
             TEST_MIGRATIONS: migrations,
-            // Test-only fixed secrets (P0.3): the suite runs hermetically —
+            // Test-only fixed secrets: the suite runs hermetically —
             // no .dev.vars, no operator values. Production secrets come
             // from `wrangler secret` / --secrets-file only. CF_DNS_API_TOKEN
-            // (P1b): every DNS call is mocked in tests, so a placeholder
+            // Also fixed: every DNS call is mocked in tests, so a placeholder
             // keeps the binding shape real without network access.
             KEY_SECRET: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
             ADMIN_KEY: "test-admin-key",

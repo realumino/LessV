@@ -1,5 +1,5 @@
 /**
- * Zod schemas for the certificate admin API (P1B-PLAN.md §4.1).
+ * Zod schemas for the certificate admin API.
  *
  * WHY here and not in src/models.ts: src/models.ts describes the
  * node/user/link resources this plane owns end to end; the certificate

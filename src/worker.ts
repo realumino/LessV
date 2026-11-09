@@ -1,6 +1,6 @@
 /**
  * Worker entrypoint: the Hono app, plus the certificate cron and the
- * issuance Workflow class (P1b).
+ * issuance Workflow class.
  *
  * WHY the app is a valid module Worker as-is: a Hono instance exposes a
  * `fetch(request, env, ctx)` method, which is exactly workerd's ES module

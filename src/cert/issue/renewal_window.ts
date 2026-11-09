@@ -1,5 +1,5 @@
 /**
- * Renewal-window rule (P1B-PLAN.md §3.4): renew at
+ * Renewal-window rule: renew at
  * `not_after - max(1 day, floor(lifetime / 3))`, or `renew_before_days`
  * when the domain row overrides it. A domain with no current production
  * certificate is always due.

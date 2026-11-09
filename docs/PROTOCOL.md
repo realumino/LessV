@@ -1,7 +1,7 @@
 # Cloud API — pull contract v2
 
-The agent ↔ plane contract. Protocol 1 was the P0/P1a pull contract
-(`X-Lesserv-Node`); protocol 2 (P1b) adds the certificate endpoint, the
+The agent ↔ plane contract. Protocol 1 was the original pull contract
+(`X-Lesserv-Node`); protocol 2 adds the certificate endpoint, the
 `stage: "cert"` report, and renames the node-identity header to
 `X-Lessv-Node`. There are no deployed protocol-1 agents to stay compatible
 with; every agent in this repository has spoken protocol 2 since 0.2.1.

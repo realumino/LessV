@@ -3,7 +3,7 @@
  *
  * WHY two environments as constants, not Worker vars: staging and
  * production are distinct ACME accounts with distinct directories, and the
- * whole P1b design (§3.3) treats them as fixed facts of the deployment —
+ * design treats them as fixed facts of the deployment —
  * a variable would invite pointing production at staging by accident.
  */
 

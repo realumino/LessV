@@ -5,7 +5,7 @@
  * dialog and the user edit page), and owning its fetch plus its token state
  * means rotation behaves identically everywhere with no parent plumbing.
  * The token is a capability URL, re-displayable by design (plaintext at
- * rest, docs/M6-PLAN.md) — this card is the only place the SPA shows it.
+ * rest) — this card is the only place the SPA shows it.
  */
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";

@@ -1,8 +1,8 @@
 /**
- * WHAT: read-only acceptance checks for the deployed P1b/P1c plane
- * (certificates, nginx state, subscription), P1C-PLAN.md §5 P1c.3.
+ * WHAT: read-only acceptance checks for a deployed plane (certificates,
+ * nginx state, subscription).
  *
- * WHY a script and not curl-by-hand: the P1c gates repeat after every
+ * WHY a script and not curl-by-hand: these gates repeat after every
  * renewal/agent upgrade, and the checks are coupled — the node's cert list
  * must match the assigned domain's production current, the subscription
  * bytes must equal the admin links, and every URI must carry the REALITY
@@ -14,9 +14,9 @@
  * the script performs GET requests only.
  *
  * Usage:
- *   node scripts/p1c_accept.mjs --host https://cp.example.com \
- *     --admin-key-file .env.production --node tokyo01 --user alice \
- *     --domain tokyo01.example.com --fingerprint <sha256-hex> [--renew]
+ *   node scripts/plane_accept.mjs --host https://cp.example.com \
+ *     --admin-key-file .env.production --node <node-id> --user <username> \
+ *     --domain <cert-domain> --fingerprint <sha256-hex> [--renew]
  *
  * Exit codes: 0 all checks pass, 1 some check failed, 2 bad arguments.
  */
@@ -35,7 +35,7 @@ const RENEW_PULL_TIMEOUT_MS = 4 * 60 * 1000;
 
 function usage() {
   console.error(
-    "usage: node scripts/p1c_accept.mjs --host <url> --admin-key-file <path>\n" +
+    "usage: node scripts/plane_accept.mjs --host <url> --admin-key-file <path>\n" +
       "  --node <id> --user <username> --domain <name> --fingerprint <hex> [--renew]",
   );
   process.exit(2);
