@@ -31,6 +31,7 @@ agent/          lessv_agent（Python）+ systemd + install.sh + pytest
 tests/          workerd 集成测试 + pure 单元测试
 scripts/        wrangler 配置引导 + deploy.mjs
 docs/           PROTOCOL（pull 契约 v2）+ OPERATIONS（证书/nginx 运维）
+AGENTS.md       Agent 工作约定（公开/本地边界、验证基线、不变量）
 ```
 
 ## 本地开发
