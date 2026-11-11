@@ -12,7 +12,7 @@
 # Usage:
 #   ./install.sh --cp <control-plane-url> --node <node-id>
 #   ./install.sh --cp <url> --node <id> --token-file <path>
-#   ./install.sh --version 0.3.0 --cp <url> --node <id>
+#   ./install.sh --version 0.4.0 --cp <url> --node <id>
 #
 # The token is read from a hidden prompt (or a 0600 file) and piped to the
 # binary on stdin; it never appears in argv, the environment, or a log.
