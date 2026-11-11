@@ -141,6 +141,66 @@ describe("linksForUser", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("forces the chrome fingerprint and says so when the config disagrees", () => {
+    // A REALITY client's uTLS profile decides whether the hybrid
+    // post-quantum group is offered; anything but chrome can fail the
+    // handshake, so the link always carries chrome.
+    const config = shareConfig();
+    const reality = (config.inbounds as Record<string, unknown>[])[0][
+      "streamSettings"
+    ] as Record<string, unknown>;
+    reality["realitySettings"] = {
+      ...(reality["realitySettings"] as Record<string, unknown>),
+      settings: { fingerprint: "firefox", spiderX: "/" },
+    };
+
+    const [links, warnings] = linksForUser(
+      shareUser(["REALITY_IN"]),
+      config,
+      "example.com",
+    );
+
+    expect(links[0]["uri"]).toContain("fp=chrome");
+    expect(links[0]["uri"]).not.toContain("fp=firefox");
+    expect(warnings).toContain(
+      "inbound 'REALITY_IN': fingerprint 'firefox' replaced with 'chrome' for post-quantum key exchange",
+    );
+  });
+
+  it("carries the chrome fingerprint on plain TLS inbounds too", () => {
+    const config = {
+      inbounds: [
+        {
+          tag: "TLS_IN",
+          protocol: "vless",
+          listen: "0.0.0.0",
+          port: 443,
+          streamSettings: {
+            network: "tcp",
+            security: "tls",
+            tlsSettings: { serverName: "cdn.example.com", alpn: ["h2"] },
+          },
+        },
+      ],
+      outbounds: [{ tag: "JAPAN", protocol: "freedom" }],
+    };
+    const [links] = linksForUser(shareUser(["TLS_IN"]), config, "example.com");
+    expect(links[0]["uri"]).toContain("security=tls");
+    expect(links[0]["uri"]).toContain("fp=chrome");
+  });
+
+  it("lets a link variant override the fingerprint deliberately", () => {
+    const [links] = linksForUser(
+      shareUser(["REALITY_IN"]),
+      shareConfig(),
+      "example.com",
+      null,
+      { REALITY_IN: [{ id: "alt", label: "Alt", overrides: { fp: "safari" } }] },
+    );
+    expect(links[0]["uri"]).toContain("fp=chrome");
+    expect(links[1]["uri"]).toContain("fp=safari");
+  });
+
   it("derives pbk from the panel's stored key over the config's", () => {
     // RFC 7748 §6.1 Alice's private key — a known-good stand-in
     const alice = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a";

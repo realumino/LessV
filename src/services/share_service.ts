@@ -207,6 +207,13 @@ function transportParams(inbound: Dict): [Dict, string[]] {
  * panel's key is what makes links match what Xray actually serves. The
  * config value remains the fallback so pure callers without a database
  * still work.
+ *
+ * WHY `fp` is always `chrome`: uTLS fingerprints decide whether the client's
+ * ClientHello offers the hybrid post-quantum group. A client that presents
+ * another fingerprint negotiates classically, and REALITY over a
+ * post-quantum-only expectation fails the handshake (Clash/mihomo maps
+ * `fp` directly to its uTLS profile). A link variant can still override
+ * `fp`, which is the deliberate escape hatch.
  */
 function securityParams(
   inbound: Dict,
@@ -231,8 +238,15 @@ function securityParams(
     }
 
     const settings = (reality["settings"] ?? {}) as Dict;
-    const fingerprint = settings["fingerprint"] || reality["fingerprint"];
-    params["fp"] = fingerprint || "chrome";    const privateKey =
+    const declared = settings["fingerprint"] || reality["fingerprint"];
+    params["fp"] = "chrome";
+    if (typeof declared === "string" && declared && declared !== "chrome") {
+      warnings.push(
+        `inbound '${pyStr(inbound["tag"])}': fingerprint '${declared}' ` +
+          "replaced with 'chrome' for post-quantum key exchange",
+      );
+    }
+    const privateKey =
       (realityKeys ?? {})[inbound["tag"] as string] || reality["privateKey"];
     if (privateKey) {
       const publicKey = derivePublicKey(privateKey as string);
@@ -269,9 +283,13 @@ function securityParams(
       params["alpn"] = (tls["alpn"] as string[]).join(",");
     }
     const settings = (tls["settings"] ?? {}) as Dict;
-    const fingerprint = tls["fingerprint"] || settings["fingerprint"];
-    if (fingerprint) {
-      params["fp"] = fingerprint;
+    const declared = tls["fingerprint"] || settings["fingerprint"];
+    params["fp"] = "chrome";
+    if (typeof declared === "string" && declared && declared !== "chrome") {
+      warnings.push(
+        `inbound '${pyStr(inbound["tag"])}': fingerprint '${declared}' ` +
+          "replaced with 'chrome' for post-quantum key exchange",
+      );
     }
   }
 
