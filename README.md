@@ -285,7 +285,7 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 - 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.6.0`（Gitee
   Release `node-v0.6.0`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
   构建：`npm run release:node`）。协议 3。
-- 测试矩阵：Worker 444 passed / 62 files；前端 36 passed；lessv-node 64 Rust 单元测试。
+- 测试矩阵：Worker 445 passed / 62 files；前端 36 passed；lessv-node 64 Rust 单元测试。
 - 未做（候选方向）：nginx 配置面板托管、B 拓扑（TLS/WS/xhttp）、Clash
   订阅、stats/quota、到期通知、多管理员。
 
