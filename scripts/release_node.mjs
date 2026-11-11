@@ -124,14 +124,9 @@ const artifacts = [];
 for (const target of targets) {
   const triple = TARGETS[target];
   console.log(`building lessv-node ${version} for ${target} (${triple})`);
-  run("cargo", [
-    "build",
-    "--release",
-    "--target",
-    triple,
-    "--manifest-path",
-    join(NODE_DIR, "Cargo.toml"),
-  ]);
+  // cwd is the crate so node/.cargo/config.toml (rust-lld + self-contained
+  // musl linking) applies; cargo reads config relative to the invocation dir.
+  run("cargo", ["build", "--release", "--target", triple], { cwd: NODE_DIR });
   const binary = join(NODE_DIR, "target", triple, "release", "lessv-node");
   const magic = readFileSync(binary).subarray(0, 4);
   if (!magic.equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))) {
@@ -152,10 +147,14 @@ for (const target of targets) {
   // The installer and the unit files must be executable/served as-is; the
   // tarball carries them at 0755/0644 exactly like the committed tree.
   const tarball = join(DIST, `${name}.tar.gz`);
-  run("tar", ["-czf", tarball, "-C", stage, name]);
+  // Relative paths on purpose: GNU tar reads an absolute Windows path
+  // ("C:/...") as a remote host and refuses to write the archive.
+  run("tar", ["-czf", `${name}.tar.gz`, "-C", stage.slice(DIST.length + 1), name], {
+    cwd: DIST,
+  });
   rmSync(stage, { recursive: true, force: true });
 
-  const listing = run("tar", ["-tzf", tarball]).trim().split("\n");
+  const listing = run("tar", ["-tzf", `${name}.tar.gz`], { cwd: DIST }).trim().split("\n");
   for (const required of [
     `${name}/lessv-node`,
     `${name}/install.sh`,
