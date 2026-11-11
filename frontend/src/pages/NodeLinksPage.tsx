@@ -385,7 +385,9 @@ function EndpointRow({
         <>
           <span className="text-sm font-semibold">{endpoint.label}</span>
           <span className="font-mono text-xs text-apple-muted">
-            {endpoint.id} · {endpoint.tag}
+            {endpoint.id === endpoint.tag
+              ? endpoint.tag
+              : `${endpoint.id} · ${endpoint.tag}`}
           </span>
           {detail && <span className="text-xs text-apple-muted">{detail}</span>}
           {kind === "block" && <Badge tone="idle">not assignable</Badge>}
