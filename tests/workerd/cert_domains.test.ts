@@ -97,9 +97,10 @@ describe("cert domain CRUD", () => {
     expect(apexWildcard.status).toBe(201);
   });
 
-  it("patches profile, renew days reset, and pause", async () => {
+  it("keeps the fixed profile, resets renew days, and pauses", async () => {
     const domain = await seedDomain();
     const patched = await planeJson("PATCH", `/api/admin/cert-domains/${domain.id}`, {
+      // A legacy client may still send a profile; it is not an input anymore.
       acme_profile: "classic",
       renew_before_days: null,
       status: "paused",
@@ -107,7 +108,7 @@ describe("cert domain CRUD", () => {
     expect(patched.status).toBe(200);
     const body = (await patched.json()) as Record<string, unknown>;
     expect(body).toMatchObject({
-      acme_profile: "classic",
+      acme_profile: "tlsserver",
       renew_before_days: null,
       status: "paused",
     });

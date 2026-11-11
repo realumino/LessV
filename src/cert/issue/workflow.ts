@@ -100,7 +100,7 @@ export class CertificateWorkflow extends WorkflowEntrypoint<Env, IssuePayload> {
           order = await step.do(
             `new-order-${attempt}`,
             NEW_ORDER_CONFIG,
-            async () => createOrder(deps, loaded.domain, loaded.identifiers),
+            async () => createOrder(deps, loaded.identifiers),
           );
 
           await this.phase(step, runId, `publish-txt-${attempt}`);

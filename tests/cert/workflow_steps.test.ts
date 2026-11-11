@@ -73,7 +73,7 @@ describe("issuance workflow steps", () => {
     expect(loaded.identifiers.map(({ value }) => value)).toEqual([domain.name, `*.${domain.name}`]);
 
     await ensureAcmeAccount(deps);
-    const order = await createOrder(deps, loaded.domain, loaded.identifiers);
+    const order = await createOrder(deps, loaded.identifiers);
     const published = await publishTxtChallenges(
       deps,
       runId,
@@ -150,7 +150,7 @@ describe("issuance workflow steps", () => {
     expect(loaded.previousCertificate).toBeNull();
 
     await ensureAcmeAccount(deps);
-    const order = await createOrder(deps, loaded.domain, loaded.identifiers);
+    const order = await createOrder(deps, loaded.identifiers);
     const published = await publishTxtChallenges(deps, runId, loaded.domain, order.authorizations);
     await expect(checkTxtPropagation(deps, published)).resolves.toBe(true);
     await acceptChallenges(deps, published);
@@ -170,7 +170,7 @@ describe("issuance workflow steps", () => {
     const { deps, dns } = makeDependencies({ invalidAuthorization: true });
     const loaded = await loadIssue(deps, runId, domain.id);
     await ensureAcmeAccount(deps);
-    const order = await createOrder(deps, loaded.domain, loaded.identifiers);
+    const order = await createOrder(deps, loaded.identifiers);
     const published = await publishTxtChallenges(deps, runId, loaded.domain, order.authorizations);
     await expect(checkTxtPropagation(deps, published)).resolves.toBe(true);
     await acceptChallenges(deps, published);

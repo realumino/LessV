@@ -190,6 +190,7 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
   重试。
 - **分配**：节点页 Certs tab（`PUT /api/admin/nodes/:id/cert-domains`）按
   证书域名分配，续期后自动跟随，无需重新勾选。
+- **Profile**：固定 `tlsserver`（LE 45 天），面板不再提供 `classic` 选项。
 - **环境**：同一 Certs tab 的 Production/Staging 选择器（等价于
   `PUT /api/admin/nodes/:id` 带 `{"cert_environment":"staging"}`，默认
   production）决定该节点拉哪个环境的 current 证书：同一个分配、两个独立

@@ -110,7 +110,6 @@ function CreateDomainForm({
   const [name, setName] = useState("");
   const [zoneId, setZoneId] = useState("");
   const [wildcard, setWildcard] = useState(false);
-  const [profile, setProfile] = useState("tlsserver");
   const [renewDays, setRenewDays] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -124,7 +123,6 @@ function CreateDomainForm({
       name: name.trim(),
       ...(zoneId ? { zone_id: zoneId } : {}),
       include_wildcard: wildcard,
-      acme_profile: profile,
       renew_before_days: parsedDays !== null && Number.isFinite(parsedDays) ? parsedDays : null,
     });
     setBusy(false);
@@ -171,16 +169,6 @@ function CreateDomainForm({
             </select>
           </Field>
         )}
-        <Field label="ACME profile">
-          <select
-            className={inputClass}
-            value={profile}
-            onChange={(event) => setProfile(event.target.value)}
-          >
-            <option value="tlsserver">tlsserver (45d)</option>
-            <option value="classic">classic (90d)</option>
-          </select>
-        </Field>
         <Field label="Renew days" hint="empty = 1/3 of lifetime">
           <input
             className={inputClass}
@@ -253,7 +241,6 @@ function DomainTable({
             <Th>Domain</Th>
             <Th>Production</Th>
             <Th>Test (staging)</Th>
-            <Th>Profile</Th>
             <Th>Status</Th>
             <Th>Last error</Th>
             <Th>Actions</Th>
@@ -270,9 +257,6 @@ function DomainTable({
               </Td>
               <Td>
                 <ExpiryCell summary={domain.staging_certificate} />
-              </Td>
-              <Td className="font-mono text-xs text-apple-muted">
-                {domain.acme_profile}
               </Td>
               <Td>
                 <Badge

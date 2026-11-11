@@ -213,14 +213,12 @@ export interface CertDomainCreateIn {
   name: string;
   zone_id?: string;
   include_wildcard?: boolean;
-  acme_profile?: string;
   renew_before_days?: number | null;
 }
 
 /** PATCH /api/admin/cert-domains/{id} body (null = reset/unchanged). */
 export interface CertDomainUpdateIn {
   include_wildcard?: boolean | null;
-  acme_profile?: string | null;
   renew_before_days?: number | null;
   status?: string | null;
 }

@@ -11,7 +11,15 @@
 import { z } from "zod";
 
 const DOMAIN_PATTERN = /^(?:\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
-const ACME_PROFILES = ["tlsserver", "classic"] as const;
+/**
+ * WHAT: the one ACME profile this plane requests.
+ *
+ * WHY not a setting: `tlsserver` is the profile Let's Encrypt's short-lived
+ * TLS server certificates use, and it is the only shape the node delivery
+ * path is built for. Offering `classic` as a choice only produced two
+ * lifetimes for the same deliverable, so it is no longer an input.
+ */
+export const ACME_PROFILE = "tlsserver";
 const DOMAIN_STATUSES = ["active", "paused"] as const;
 
 /**
@@ -47,7 +55,6 @@ export const CertDomainCreate = z.object({
     }, { message: "domain must be a lowercase hostname like 'example.com' or '*.example.com'" }),
   zone_id: z.string().trim().min(1).optional(),
   include_wildcard: z.boolean().default(false),
-  acme_profile: z.enum(ACME_PROFILES).default("tlsserver"),
   renew_before_days: z.int().min(1).max(90).nullable().default(null),
 });
 export type CertDomainCreate = z.infer<typeof CertDomainCreate>;
@@ -60,7 +67,6 @@ export type CertDomainCreate = z.infer<typeof CertDomainCreate>;
  */
 export const CertDomainUpdate = z.object({
   include_wildcard: z.boolean().nullable().default(null),
-  acme_profile: z.enum(ACME_PROFILES).nullable().default(null),
   renew_before_days: z.int().min(1).max(90).nullable().default(null),
   status: z.enum(DOMAIN_STATUSES).nullable().default(null),
 });

@@ -7,7 +7,7 @@
  *    constant — there is no `ACME_DIRECTORY` Worker variable to misread.
  * 2. The ACME account private key is sealed in D1 (`acme_accounts`,
  *    `key_cipher.seal`, `v1:` text) instead of R2 + binary envelope.
- * 3. `newOrder` requests the domain row's ACME profile (tlsserver default).
+ * 3. `newOrder` requests the one ACME profile the plane uses (`tlsserver`).
  */
 
 import { NonRetryableError } from "cloudflare:workflows";
@@ -50,6 +50,7 @@ import {
   putCertificateArtifacts,
   putCertificatePrivateKey,
 } from "../store/r2";
+import { ACME_PROFILE } from "../models";
 import { ACME_DIRECTORIES, type AcmeEnvironment } from "./types";
 
 export interface IssueTimings {
@@ -249,20 +250,19 @@ export async function ensureAcmeAccount(deps: IssueDependencies): Promise<AcmeAc
 
 export async function createOrder(
   deps: IssueDependencies,
-  domain: CertDomainRow,
   identifiers: AcmeIdentifier[],
 ): Promise<NewOrderState> {
   const { client } = await loadAcmeAccount(deps);
   let order: AcmeOrder;
   try {
-    order = await client.newOrder(identifiers, domain.acme_profile);
+    order = await client.newOrder(identifiers, ACME_PROFILE);
     if (!sameIdentifiers(order.identifiers, identifiers)) {
       throw new NonRetryableError("ACME order identifiers did not match the requested SANs");
     }
     return {
       orderUrl: order.url,
       authorizations: order.authorizations,
-      profile: order.profile ?? domain.acme_profile,
+      profile: order.profile ?? ACME_PROFILE,
     };
   } catch (error) {
     throwPermanentAcmeError(error);

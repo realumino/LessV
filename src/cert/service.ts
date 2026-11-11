@@ -44,6 +44,7 @@ import { startIssueRun, IssueDomainNotFoundError, IssueDomainNotActiveError } fr
 import type { AcmeEnvironment, IssueTrigger } from "./issue/types";
 import { unseal } from "../services/key_cipher";
 import {
+  ACME_PROFILE,
   CertDomainIssueConfirm,
   normalizedDomainName,
   type CertificateOut,
@@ -166,7 +167,7 @@ export function domainOut(
     path: certPathName(row.name),
     zone_id: row.zone_id,
     include_wildcard: row.include_wildcard === 1,
-    acme_profile: row.acme_profile,
+    acme_profile: ACME_PROFILE,
     renew_before_days: row.renew_before_days,
     status: row.status,
     last_error: row.last_error,
@@ -206,7 +207,7 @@ export async function createDomain(env: Env, input: CertDomainCreate): Promise<C
     name: normalized,
     zone_id: zoneId,
     include_wildcard: includeWildcard ? 1 : 0,
-    acme_profile: input.acme_profile,
+    acme_profile: ACME_PROFILE,
     renew_before_days: input.renew_before_days,
   });
   return await domainOutById(env, id);
@@ -278,7 +279,7 @@ export async function updateDomain(env: Env, id: string, patch: CertDomainUpdate
   }
   await updateCertDomainSettings(env.DB, id, {
     include_wildcard: includeWildcard,
-    acme_profile: patch.acme_profile ?? domain.acme_profile,
+    acme_profile: ACME_PROFILE,
     renew_before_days:
       patch.renew_before_days === null ? null : (patch.renew_before_days ?? domain.renew_before_days),
     status: (patch.status ?? domain.status) as CertDomainStatus,
