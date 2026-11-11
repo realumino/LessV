@@ -12,7 +12,6 @@ import {
   localTagErrors,
   qualifyConfig,
   qualifyKeys,
-  qualifyProfiles,
   qualifyUsers,
   qualifiedInboundTag,
   qualifiedOutboundTag,
@@ -127,26 +126,10 @@ describe("qualifyUsers, qualifyKeys, qualifyProfiles", () => {
     ]);
   });
 
-  it("qualifies stored keys and groups profiles by inbound", () => {
+  it("qualifies stored keys by inbound tag", () => {
     const qualifiedKeys = qualifyKeys({ reality: "k" }, "tokyo01");
-    const grouped = qualifyProfiles(
-      [
-        {
-          id: "b",
-          inbound_tag: "xhttp",
-          label: "B",
-          overrides: { port: 443 },
-        },
-        { id: "a", inbound_tag: "xhttp", label: "A", overrides: {} },
-      ],
-      "tokyo01",
-    );
 
     expect(qualifiedKeys).toEqual({ "reality-tokyo01": "k" });
-    expect(grouped["xhttp-tokyo01"].map((profile) => profile["id"])).toEqual([
-      "a",
-      "b",
-    ]);
   });
 
   it("is idempotent for users and keys", () => {

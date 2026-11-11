@@ -251,10 +251,10 @@ describe("the user admin API", () => {
     await makeUser(user, node);
     const created = await planeJson(
       "POST",
-      `/api/admin/nodes/${node}/link-profiles`,
+      `/api/admin/nodes/${node}/inbound-links`,
       {
         id: "cdn",
-        inbound_tag: "reality",
+        inbound_id: "reality",
         label: "CDN",
         overrides: { address: "cdn.example.com", port: 443 },
       },

@@ -2,7 +2,7 @@
  * The share-link dialog for one user.
  *
  * WHY it fetches its own data: links are a read-only view over existing
- * config, access, key, and profile rows, and the list page does not need
+ * config, access, key, and variant rows, and the list page does not need
  * to own that state. Warnings (a configless node, a disabled user) are
  * shown as-is — they explain an empty or partial list.
  */

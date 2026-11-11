@@ -11,6 +11,7 @@
 import * as db from "../db";
 import type { NodeCreate, NodeOut, NodeUpdate } from "../models";
 import { localTagErrors } from "./qualify_service";
+import { loadRegistry } from "./registry_service";
 
 const REPORTED_MAX_LEN = 255;
 
@@ -136,6 +137,10 @@ export async function listNodesOut(conn: D1Database): Promise<NodeOut[]> {
  * invalid payload: `[false, []]` means 404, `[true, errors]` means 422, and
  * `[true, []]` means the config was saved. Nothing is pushed: each node's
  * agent picks the new render up on its next heartbeat.
+ *
+ * WHY the registry loads right after saving: every endpoint the document
+ * declares must get an id before anything can reference it, and doing it
+ * here means the first render after a paste already resolves.
  */
 export async function saveConfig(
   conn: D1Database,
@@ -151,5 +156,7 @@ export async function saveConfig(
     return [true, errors];
   }
   await db.setNodeConfig(conn, nodeId, payload);
+  node.config_json = payload;
+  await loadRegistry(conn, node);
   return [true, []];
 }

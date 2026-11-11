@@ -208,6 +208,12 @@ export async function syncState(
   } catch (error) {
     lintWarnings = [`cert lint failed: ${error instanceof Error ? error.message : String(error)}`];
   }
+  // A healthy nginx that still reports a message is a degradation, not a
+  // failure (today: the host's OpenSSL cannot negotiate the PQ group). The
+  // message must reach the fleet view or the operator would never learn the
+  // decoy silently fell back to classical key exchange.
+  const nginxWarnings =
+    node.nginx_ok === 1 && node.nginx_error ? [`nginx: ${node.nginx_error}`] : [];
   return {
     node_id: nodeId,
     state: node.last_seen !== null ? "active" : "pending",
@@ -221,7 +227,7 @@ export async function syncState(
     agent_version: node.agent_version,
     xray_version: node.xray_version,
     last_error: node.last_error,
-    warnings: [...warnings, ...lintWarnings],
+    warnings: [...warnings, ...lintWarnings, ...nginxWarnings],
     nginx_ok: node.nginx_ok,
     nginx_error: node.nginx_error,
     cert_synced_at: node.cert_synced_at,

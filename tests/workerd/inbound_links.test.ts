@@ -1,17 +1,16 @@
 /**
- * Tests for the link-profile admin API, over a real plane.
+ * Tests for the inbound-link admin API, over a real plane.
  *
- * Ported from tests/workerd/test_link_profiles.py with its assertions
- * intact. Profiles are validated HTTP resources with their own identity and
- * status codes; profile writes are client-side only and never touch any
- * render path.
+ * Variants are validated HTTP resources with their own identity; they are
+ * attached to a registered inbound id (not its current tag) and are
+ * client-side only — a write never touches any render path.
  */
 
 import { describe, expect, it } from "vitest";
 
 import { planeJson, uid } from "../helpers";
 
-/** WHAT: an authored config with the inbound a CDN-style profile attaches to. */
+/** WHAT: an authored config with one xhttp inbound and one exit. */
 function config(): Record<string, unknown> {
   return {
     inbounds: [
@@ -27,14 +26,11 @@ function config(): Record<string, unknown> {
   };
 }
 
-/** WHAT: a valid CDN-style profile payload. */
-function profile(
-  profileId = "cdn",
-  inbound = "xhttp",
-): Record<string, unknown> {
+/** WHAT: a valid CDN-style variant payload. */
+function variant(linkId = "cdn", inboundId = "xhttp"): Record<string, unknown> {
   return {
-    id: profileId,
-    inbound_tag: inbound,
+    id: linkId,
+    inbound_id: inboundId,
     label: "CDN",
     overrides: {
       address: "cdn.example.com",
@@ -50,8 +46,8 @@ async function body<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
-describe("the link-profile admin API", () => {
-  /** WHAT: create the test's node with a profile-ready config. */
+describe("the inbound-link admin API", () => {
+  /** WHAT: create the test's node with a variant-ready config. */
   async function makeNode(): Promise<string> {
     const node = uid("n");
     const response = await planeJson("POST", "/api/admin/nodes", {
@@ -73,30 +69,30 @@ describe("the link-profile admin API", () => {
     const node = await makeNode();
     const created = await planeJson(
       "POST",
-      `/api/admin/nodes/${node}/link-profiles`,
-      profile(),
+      `/api/admin/nodes/${node}/inbound-links`,
+      variant(),
     );
 
     expect(created.status).toBe(201);
-    const createdBody = await body<{ id: string; inbound_tag: string }>(created);
+    const createdBody = await body<{ id: string; inbound_id: string }>(created);
     expect(createdBody.id).toBe("cdn");
-    expect(createdBody.inbound_tag).toBe("xhttp");
+    expect(createdBody.inbound_id).toBe("xhttp");
     const listed = await planeJson(
       "GET",
-      `/api/admin/nodes/${node}/link-profiles`,
+      `/api/admin/nodes/${node}/inbound-links`,
     );
     expect((await body<{ id: string }[]>(listed)).map((row) => row.id)).toEqual([
       "cdn",
     ]);
     const fetched = await planeJson(
       "GET",
-      `/api/admin/nodes/${node}/link-profiles/cdn`,
+      `/api/admin/nodes/${node}/inbound-links/cdn`,
     );
     expect((await body<{ label: string }>(fetched)).label).toBe("CDN");
 
     const updated = await planeJson(
       "PUT",
-      `/api/admin/nodes/${node}/link-profiles/cdn`,
+      `/api/admin/nodes/${node}/inbound-links/cdn`,
       { label: "CDN Edge", overrides: { address: "edge.example.com" } },
     );
     expect(updated.status).toBe(200);
@@ -104,31 +100,31 @@ describe("the link-profile admin API", () => {
 
     const deleted = await planeJson(
       "DELETE",
-      `/api/admin/nodes/${node}/link-profiles/cdn`,
+      `/api/admin/nodes/${node}/inbound-links/cdn`,
     );
     expect(deleted.status).toBe(204);
     const missing = await planeJson(
       "GET",
-      `/api/admin/nodes/${node}/link-profiles/cdn`,
+      `/api/admin/nodes/${node}/inbound-links/cdn`,
     );
     expect(missing.status).toBe(404);
   });
 
-  it("keeps profile writes client-side only", async () => {
+  it("keeps variant writes client-side only", async () => {
     const node = await makeNode();
     await planeJson(
       "POST",
-      `/api/admin/nodes/${node}/link-profiles`,
-      profile(),
+      `/api/admin/nodes/${node}/inbound-links`,
+      variant(),
     );
     await planeJson(
       "PUT",
-      `/api/admin/nodes/${node}/link-profiles/cdn`,
+      `/api/admin/nodes/${node}/inbound-links/cdn`,
       { label: "CDN Edge" },
     );
     await planeJson(
       "DELETE",
-      `/api/admin/nodes/${node}/link-profiles/cdn`,
+      `/api/admin/nodes/${node}/inbound-links/cdn`,
     );
 
     const response = await planeJson("GET", `/api/admin/nodes/${node}/sync`);
@@ -139,32 +135,32 @@ describe("the link-profile admin API", () => {
     expect(sync.last_seen).toBeNull();
   });
 
-  it("rejects duplicates, unknown inbounds, and missing profiles", async () => {
+  it("rejects duplicates, unknown inbounds, and missing variants", async () => {
     const node = await makeNode();
     await planeJson(
       "POST",
-      `/api/admin/nodes/${node}/link-profiles`,
-      profile(),
+      `/api/admin/nodes/${node}/inbound-links`,
+      variant(),
     );
 
     const duplicate = await planeJson(
       "POST",
-      `/api/admin/nodes/${node}/link-profiles`,
-      profile(),
+      `/api/admin/nodes/${node}/inbound-links`,
+      variant(),
     );
     const unknownInbound = await planeJson(
       "POST",
-      `/api/admin/nodes/${node}/link-profiles`,
-      profile("other", "ghost"),
+      `/api/admin/nodes/${node}/inbound-links`,
+      variant("other", "ghost"),
     );
     const ghostNode = await planeJson(
       "POST",
-      "/api/admin/nodes/ghost/link-profiles",
-      profile(),
+      "/api/admin/nodes/ghost/inbound-links",
+      variant(),
     );
     const missing = await planeJson(
       "GET",
-      `/api/admin/nodes/${node}/link-profiles/ghost`,
+      `/api/admin/nodes/${node}/inbound-links/ghost`,
     );
 
     expect(duplicate.status).toBe(409);
@@ -177,23 +173,23 @@ describe("the link-profile admin API", () => {
     const node = await makeNode();
     const badId = await planeJson(
       "POST",
-      `/api/admin/nodes/${node}/link-profiles`,
-      profile("Bad ID"),
+      `/api/admin/nodes/${node}/inbound-links`,
+      variant("Bad ID"),
     );
     const badLabel = await planeJson(
       "POST",
-      `/api/admin/nodes/${node}/link-profiles`,
-      { ...profile("bad-label"), label: "  " },
+      `/api/admin/nodes/${node}/inbound-links`,
+      { ...variant("bad-label"), label: "  " },
     );
     const badOverride = await planeJson(
       "POST",
-      `/api/admin/nodes/${node}/link-profiles`,
-      { ...profile("bad-override"), overrides: { pbk: "x" } },
+      `/api/admin/nodes/${node}/inbound-links`,
+      { ...variant("bad-override"), overrides: { pbk: "x" } },
     );
     const badValue = await planeJson(
       "POST",
-      `/api/admin/nodes/${node}/link-profiles`,
-      { ...profile("bad-value"), overrides: { port: true } },
+      `/api/admin/nodes/${node}/inbound-links`,
+      { ...variant("bad-value"), overrides: { port: true } },
     );
 
     expect(badId.status).toBe(422);

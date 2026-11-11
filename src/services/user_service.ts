@@ -17,6 +17,7 @@ import type {
   UserOut,
   UserUpdate,
 } from "../models";
+import { loadRegistry } from "./registry_service";
 
 /** WHAT: Unix seconds from the plane's clock (the time authority). */
 export function nowSeconds(): number {
@@ -67,23 +68,24 @@ export function isEntitled(
 }
 
 /**
- * WHAT: return a copy of `uuids` with an entry for every outbound tag.
+ * WHAT: return a copy of `uuids` with an entry for every outbound id.
  *
- * WHY tag-keyed (the archived panel keyed by full email): uuids are stored
- * per (user, node), so the username part of the email would be redundant
- * storage; the render projection rebuilds the email. Existing tags keep
- * their uuid — configs already shared with a user keep working after edits;
- * only genuinely new pairs get a fresh uuid. Pure function, no database,
- * which makes it trivial to test.
+ * WHY keyed by registered outbound id (not tag, not the full email): the
+ * registered id is what survives a tag rename, so a client keeps its uuid
+ * when the operator renames an exit. The username part of the email would
+ * be redundant storage; the render projection rebuilds the email. Existing
+ * ids keep their uuid — configs already shared with a user keep working
+ * after edits; only genuinely new exits get a fresh uuid. Pure function, no
+ * database, which makes it trivial to test.
  */
 export function ensureUuids(
-  outboundTags: string[],
+  outboundIds: string[],
   uuids: Record<string, string>,
 ): Record<string, string> {
   const result = { ...uuids };
-  for (const tag of outboundTags) {
-    if (!Object.hasOwn(result, tag)) {
-      result[tag] = crypto.randomUUID();
+  for (const id of outboundIds) {
+    if (!Object.hasOwn(result, id)) {
+      result[id] = crypto.randomUUID();
     }
   }
   return result;
@@ -127,11 +129,51 @@ export async function listUsersWithAccess(
 }
 
 /**
+ * WHAT: return semantic errors for one access payload, without writing.
+ *
+ * WHY validate at all: access is stored against registered ids, and a
+ * mistyped id would silently render nothing; the blackhole route would look
+ * authorized while every packet it matched was dropped. Both are rejected
+ * with a readable message instead. WHY a config-less node is exempt: a user
+ * may be prepared before the node's config exists — the row is a placeholder
+ * that renders nothing until the config arrives.
+ */
+export async function validateAccess(
+  conn: D1Database,
+  access: Record<string, AccessIn>,
+): Promise<string[]> {
+  const errors: string[] = [];
+  for (const nodeId of Object.keys(access).sort()) {
+    const node = await db.getNode(conn, nodeId);
+    if (node === null || node.config_json === null) {
+      continue;
+    }
+    const entry = access[nodeId] as AccessIn;
+    const registry = await loadRegistry(conn, node);
+    for (const inboundId of entry.allowed_inbounds) {
+      if (!registry.inboundById.has(inboundId)) {
+        errors.push(`${nodeId}: unknown inbound '${inboundId}'`);
+      }
+    }
+    for (const outboundId of entry.allowed_outbounds) {
+      const outbound = registry.outboundById.get(outboundId);
+      if (outbound === undefined) {
+        errors.push(`${nodeId}: unknown outbound '${outboundId}'`);
+      } else if (outbound.kind === "block") {
+        errors.push(
+          `${nodeId}: outbound '${outboundId}' is the block route, not an assignable exit`,
+        );
+      }
+    }
+  }
+  return errors;
+}
+
+/**
  * WHAT: upsert one access row per listed node, minting missing uuids.
  *
- * WHY uuids are merged, not replaced: an existing (user, node, outbound)
- * pair keeps its uuid (stability), only new outbound tags mint one — the
- * archived ensure_uuids rule, applied per node.
+ * WHY uuids are merged, not replaced: an existing (user, node, exit) pair
+ * keeps its uuid (stability), only new registered exits mint one.
  */
 async function writeAccess(
   conn: D1Database,

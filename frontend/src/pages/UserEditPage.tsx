@@ -3,8 +3,8 @@
  *
  * WHY the sections are built from the node list: the admin never types or
  * even sees a qualified name here. Each section is headed by the node's
- * stored label and contains only that node's local tags, which is the M5
- * done-when's "node label as the header, local tags inside".
+ * stored label and contains only that node's registered endpoints, which is
+ * what keeps the payload stable when an operator renames a config tag.
  *
  * WHY the access map is authoritative: a node left unchecked is omitted
  * from the payload, and the server deletes that access row. The pure rules
@@ -28,21 +28,22 @@ import ErrorNote from "../components/ErrorNote";
 import Field from "../components/Field";
 import { inputClass, primaryButton, secondaryButton } from "../components/styles";
 import SubscriptionCard from "../components/SubscriptionCard";
-import type { AccessForm, NodeAccessSection } from "../lib/access";
+import type {
+  AccessForm,
+  EndpointsByNode,
+  NodeAccessSection,
+  NodeEndpoints,
+} from "../lib/access";
 import {
   emptyAccessForm,
   formFromUser,
+  optionsFor,
   toAccessPayload,
   toggleNode,
-  toggleTag,
+  toggleOption,
 } from "../lib/access";
 import { fromLocalInput, toLocalInput } from "../lib/format";
 import type { NodeOut } from "../types";
-
-interface TagsByNode {
-  inbounds: string[];
-  outbounds: string[];
-}
 
 interface GlobalFields {
   status: string;
@@ -58,12 +59,14 @@ const BLANK_GLOBAL: GlobalFields = {
   note: "",
 };
 
+const NO_ENDPOINTS: NodeEndpoints = { inbounds: [], outbounds: [] };
+
 export default function UserEditPage() {
   const { username } = useParams();
   const isEdit = Boolean(username);
   const navigate = useNavigate();
   const [nodes, setNodes] = useState<NodeOut[] | null>(null);
-  const [tags, setTags] = useState<Record<string, TagsByNode>>({});
+  const [endpoints, setEndpoints] = useState<EndpointsByNode>({});
   const [form, setForm] = useState<AccessForm>({});
   const [global, setGlobal] = useState<GlobalFields>(BLANK_GLOBAL);
   const [usernameInput, setUsernameInput] = useState("");
@@ -82,11 +85,11 @@ export default function UserEditPage() {
         return;
       }
       const list = nodeResult.data ?? [];
-      const nodeTags = await loadTags(list);
+      const nodeEndpoints = await loadEndpoints(list);
       if (cancelled) {
         return;
       }
-      setTags(nodeTags);
+      setEndpoints(nodeEndpoints);
       if (isEdit) {
         const userResult = await getUser(username!);
         if (cancelled) {
@@ -96,7 +99,7 @@ export default function UserEditPage() {
           setError(userResult.error ?? "user not found");
           return;
         }
-        setForm(formFromUser(userResult.data, list));
+        setForm(formFromUser(userResult.data, list, nodeEndpoints));
         setGlobal(globalFromUser(userResult.data));
       } else {
         setForm(emptyAccessForm(list));
@@ -163,8 +166,9 @@ export default function UserEditPage() {
           Access by node
         </h2>
         <p className="text-xs text-apple-muted">
-          Each section is one node. The checkboxes are that node's local tags;
-          unchecking membership removes the node's access row on save.
+          Each section is one node. The checkboxes are that node's registered
+          inbounds and exits; unchecking membership removes the node's access
+          row on save. BLOCK is never offered — it is the fallback route.
         </p>
         {nodes.length === 0 ? (
           <EmptyState>No nodes exist yet — create one first.</EmptyState>
@@ -174,10 +178,10 @@ export default function UserEditPage() {
               key={node.id}
               node={node}
               section={form[node.id]}
-              tags={tags[node.id] ?? { inbounds: [], outbounds: [] }}
+              endpoints={endpoints[node.id] ?? NO_ENDPOINTS}
               onToggleNode={() => setForm((current) => toggleNode(current, node.id))}
-              onToggleTag={(list, tag) =>
-                setForm((current) => toggleTag(current, node.id, list, tag))
+              onToggleOption={(list, id) =>
+                setForm((current) => toggleOption(current, node.id, list, id))
               }
             />
           ))
@@ -278,19 +282,19 @@ function GlobalSection({
   );
 }
 
-/** One node's membership and tag checkboxes. */
+/** One node's membership and endpoint checkboxes. */
 function AccessSection({
   node,
   section,
-  tags,
+  endpoints,
   onToggleNode,
-  onToggleTag,
+  onToggleOption,
 }: {
   node: NodeOut;
   section: NodeAccessSection | undefined;
-  tags: TagsByNode;
+  endpoints: NodeEndpoints;
   onToggleNode: () => void;
-  onToggleTag: (list: "inbound" | "outbound", tag: string) => void;
+  onToggleOption: (list: "inbound" | "outbound", id: string) => void;
 }) {
   const authorized = section?.authorized ?? false;
   return (
@@ -314,17 +318,17 @@ function AccessSection({
       </div>
       {authorized && section && (
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
-          <TagList
+          <OptionList
             label="Allowed inbounds"
-            options={tags.inbounds}
+            options={optionsFor("inbound", endpoints, section.allowedInbounds)}
             checked={section.allowedInbounds}
-            onToggle={(tag) => onToggleTag("inbound", tag)}
+            onToggle={(id) => onToggleOption("inbound", id)}
           />
-          <TagList
-            label="Allowed outbounds"
-            options={tags.outbounds}
+          <OptionList
+            label="Allowed exits"
+            options={optionsFor("outbound", endpoints, section.allowedOutbounds)}
             checked={section.allowedOutbounds}
-            onToggle={(tag) => onToggleTag("outbound", tag)}
+            onToggle={(id) => onToggleOption("outbound", id)}
           />
         </div>
       )}
@@ -332,17 +336,17 @@ function AccessSection({
   );
 }
 
-/** A grid of local-tag checkboxes with an empty state. */
-function TagList({
+/** A grid of endpoint checkboxes with an empty state. */
+function OptionList({
   label,
   options,
   checked,
   onToggle,
 }: {
   label: string;
-  options: string[];
+  options: ReturnType<typeof optionsFor>;
   checked: string[];
-  onToggle: (tag: string) => void;
+  onToggle: (id: string) => void;
 }) {
   return (
     <div>
@@ -354,19 +358,26 @@ function TagList({
           None available — the node has no config, or declares none.
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
-          {options.map((tag) => (
+        <div className="grid gap-2">
+          {options.map((option) => (
             <label
-              key={tag}
-              className="flex cursor-pointer items-center gap-2 rounded-xl border border-apple-border px-3 py-2 text-sm hover:border-apple-blue/40"
+              key={option.id}
+              className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:border-apple-blue/40 ${
+                option.missing
+                  ? "border-amber-300 bg-amber-50"
+                  : "border-apple-border"
+              }`}
             >
               <input
                 type="checkbox"
                 className="h-4 w-4 accent-apple-blue"
-                checked={checked.includes(tag)}
-                onChange={() => onToggle(tag)}
+                checked={checked.includes(option.id)}
+                onChange={() => onToggle(option.id)}
               />
-              <span className="font-mono">{tag}</span>
+              <span className="font-semibold">{option.label}</span>
+              <span className="font-mono text-xs text-apple-muted">
+                {option.detail}
+              </span>
             </label>
           ))}
         </div>
@@ -375,8 +386,14 @@ function TagList({
   );
 }
 
-/** Fetch each node's local inbound and outbound tags (503 = no config). */
-async function loadTags(nodes: NodeOut[]): Promise<Record<string, TagsByNode>> {
+/**
+ * WHAT: fetch each node's registered inbounds and exits.
+ *
+ * WHY both calls per node: the editor needs labels and the block flag, and
+ * a 503 (no config) simply yields empty lists — the section then shows its
+ * empty state instead of failing the page.
+ */
+async function loadEndpoints(nodes: NodeOut[]): Promise<EndpointsByNode> {
   const entries = await Promise.all(
     nodes.map(async (node) => {
       const [inboundResult, outboundResult] = await Promise.all([
@@ -386,8 +403,8 @@ async function loadTags(nodes: NodeOut[]): Promise<Record<string, TagsByNode>> {
       return [
         node.id,
         {
-          inbounds: (inboundResult.data ?? []).map((item) => item.tag),
-          outbounds: (outboundResult.data ?? []).map((item) => item.tag),
+          inbounds: inboundResult.data ?? [],
+          outbounds: outboundResult.data ?? [],
         },
       ] as const;
     }),

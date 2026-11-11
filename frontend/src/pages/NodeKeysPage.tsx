@@ -49,16 +49,16 @@ export default function NodeKeysPage() {
     void load();
   }, [load]);
 
-  const rotate = async (tag: string) => {
-    setRotating(tag);
+  const rotate = async (inboundId: string) => {
+    setRotating(inboundId);
     setNotice(null);
-    const result = await rotateNodeRealityKey(nodeId, tag);
+    const result = await rotateNodeRealityKey(nodeId, inboundId);
     setRotating(null);
     if (result.error) {
       setNotice(`Rotate failed: ${result.error}`);
       return;
     }
-    setNotice(`Key rotated for "${tag}". Existing links stop working.`);
+    setNotice(`Key rotated for "${inboundId}". Existing links stop working.`);
     await load();
     await reload();
   };
@@ -107,10 +107,10 @@ export default function NodeKeysPage() {
           <div className="space-y-3">
             {keys.map((key) => (
               <KeyRow
-                key={key.inbound}
+                key={key.inbound_id}
                 row={key}
                 rotating={rotating}
-                onRotate={() => void rotate(key.inbound)}
+                onRotate={() => void rotate(key.inbound_id)}
               />
             ))}
           </div>
@@ -120,7 +120,7 @@ export default function NodeKeysPage() {
   );
 }
 
-/** One REALITY inbound: local tag, derived public key, and its rotation. */
+/** One REALITY inbound: its registered name, derived public key, rotation. */
 function KeyRow({
   row,
   rotating,
@@ -132,8 +132,9 @@ function KeyRow({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-xl border border-apple-border p-3">
-      <span className="min-w-24 text-xs font-semibold uppercase tracking-wide text-apple-muted">
-        {row.inbound}
+      <span className="min-w-24">
+        <span className="block text-sm font-semibold">{row.label}</span>
+        <span className="font-mono text-xs text-apple-muted">{row.tag}</span>
       </span>
       {row.public_key ? (
         <>
@@ -153,10 +154,10 @@ function KeyRow({
       <ConfirmButton
         className={secondaryButton}
         disabled={rotating !== null}
-        message={`Rotate the REALITY key for "${row.inbound}"? Clients using the old key stop working until they re-import.`}
+        message={`Rotate the REALITY key for "${row.label}"? Clients using the old key stop working until they re-import.`}
         onConfirm={onRotate}
       >
-        {rotating === row.inbound ? "Rotating…" : "Rotate"}
+        {rotating === row.inbound_id ? "Rotating…" : "Rotate"}
       </ConfirmButton>
     </div>
   );

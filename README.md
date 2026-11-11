@@ -6,7 +6,8 @@
 
 ## 拓扑
 
-只做拓扑 A：Xray REALITY 监听 443，`dest=127.0.0.1:8443`，证书只属于 nginx 假站点。
+只做拓扑 A：Xray REALITY 监听 443，`dest=/dev/shm/lessv-decoy.sock`（本机 Unix
+socket；旧配置的 `127.0.0.1:8443` 仍兼容），证书只属于 nginx 假站点。
 
 ```
 浏览器 ── /admin ──────────► Worker (Hono SPA)
@@ -17,7 +18,7 @@
                               D1 (migrations/)
 用户 ── /sub/{token} ──► 订阅 ◄── 用户/节点/REALITY/证书
 节点 ── Xray(REALITY 443) ──► lessv-node (Rust, systemd/OpenRC)
-         ▲ nginx 假站点 (8443) │
+         ▲ nginx 假站点 (unix socket) │
          └── 证书 ◄── ACME (DNS-01) ◄── Worker
 ```
 
@@ -26,7 +27,7 @@
 ```
 src/            Worker（Hono 路由 + 服务层）
 frontend/       管理面板 SPA（React + Vite，挂 /admin）
-migrations/     D1 schema（0001–0004 核心，0005–0007 证书）
+migrations/     D1 schema（0001–0004 核心，0005–0007 证书，0008 端点注册表）
 node/           lessv-node（Rust 单二进制）+ install.sh + systemd/OpenRC + Rust 测试
 tests/          workerd 集成测试 + pure 单元测试
 scripts/        wrangler 配置引导 + deploy.mjs
@@ -85,9 +86,11 @@ npm --prefix frontend run dev    # Vite dev server，代理 API 到 :8787
 
 ## 首节点（≤30 分钟）
 
-前提：VPS（Debian 12+/Ubuntu 22.04+/Alpine 3.2x，root SSH，443 与 8443
-空闲，可出站 443 与 GitHub/Gitee）；一个 **DNS only**（proxied 关闭）的 A
-记录指向服务器 IP（REALITY 与 nginx 都必须直连）；面板已部署（上节）。
+前提：VPS（Debian 13+/Ubuntu 25.04+/Alpine 3.22+，root SSH，443 空闲，可出站
+443 与 GitHub/Gitee）；一个 **DNS only**（proxied 关闭）的 A 记录指向服务器
+IP（REALITY 与 nginx 都必须直连）；面板已部署（上节）。发行版的要求来自 TLS
+1.3 + PQ：nginx 链接的 OpenSSL 必须 ≥ 3.5 才能协商 `X25519MLKEM768`；更老的
+发行版仍可运行，但 decoy 会退回 X25519 并在面板的 sync warnings 里说明。
 `install.sh` 负责 nginx、Xray、服务单元与 enroll，计时从第 1 条命令开始，
 到第 6 步的客户端探针成功结束。
 
@@ -108,7 +111,7 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
    GitHub 装 Xray、从发行版仓库装 nginx）：
    ```bash
    ssh root@<server-ip>
-   VERSION=0.3.0; BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
+   VERSION=0.4.0; BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
    case "$(uname -m)" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; esac
    curl -fsSLO $BASE/lessv-node-$VERSION-linux-$ARCH.tar.gz
    curl -fsSLO $BASE/SHA256SUMS
@@ -122,7 +125,8 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
    `install.sh` 装 curl/tar/unzip/ca-certificates、nginx 与 Xray v26.11.9
    （官方 release，`.dgst` 校验）、二进制到 `/usr/local/bin/lessv-node`；
    建 `/etc/lessv`、`/etc/lessv/certs`、`/var/lib/lessv`、
-   `/var/www/lessv-decoy`；写 `lessv-node.service` + `xray.service`
+   `/var/www/lessv-decoy`；写 `lessv-node.service` + `xray.service`（xray 在
+   nginx 之后启动，因为 REALITY 依赖它的 socket）
    （OpenRC 为 `/etc/init.d/lessv-node` + `/etc/init.d/xray`）；删除发行版
    默认 nginx site；写 `/etc/lessv/node.toml`（0600）并 enroll；enable +
    start。重复执行即原位升级：已有 node.toml 时复用 token，不要求重新粘贴。
@@ -131,8 +135,10 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
    -- --targets amd64 --upload` 会创建/复用 tag `node-v<版本>` 的发行版并
    上传 tarball、`install.sh`、`VERSION`、`SHA256SUMS`。）
 3. **写一份 REALITY 配置**：节点页用 **REALITY preset** 按钮生成自偷结构
-   （`dest=127.0.0.1:8443`、`serverNames=[节点域名]`、随机 8 位 `shortId`、
-   chrome fingerprint、vision flow；outbounds 恒为 `BLOCK` + `direct`），
+   （`dest=/dev/shm/lessv-decoy.sock`、`serverNames=[节点域名]`、随机 8 位
+   `shortId`、chrome fingerprint、vision flow；outbounds 恒为
+   `BLOCK` + `direct`）。dest 是 lessv-node 生成的 decoy 的 Unix socket，
+   两端必须一致；只有 nginx 与 Xray 同机时才有意义。
    点 Fill editor 后自己按 Save config。`privateKey` 保持为空：配置时
    `ensureKeys` 生成并注入，私钥永远不会出现在前端。等价的 API 方式：
    ```bash
@@ -195,11 +201,30 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
   tab、fleet 的 `nginx_ok`/`nginx_error`/`cert_synced_at`，以及证书 lint
   警告（如 `serverNames ... is not covered by an assigned certificate`）。
 
+## 端点与链接（节点页 Links tab）
+
+节点配置里的每个 inbound/outbound 都会在保存配置时登记进端点注册表，
+得到稳定的 id（tag 本身合法时 id 就是 tag）：
+
+- **Inbounds**：每一条都要管理，不论是否需要附加设置。inbound 的名称就是
+  它默认链接的备注；额外的 variant（CDN 前置、另一个端口）用同一 id 关联，
+  只覆盖 URI 参数（`address`/`port`/`sni`/`host`/`path`…）。改名与 variant
+  都不进入运行时配置，节点无需重新渲染或重启。
+- **Outbounds**：一行一个出口。`kind` 由配置推导——`blackhole`（或 tag
+  `BLOCK`）是 `block`，`freedom` 是 `direct`，其余 `proxy`。`block` 是未匹配
+  流量的默认路由，永远不能被分配给用户（API 返回 422，用户页不显示）。
+- **tag 改名**：在配置里把 tag 从 `reality` 改成 `reality2` 后，旧行变成
+  orphan（仍持有用户授权、REALITY 私钥与 variants），新 tag 得到一行空记录。
+  在旧行上把 tag 重绑为 `reality2`（PATCH `.../inbounds/<id>`）就会接管那行
+  空记录，授权/密钥/variants 全部保留；被引用的行不会被静默覆盖。
+- orphan 行在没有任何引用、且配置不再声明时可以删除（否则 409 并说明是谁
+  在引用它）。
+
 ## 用户与订阅
 
-- 用户页新建用户，按节点勾选 inbound（如 `reality`）与 outbound——只选
-  `direct` 或管理员自己添加的出口（`BLOCK` 是黑洞默认路由，不是出口）。
-  授权会渲染成该节点的路由规则，fleet applied = desired 后生效。
+- 用户页新建用户，按节点勾选 inbound 与出口——`BLOCK` 不出现，它只是黑洞
+  默认路由。授权按注册表 id 存储，会渲染成该节点的路由规则，fleet
+  applied = desired 后生效。
 - mint 订阅 token 后，订阅地址是 `https://<cp-host>/sub/<token>`：base64
   的 VLESS 链接列表，与用户页 Links 显示完全一致。链接携带
   `security=reality`、`sni=<节点域名>`、`flow=xtls-rprx-vision`、`pbk`、
@@ -219,10 +244,10 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 
 ## 当前状态
 
-- 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.3.0`（Gitee
-  Release `node-v0.3.0`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
+- 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.4.0`（Gitee
+  Release `node-v0.4.0`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
   构建：`npm run release:node`）。
-- 测试矩阵：Worker 397 passed / 56 files；前端 37 passed；lessv-node 35 Rust 单元测试。
+- 测试矩阵：Worker 407 passed / 58 files；前端 41 passed；lessv-node 40 Rust 单元测试。
 - 未做（候选方向）：nginx 配置面板托管、B 拓扑（TLS/WS/xhttp）、Clash
   订阅、stats/quota、到期通知、多管理员。
 
@@ -234,7 +259,12 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
   需要时用一个远期 epoch 替代。
 - 没有节点删除 API：节点行保留作历史。
 - nginx 假站点配置由 lessv-node 按证书清单生成；面板不渲染、不托管它的
-  内容（只有证书域名的 server_name 与路径来自清单）。
+  内容（只有证书域名的 server_name 与路径来自清单）。decoy 同时监听
+  `/dev/shm/lessv-decoy.sock`（默认，REALITY 的 dest）与 `127.0.0.1:8443`
+  （兼容旧配置），不监听 443。
+- decoy 固定 `TLSv1.3` + `X25519MLKEM768:X25519`；链接的 OpenSSL < 3.5 时
+  节点会去掉 PQ 曲线重渲染并上报说明（`nginx_ok=1` + `nginx_error` 文本），
+  不会让证书同步失败。
 - `ADMIN_KEY` 等价 root：持有它即可调用全部 admin API。
 - `KEY_SECRET` 不可轮换——换掉它，历史节点密钥全部不可读。
 - REALITY preset 发出的黑洞 outbound tag 是大写 `BLOCK`。早期 preset

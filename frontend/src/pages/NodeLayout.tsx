@@ -2,13 +2,13 @@
  * The node detail shell: header facts plus one tab per node-scoped view.
  *
  * WHY a layout route: the header facts are fetched once and shared by the
- * config, keys, users, and profiles tabs, so switching tabs never refetches
+ * config, keys, users, and links tabs, so switching tabs never refetches
  * the node, and every tab is a real refreshable child URL
  * (/admin/nodes/tokyo01/config — the M5 done-when's example).
  *
  * WHY the child context exposes reload: a mutation on any tab (save a
- * config, rotate a key, add a profile) changes the header's drift view, and
- * the tab asks the shell to refetch instead of duplicating that logic.
+ * config, rotate a key, rename an inbound) changes the header's drift view,
+ * and the tab asks the shell to refetch instead of duplicating that logic.
  */
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
@@ -96,7 +96,7 @@ export default function NodeLayout() {
         <Tab to="keys">Keys</Tab>
         <Tab to="certs">Certs</Tab>
         <Tab to="users">Users</Tab>
-        <Tab to="profiles">Profiles</Tab>
+        <Tab to="links">Links</Tab>
       </nav>
       <Outlet
         context={{
@@ -147,7 +147,7 @@ function NodeHeader({
   return (
     <div className="space-y-3 rounded-2xl border border-apple-border bg-apple-card p-4 shadow-sm">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-lg font-bold">{node.label}</h1>
+        <EditableName node={node} onSaved={onRefresh} />
         <span className="font-mono text-xs text-apple-muted">{node.id}</span>
         {sync && (
           <Badge tone={STATE_TONE[fleetState(sync)]}>
@@ -172,7 +172,7 @@ function NodeHeader({
         <Fact
           label="Domain"
           value={<EditableDomain node={node} onSaved={onRefresh} />}
-          hint="Optional public domain for share links — profiles can add more."
+          hint="Optional public domain for share links — variants can add more."
         />
         <Fact
           label="Reported IP"
@@ -288,6 +288,92 @@ function EditableDomain({
           Save
         </button>
         <button type="button" className={secondaryButton} onClick={close}>
+          Cancel
+        </button>
+      </span>
+      {error && <ErrorNote>{error}</ErrorNote>}
+    </span>
+  );
+}
+
+/**
+ * The node's display name: an h1 with an inline rename.
+ *
+ * WHY here and not on a settings page: the name is the fleet's only label
+ * for this node, and renaming is a one-field edit the admin expects to make
+ * where the name is shown. The id stays put — it is the identity every
+ * qualified tag and the node's own token row carry.
+ */
+function EditableName({ node, onSaved }: { node: NodeOut; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(node.label);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (saving) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const result = await updateNode(node.id, { label: value.trim() });
+    setSaving(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setEditing(false);
+    onSaved();
+  };
+
+  if (!editing) {
+    return (
+      <span className="flex items-center gap-2">
+        <h1 className="text-lg font-bold">{node.label}</h1>
+        <button
+          type="button"
+          className="text-xs text-apple-blue transition-colors hover:text-apple-blue-hover"
+          onClick={() => {
+            setValue(node.label);
+            setError(null);
+            setEditing(true);
+          }}
+        >
+          Rename
+        </button>
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-col gap-1.5">
+      <span className="flex items-center gap-2">
+        <input
+          className={`${inputClass} w-52`}
+          value={value}
+          autoFocus
+          placeholder="Tokyo 01"
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              void save();
+            } else if (event.key === "Escape") {
+              setEditing(false);
+            }
+          }}
+        />
+        <button
+          type="button"
+          className={primaryButton}
+          disabled={saving}
+          onClick={() => void save()}
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          className={secondaryButton}
+          onClick={() => setEditing(false)}
+        >
           Cancel
         </button>
       </span>

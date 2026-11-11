@@ -29,6 +29,7 @@ import {
   qualifyUsers,
 } from "./qualify_service";
 import { ensureKeys } from "./reality_service";
+import { loadRegistry, type Registry } from "./registry_service";
 
 /** WHAT: a JSON object carrying authored or rendered config data. */
 type Dict = Record<string, unknown>;
@@ -54,29 +55,66 @@ function isDict(value: unknown): value is Dict {
 
 /**
  * WHAT: project one access row into the archived user dict the pure core
- * expects.
+ * expects, resolving registered ids to the config's current tags.
  *
- * WHY the email is rebuilt here: storage keys uuids by local outbound tag
- * (per the locked data model); `buildConfig` and the allocator look clients
- * up by client email (`username@outboundtag`). `qualifyUsers` rewrites
- * exactly this line — the stored key and the pure core never change.
+ * WHY the email is rebuilt here: storage keys uuids by registered outbound
+ * id (so a tag rename keeps them), while `buildConfig` and the allocator
+ * look clients up by client email (`username@outboundtag`). `qualifyUsers`
+ * rewrites exactly this line — the stored key and the pure core never
+ * change.
+ *
+ * WHY unresolvable ids are warnings and not failures: the access row may
+ * predate a config edit, and one stale reference must not stop the rest of
+ * the render. The warning is what surfaces the drift to the admin.
  */
 export function userShape(
   username: string,
   status: string,
   accessRow: db.AccessRow,
-): ProjectedUser {
-  const uuids: Record<string, string> = {};
-  for (const [tag, uuid] of Object.entries(accessRow.uuids)) {
-    uuids[`${username}@${tag}`] = uuid;
+  registry: Registry,
+): [ProjectedUser, string[]] {
+  const warnings: string[] = [];
+  const allowedInbounds: string[] = [];
+  for (const id of accessRow.allowed_inbounds) {
+    const inbound = registry.inboundById.get(id);
+    if (inbound === undefined) {
+      warnings.push(`access references unknown inbound '${id}'`);
+      continue;
+    }
+    allowedInbounds.push(inbound.tag);
   }
-  return {
-    username,
-    status,
-    allowed_inbounds: accessRow.allowed_inbounds,
-    allowed_outbounds: accessRow.allowed_outbounds,
-    uuids,
-  };
+  const allowedOutbounds: string[] = [];
+  for (const id of accessRow.allowed_outbounds) {
+    const outbound = registry.outboundById.get(id);
+    if (outbound === undefined) {
+      warnings.push(`access references unknown outbound '${id}'`);
+      continue;
+    }
+    if (outbound.kind === "block") {
+      warnings.push(`outbound '${id}' is the block route and was dropped`);
+      continue;
+    }
+    allowedOutbounds.push(outbound.tag);
+  }
+  const uuids: Record<string, string> = {};
+  for (const [id, uuid] of Object.entries(accessRow.uuids)) {
+    const outbound = registry.outboundById.get(id);
+    if (outbound === undefined) {
+      warnings.push(`uuid for unknown outbound '${id}' was dropped`);
+      continue;
+    }
+    uuids[`${username}@${outbound.tag}`] = uuid;
+  }
+  return [
+    {
+      username,
+      status,
+      allowed_inbounds: allowedInbounds,
+      allowed_outbounds: allowedOutbounds,
+      uuids,
+    },
+    warnings,
+  ];
 }
 
 /**
@@ -91,20 +129,31 @@ export function userShape(
 export async function nodeUsers(
   conn: D1Database,
   nodeId: string,
-): Promise<ProjectedUser[]> {
+  registry: Registry,
+): Promise<[ProjectedUser[], string[]]> {
   const rows = await db.listAccessForNode(conn, nodeId);
   const users = new Map(
     (await db.listUsers(conn)).map((user) => [user.username, user]),
   );
   const projected: ProjectedUser[] = [];
+  const warnings: string[] = [];
   for (const row of rows) {
     const user = users.get(row.username);
     if (user === undefined) {
       continue;
     }
-    projected.push(userShape(row.username, user.status, row));
+    const [shape, shapeWarnings] = userShape(
+      row.username,
+      user.status,
+      row,
+      registry,
+    );
+    projected.push(shape);
+    for (const warning of shapeWarnings) {
+      warnings.push(`${row.username}: ${warning}`);
+    }
   }
-  return projected;
+  return [projected, warnings];
 }
 
 /**
@@ -158,16 +207,30 @@ export async function desiredConfig(
     return [null, []];
   }
   const config = node.config_json;
-  const users = await nodeUsers(env.DB, nodeId);
   try {
     assertRenderableShape(config);
-    const keys = await ensureKeys(env, nodeId, config);
+    const registry = await loadRegistry(env.DB, node);
+    const [users, userWarnings] = await nodeUsers(env.DB, nodeId, registry);
+    const keys = await ensureKeys(env, nodeId, registry);
+    // The runtime config keys REALITY by tag (Xray's own vocabulary); the
+    // registry keys it by id. One translation here keeps every other layer
+    // free of the second namespace.
+    const tagKeys: Record<string, string> = {};
+    for (const [inboundId, privateKey] of Object.entries(keys)) {
+      const inbound = registry.inboundById.get(inboundId);
+      if (inbound !== undefined) {
+        tagKeys[inbound.tag] = privateKey;
+      }
+    }
     const qualifiedConfig = qualifyConfig(config, nodeId) as Dict;
     const qualifiedUsers = qualifyUsers(users, nodeId) as User[];
-    const qualifiedKeys = qualifyKeys(keys, nodeId) as Record<string, string>;
+    const qualifiedKeys = qualifyKeys(tagKeys, nodeId) as Record<string, string>;
     const [runtime, warnings] = buildConfig(qualifiedConfig, qualifiedUsers);
     const realityWarnings = applyRealityKeys(runtime, qualifiedKeys);
-    return [runtime, [...warnings, ...realityWarnings]];
+    return [
+      runtime,
+      [...registry.warnings, ...userWarnings, ...warnings, ...realityWarnings],
+    ];
   } catch (error) {
     if (!(error instanceof TypeError)) {
       throw error;

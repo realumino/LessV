@@ -19,8 +19,6 @@
  * qualification must leave such names unchanged.
  */
 
-import { compareCodePoints } from "../core/python_json";
-
 /** WHAT: a JSON object being rewritten in place or copied. */
 type Dict = Record<string, unknown>;
 
@@ -424,75 +422,6 @@ export function qualifyKeys(
     qualified[qualifiedInboundTag(tag, nodeId) as string] = value;
   }
   return qualified;
-}
-
-/**
- * WHAT: sort one profile id the way Python's `entry.get("id") or ""` does.
- *
- * WHY: missing and falsy ids sort as the empty string; the ids are stored
- * UUID strings in practice.
- */
-function profileSortKey(value: unknown): string | number {
-  return (value as string | number) || "";
-}
-
-/**
- * WHAT: compare two profile entries by their sort keys.
- *
- * WHY: profile order inside one inbound must be stable for deterministic
- * link output; JS sort is stable, so only the key matters.
- */
-function compareProfiles(left: Dict, right: Dict): number {
-  const a = profileSortKey(left["id"]);
-  const b = profileSortKey(right["id"]);
-  if (a < b) {
-    return -1;
-  }
-  if (a > b) {
-    return 1;
-  }
-  return 0;
-}
-
-/**
- * WHAT: group link profiles by qualified inbound tag for link generation.
- *
- * WHY the grouping shape: links are generated from the qualified config,
- * while profiles are stored against local inbound tags. Grouping once lets
- * the link loop find every variant for the current inbound directly, and
- * sorting keys keeps output deterministic across engines.
- */
-export function qualifyProfiles(
-  profiles: unknown[] | null | undefined,
-  nodeId: string,
-): Record<string, Dict[]> {
-  const grouped: Record<string, Dict[]> = {};
-  for (const profile of profiles ?? []) {
-    if (!isDict(profile)) {
-      continue;
-    }
-    const inbound = profile["inbound_tag"];
-    if (typeof inbound !== "string" || !inbound) {
-      continue;
-    }
-    const entry: Dict = {
-      id: profile["id"],
-      label: profile["label"],
-      overrides: isDict(profile["overrides"])
-        ? { ...profile["overrides"] }
-        : {},
-    };
-    const key = qualifiedInboundTag(inbound, nodeId) as string;
-    (grouped[key] ??= []).push(entry);
-  }
-  for (const entries of Object.values(grouped)) {
-    entries.sort(compareProfiles);
-  }
-  const sorted: Record<string, Dict[]> = {};
-  for (const key of Object.keys(grouped).sort(compareCodePoints)) {
-    sorted[key] = grouped[key];
-  }
-  return sorted;
 }
 
 /**

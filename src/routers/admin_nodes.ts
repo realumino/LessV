@@ -12,11 +12,18 @@
 import { Hono } from "hono";
 
 import * as db from "../db";
-import { ApiError, NodeCreate, NodeUpdate, parseJsonBody, parseJsonObject } from "../models";
-import { inboundSummaries, outboundSummaries } from "../services/config_service";
+import {
+  ApiError,
+  EndpointUpdate,
+  NodeCreate,
+  NodeUpdate,
+  parseJsonBody,
+  parseJsonObject,
+} from "../models";
 import * as nodeService from "../services/node_service";
 import * as nodeStateService from "../services/node_state_service";
 import * as nodeTokenService from "../services/node_token_service";
+import { loadRegistry, deleteInbound, deleteOutbound, updateInbound, updateOutbound } from "../services/registry_service";
 import * as renderService from "../services/render_service";
 
 export const adminNodes = new Hono<{ Bindings: Env }>();
@@ -50,25 +57,6 @@ async function configOr404(
   const node = await nodeOr404(env, nodeId);
   if (node.config_json === null) {
     throw new ApiError(404, "config not found");
-  }
-  return node.config_json;
-}
-
-/**
- * WHAT: like `configOr404` but throws 503, matching the archived tag
- * endpoints.
- *
- * WHY 503 here: "zero inbounds" and "config missing" are different states,
- * and the checkbox lists must not render an empty list as if the admin's
- * config had no inbounds.
- */
-async function configOr503(
-  env: Env,
-  nodeId: string,
-): Promise<Record<string, unknown>> {
-  const node = await nodeOr404(env, nodeId);
-  if (node.config_json === null) {
-    throw new ApiError(503, "config not loaded for this node");
   }
   return node.config_json;
 }
@@ -214,16 +202,112 @@ adminNodes.get("/api/admin/nodes/:node_id/sync", async (c) => {
   return c.json(state);
 });
 
-/** WHAT: return every inbound's tag/protocol/network/security summaries. */
+/**
+ * WHAT: registered inbounds for one node; 503 when it has no config.
+ *
+ * WHY 503 and not an empty list: "no config" and "config declares no
+ * inbounds" are different states, and the access editor must not render an
+ * empty list as if the admin's config had none.
+ */
 adminNodes.get("/api/admin/nodes/:node_id/inbounds", async (c) => {
-  const config = await configOr503(c.env, c.req.param("node_id"));
-  return c.json(inboundSummaries(config));
+  const node = await nodeOr404(c.env, c.req.param("node_id"));
+  if (node.config_json === null) {
+    throw new ApiError(503, "config not loaded for this node");
+  }
+  return c.json((await loadRegistry(c.env.DB, node)).inbounds);
 });
 
-/** WHAT: return every outbound's tag and protocol. */
+/**
+ * WHAT: rename or rebind one registered inbound (label and/or tag).
+ *
+ * WHY rebinding exists: the operator renames a tag in the authored config;
+ * pointing the registry row at the new tag is what keeps user access, REALITY
+ * keys, and link variants intact.
+ */
+adminNodes.patch("/api/admin/nodes/:node_id/inbounds/:inbound_id", async (c) => {
+  const node = await nodeOr404(c.env, c.req.param("node_id"));
+  const payload = await parseJsonBody(c.req.raw, EndpointUpdate);
+  const [inbound, errors] = await updateInbound(
+    c.env.DB,
+    node,
+    c.req.param("inbound_id"),
+    payload,
+  );
+  if (errors.length > 0) {
+    throw new ApiError(422, errors);
+  }
+  if (inbound === null) {
+    throw new ApiError(404, "inbound not found");
+  }
+  return c.json(inbound);
+});
+
+/** WHAT: registered outbounds for one node; 503 when it has no config. */
 adminNodes.get("/api/admin/nodes/:node_id/outbounds", async (c) => {
-  const config = await configOr503(c.env, c.req.param("node_id"));
-  return c.json(outboundSummaries(config));
+  const node = await nodeOr404(c.env, c.req.param("node_id"));
+  if (node.config_json === null) {
+    throw new ApiError(503, "config not loaded for this node");
+  }
+  return c.json((await loadRegistry(c.env.DB, node)).outbounds);
+});
+
+/** WHAT: rename or rebind one registered outbound (label and/or tag). */
+adminNodes.patch("/api/admin/nodes/:node_id/outbounds/:outbound_id", async (c) => {
+  const node = await nodeOr404(c.env, c.req.param("node_id"));
+  const payload = await parseJsonBody(c.req.raw, EndpointUpdate);
+  const [outbound, errors] = await updateOutbound(
+    c.env.DB,
+    node,
+    c.req.param("outbound_id"),
+    payload,
+  );
+  if (errors.length > 0) {
+    throw new ApiError(422, errors);
+  }
+  if (outbound === null) {
+    throw new ApiError(404, "outbound not found");
+  }
+  return c.json(outbound);
+});
+
+/**
+ * WHAT: delete one registered inbound that the config no longer declares.
+ *
+ * WHY 409 for a still-declared or still-referenced row: either it would
+ * return on the next sync, or its users/keys/links would break. The
+ * message names what holds it.
+ */
+adminNodes.delete("/api/admin/nodes/:node_id/inbounds/:inbound_id", async (c) => {
+  const node = await nodeOr404(c.env, c.req.param("node_id"));
+  const [found, errors] = await deleteInbound(
+    c.env.DB,
+    node,
+    c.req.param("inbound_id"),
+  );
+  if (!found) {
+    throw new ApiError(404, "inbound not found");
+  }
+  if (errors.length > 0) {
+    throw new ApiError(409, errors);
+  }
+  return c.body(null, 204);
+});
+
+/** WHAT: delete one registered outbound that the config no longer declares. */
+adminNodes.delete("/api/admin/nodes/:node_id/outbounds/:outbound_id", async (c) => {
+  const node = await nodeOr404(c.env, c.req.param("node_id"));
+  const [found, errors] = await deleteOutbound(
+    c.env.DB,
+    node,
+    c.req.param("outbound_id"),
+  );
+  if (!found) {
+    throw new ApiError(404, "outbound not found");
+  }
+  if (errors.length > 0) {
+    throw new ApiError(409, errors);
+  }
+  return c.body(null, 204);
 });
 
 /**

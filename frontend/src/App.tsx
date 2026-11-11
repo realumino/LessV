@@ -24,7 +24,7 @@ import NodeCertsPage from "./pages/NodeCertsPage";
 import NodeConfigPage from "./pages/NodeConfigPage";
 import NodeKeysPage from "./pages/NodeKeysPage";
 import NodeLayout from "./pages/NodeLayout";
-import NodeProfilesPage from "./pages/NodeProfilesPage";
+import NodeLinksPage from "./pages/NodeLinksPage";
 import NodeUsersPage from "./pages/NodeUsersPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import UserEditPage from "./pages/UserEditPage";
@@ -59,7 +59,7 @@ export default function App() {
             <Route path="keys" element={<NodeKeysPage />} />
             <Route path="certs" element={<NodeCertsPage />} />
             <Route path="users" element={<NodeUsersPage />} />
-            <Route path="profiles" element={<NodeProfilesPage />} />
+            <Route path="links" element={<NodeLinksPage />} />
           </Route>
           <Route path="/users" element={<UsersPage />} />
           <Route path="/users/new" element={<UserEditPage />} />

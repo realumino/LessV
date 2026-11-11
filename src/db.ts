@@ -75,23 +75,35 @@ export type AccessRow = {
 
 /** WHAT: one stored REALITY key row (the columns `listRealityKeys` reads). */
 export type RealityKeyRow = {
-  inbound_tag: string;
+  inbound_id: string;
   private_key: string;
   created_at: number;
 };
 
-/** WHAT: one link-profile row with its overrides decoded. */
-export type LinkProfileRow = {
+/** WHAT: one registered inbound: plane identity plus its current config tag. */
+export type NodeInboundRow = {
   node_id: string;
   id: string;
-  inbound_tag: string;
+  tag: string;
+  label: string;
+  created_at: number;
+};
+
+/** WHAT: one registered outbound: plane identity plus its current config tag. */
+export type NodeOutboundRow = NodeInboundRow;
+
+/** WHAT: one link variant row with its overrides decoded. */
+export type InboundLinkRow = {
+  node_id: string;
+  id: string;
+  inbound_id: string;
   label: string;
   overrides: Record<string, string | number>;
   created_at: number;
 };
 
 const ACCESS_JSON_COLS = ["allowed_inbounds", "allowed_outbounds", "uuids"];
-const PROFILE_JSON_COLS = ["overrides"];
+const LINK_JSON_COLS = ["overrides"];
 
 /**
  * WHAT: run one read statement and return all rows.
@@ -154,9 +166,9 @@ function accessRow(row: Row): AccessRow {
   return rowToDictWithJson(row, ACCESS_JSON_COLS) as unknown as AccessRow;
 }
 
-/** WHAT: decode one link-profile row's JSON overrides into a real object. */
-function profileRow(row: Row): LinkProfileRow {
-  return rowToDictWithJson(row, PROFILE_JSON_COLS) as unknown as LinkProfileRow;
+/** WHAT: decode one link variant's JSON overrides into a real object. */
+function inboundLinkRow(row: Row): InboundLinkRow {
+  return rowToDictWithJson(row, LINK_JSON_COLS) as unknown as InboundLinkRow;
 }
 
 /** WHAT: return every node, id-ordered (deterministic lists for the UI). */
@@ -583,11 +595,11 @@ export async function deleteAccess(
 }
 
 /**
- * WHAT: return one node's REALITY keys as {inbound_tag: key row}.
+ * WHAT: return one node's REALITY keys as {inbound_id: key row}.
  *
- * WHY keyed by tag: an inbound's tag is its identity within a node's
- * config, so the key follows the tag — removing and re-adding an inbound
- * with the same tag reuses its key instead of breaking clients.
+ * WHY keyed by the registered inbound id and not the tag: rebinding an
+ * inbound to a renamed tag must keep its key, or every client using that
+ * inbound would be locked out for no reason.
  */
 export async function listRealityKeys(
   db: D1Database,
@@ -595,12 +607,12 @@ export async function listRealityKeys(
 ): Promise<Record<string, RealityKeyRow>> {
   const rows = await selectRows(
     db,
-    "SELECT inbound_tag, private_key, created_at FROM reality_keys WHERE node_id = ?",
+    "SELECT inbound_id, private_key, created_at FROM reality_keys WHERE node_id = ?",
     [nodeId],
   );
   const keys: Record<string, RealityKeyRow> = {};
   for (const row of rows) {
-    keys[row["inbound_tag"] as string] = row as unknown as RealityKeyRow;
+    keys[row["inbound_id"] as string] = row as unknown as RealityKeyRow;
   }
   return keys;
 }
@@ -622,9 +634,9 @@ export async function upsertRealityKey(
   await executeWrite(
     db,
     `
-        INSERT INTO reality_keys (node_id, inbound_tag, private_key, created_at)
+        INSERT INTO reality_keys (node_id, inbound_id, private_key, created_at)
         VALUES (?, ?, ?, ?)
-        ON CONFLICT(node_id, inbound_tag) DO UPDATE SET
+        ON CONFLICT(node_id, inbound_id) DO UPDATE SET
             private_key = excluded.private_key,
             created_at = excluded.created_at
         `,
@@ -632,92 +644,242 @@ export async function upsertRealityKey(
   );
 }
 
-/** WHAT: return one node's link profiles in deterministic display order. */
-export async function listLinkProfiles(
+/** WHAT: return every registered inbound of one node, tag-ordered. */
+export async function listNodeInbounds(
   db: D1Database,
   nodeId: string,
-): Promise<LinkProfileRow[]> {
+): Promise<NodeInboundRow[]> {
   const rows = await selectRows(
     db,
-    "SELECT * FROM link_profiles WHERE node_id = ? ORDER BY inbound_tag, id",
+    "SELECT * FROM node_inbounds WHERE node_id = ? ORDER BY tag",
     [nodeId],
   );
-  return rows.map(profileRow);
+  return rows as unknown as NodeInboundRow[];
 }
 
-/** WHAT: fetch one link profile by node and slug, or null when missing. */
-export async function getLinkProfile(
+/**
+ * WHAT: register one inbound tag, ignoring a concurrent duplicate.
+ *
+ * WHY OR IGNORE: the lazy sync runs from read paths, and two requests can
+ * race on the same new tag. The unique (node_id, tag) index makes the loser
+ * a no-op instead of an error.
+ */
+export async function insertNodeInbound(
   db: D1Database,
-  nodeId: string,
-  profileId: string,
-): Promise<LinkProfileRow | null> {
-  const rows = await selectRows(
-    db,
-    "SELECT * FROM link_profiles WHERE node_id = ? AND id = ?",
-    [nodeId, profileId],
-  );
-  return rows.length > 0 ? profileRow(rows[0] as Row) : null;
-}
-
-/** WHAT: insert one complete link-profile row (server facts included). */
-export async function createLinkProfile(
-  db: D1Database,
-  profile: LinkProfileRow,
+  row: NodeInboundRow,
 ): Promise<void> {
   await executeWrite(
     db,
     `
-        INSERT INTO link_profiles
-            (node_id, id, inbound_tag, label, overrides, created_at)
+        INSERT OR IGNORE INTO node_inbounds (node_id, id, tag, label, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        `,
+    [row.node_id, row.id, row.tag, row.label, row.created_at],
+  );
+}
+
+/** WHAT: point one registered inbound at a (possibly renamed) config tag. */
+export async function updateNodeInbound(
+  db: D1Database,
+  nodeId: string,
+  inboundId: string,
+  tag: string,
+  label: string,
+): Promise<void> {
+  await executeWrite(
+    db,
+    "UPDATE node_inbounds SET tag = ?, label = ? WHERE node_id = ? AND id = ?",
+    [tag, label, nodeId, inboundId],
+  );
+}
+
+/** WHAT: remove one registered inbound; a missing row is not an error. */
+export async function deleteNodeInbound(
+  db: D1Database,
+  nodeId: string,
+  inboundId: string,
+): Promise<void> {
+  await executeWrite(
+    db,
+    "DELETE FROM node_inbounds WHERE node_id = ? AND id = ?",
+    [nodeId, inboundId],
+  );
+}
+
+/** WHAT: return every registered outbound of one node, tag-ordered. */
+export async function listNodeOutbounds(
+  db: D1Database,
+  nodeId: string,
+): Promise<NodeOutboundRow[]> {
+  const rows = await selectRows(
+    db,
+    "SELECT * FROM node_outbounds WHERE node_id = ? ORDER BY tag",
+    [nodeId],
+  );
+  return rows as unknown as NodeOutboundRow[];
+}
+
+/** WHAT: register one outbound tag, ignoring a concurrent duplicate. */
+export async function insertNodeOutbound(
+  db: D1Database,
+  row: NodeOutboundRow,
+): Promise<void> {
+  await executeWrite(
+    db,
+    `
+        INSERT OR IGNORE INTO node_outbounds (node_id, id, tag, label, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        `,
+    [row.node_id, row.id, row.tag, row.label, row.created_at],
+  );
+}
+
+/** WHAT: point one registered outbound at a (possibly renamed) config tag. */
+export async function updateNodeOutbound(
+  db: D1Database,
+  nodeId: string,
+  outboundId: string,
+  tag: string,
+  label: string,
+): Promise<void> {
+  await executeWrite(
+    db,
+    "UPDATE node_outbounds SET tag = ?, label = ? WHERE node_id = ? AND id = ?",
+    [tag, label, nodeId, outboundId],
+  );
+}
+
+/** WHAT: remove one registered outbound; a missing row is not an error. */
+export async function deleteNodeOutbound(
+  db: D1Database,
+  nodeId: string,
+  outboundId: string,
+): Promise<void> {
+  await executeWrite(
+    db,
+    "DELETE FROM node_outbounds WHERE node_id = ? AND id = ?",
+    [nodeId, outboundId],
+  );
+}
+
+/** WHAT: return one node's link variants in deterministic display order. */
+export async function listInboundLinks(
+  db: D1Database,
+  nodeId: string,
+): Promise<InboundLinkRow[]> {
+  const rows = await selectRows(
+    db,
+    "SELECT * FROM inbound_links WHERE node_id = ? ORDER BY inbound_id, id",
+    [nodeId],
+  );
+  return rows.map(inboundLinkRow);
+}
+
+/** WHAT: fetch one link variant by node and id, or null when missing. */
+export async function getInboundLink(
+  db: D1Database,
+  nodeId: string,
+  linkId: string,
+): Promise<InboundLinkRow | null> {
+  const rows = await selectRows(
+    db,
+    "SELECT * FROM inbound_links WHERE node_id = ? AND id = ?",
+    [nodeId, linkId],
+  );
+  return rows.length > 0 ? inboundLinkRow(rows[0] as Row) : null;
+}
+
+/** WHAT: insert one complete link variant (server facts included). */
+export async function createInboundLink(
+  db: D1Database,
+  link: InboundLinkRow,
+): Promise<void> {
+  await executeWrite(
+    db,
+    `
+        INSERT INTO inbound_links
+            (node_id, id, inbound_id, label, overrides, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
         `,
     [
-      profile.node_id,
-      profile.id,
-      profile.inbound_tag,
-      profile.label,
-      JSON.stringify(profile.overrides),
-      profile.created_at,
+      link.node_id,
+      link.id,
+      link.inbound_id,
+      link.label,
+      JSON.stringify(link.overrides),
+      link.created_at,
     ],
   );
 }
 
 /**
- * WHAT: overwrite one profile's inbound, label, and overrides.
+ * WHAT: overwrite one variant's inbound, label, and overrides.
  *
  * WHY a fixed update: the service merges partial changes first, so SQL
- * stays one statement. Identity columns are never changed here.
+ * stays one statement. The variant id is never changed here.
  */
-export async function updateLinkProfile(
+export async function updateInboundLink(
   db: D1Database,
-  profile: LinkProfileRow,
+  link: InboundLinkRow,
 ): Promise<void> {
   await executeWrite(
     db,
     `
-        UPDATE link_profiles
-        SET inbound_tag = ?, label = ?, overrides = ?
+        UPDATE inbound_links
+        SET inbound_id = ?, label = ?, overrides = ?
         WHERE node_id = ? AND id = ?
         `,
     [
-      profile.inbound_tag,
-      profile.label,
-      JSON.stringify(profile.overrides),
-      profile.node_id,
-      profile.id,
+      link.inbound_id,
+      link.label,
+      JSON.stringify(link.overrides),
+      link.node_id,
+      link.id,
     ],
   );
 }
 
-/** WHAT: remove one link profile; a missing row is not an error. */
-export async function deleteLinkProfile(
+/** WHAT: remove one link variant; a missing row is not an error. */
+export async function deleteInboundLink(
   db: D1Database,
   nodeId: string,
-  profileId: string,
+  linkId: string,
 ): Promise<void> {
   await executeWrite(
     db,
-    "DELETE FROM link_profiles WHERE node_id = ? AND id = ?",
-    [nodeId, profileId],
+    "DELETE FROM inbound_links WHERE node_id = ? AND id = ?",
+    [nodeId, linkId],
+  );
+}
+
+/**
+ * WHAT: rewrite references stored against a raw tag into the tag's new id.
+ *
+ * WHY this exists: before the registry, link variants and REALITY keys were
+ * keyed by the config tag. When a tag cannot be an id verbatim (it has
+ * spaces, or is very long) the registry mints a slug, and existing rows must
+ * follow it or they would silently detach from their inbound. A key that is
+ * already stored under the new id wins; the stale copy is dropped.
+ */
+export async function remapInboundRefs(
+  db: D1Database,
+  nodeId: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  await executeWrite(
+    db,
+    "UPDATE inbound_links SET inbound_id = ? WHERE node_id = ? AND inbound_id = ?",
+    [to, nodeId, from],
+  );
+  await executeWrite(
+    db,
+    "UPDATE OR IGNORE reality_keys SET inbound_id = ? WHERE node_id = ? AND inbound_id = ?",
+    [to, nodeId, from],
+  );
+  await executeWrite(
+    db,
+    "DELETE FROM reality_keys WHERE node_id = ? AND inbound_id = ?",
+    [nodeId, from],
   );
 }

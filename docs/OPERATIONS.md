@@ -1,39 +1,48 @@
 # Operations — certificates, nginx, node troubleshooting
 
-Runbook for the product shape: Xray REALITY on 443 with
-loopback self-steal (`dest=127.0.0.1:8443`), nginx serving the decoy site
-with a Let's Encrypt certificate issued by the plane (DNS-01), and nodes
-that pull their certificates from the plane.
+Runbook for the product shape: Xray REALITY on 443 with self-steal over a
+local Unix socket (`dest=/dev/shm/lessv-decoy.sock`), nginx serving the
+decoy site with a Let's Encrypt certificate issued by the plane (DNS-01),
+and nodes that pull their certificates from the plane.
 
 ## Topology
 
 ```
 Internet ── :443 ──► Xray (REALITY, stream proxy)
-                        │ realitySettings.dest = 127.0.0.1:8443
+                        │ realitySettings.dest = /dev/shm/lessv-decoy.sock
                         ▼
-                     nginx (TLS, decoy site)
+                     nginx (TLS, decoy site; also on 127.0.0.1:8443)
                         │ ssl_certificate = /etc/lessv/certs/<path>/current/fullchain.pem
                         ▼
                      certificate files ← lessv-node sync ← GET /api/node/certs
 ```
 
 - 443 belongs to Xray. Never configure nginx to listen on 443.
+- The stolen origin is local by construction: Xray and nginx share the host,
+  so the handshake relay never leaves the kernel. `127.0.0.1:8443` remains as
+  a compatibility listener for configs authored before the socket default;
+  new configs should point `dest` at the socket.
 - Certificates belong to nginx (the self-stealed origin); Xray has none.
 
 ## What the REALITY preset generates
 
 The panel's REALITY preset button authors one inbound plus two outbounds:
 
-- inbound `reality` (VLESS + REALITY, `dest=127.0.0.1:8443`). `privateKey`
-  stays empty; the plane injects/stores keys per inbound at render time
-  (`ensureKeys`), so the private key never appears in the frontend.
+- inbound `reality` (VLESS + REALITY, `dest=/dev/shm/lessv-decoy.sock`).
+  `privateKey` stays empty; the plane injects/stores keys per inbound at
+  render time (`ensureKeys`), so the private key never appears in the
+  frontend. The socket path is the same contract as the generated decoy
+  config (`nginx_socket` in `/etc/lessv/node.toml`, default
+  `/dev/shm/lessv-decoy.sock`).
 - outbounds `BLOCK` (blackhole) first, then `direct` (freedom). The plane
   guarantees `BLOCK` stays the first outbound and excludes it from routing
   allocation — it is the default route, not an exit. Every other outbound
   is rendered per node as `<node>-<tag>` (e.g. `tokyo01-direct`).
 - On the user authorization page select `direct` (and any exits the admin
-  added by editing the JSON). Nothing else is a real exit: routing a user
-  to `BLOCK` just blackholes their traffic.
+  added by editing the JSON). `BLOCK` is never offered: it is the fallback
+  route for unmatched traffic, and the plane now rejects an access payload
+  that names it (422). Every registered endpoint shows up on the node's
+  Links tab, where its name can be changed and extra link variants added.
 
 ## Certificate lifecycle (plane)
 
@@ -121,15 +130,18 @@ One `server` block per assigned certificate, the first one carrying
 
 ```nginx
 # Managed by lessv-node. Regenerated from GET /api/node/certs on every sync;
-# edits are overwritten. Xray owns 443 — this decoy listens on loopback only.
+# edits are overwritten. Xray owns 443 — this decoy listens on a Unix socket
+# (REALITY's dest) and on loopback for pre-socket authored configs.
 
 server {
-    listen 127.0.0.1:8443 ssl default_server;
+    listen unix:/dev/shm/lessv-decoy.sock ssl default_server;
+    listen 127.0.0.1:8443 ssl;
     server_name <domain>;
 
     ssl_certificate     /etc/lessv/certs/<path>/current/fullchain.pem;
     ssl_certificate_key /etc/lessv/certs/<path>/current/privkey.pem;
-    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_protocols       TLSv1.3;
+    ssl_ecdh_curve      X25519MLKEM768:X25519;
 
     root  /var/www/lessv-decoy;
     index index.html;
@@ -140,6 +152,30 @@ server {
 }
 ```
 
+- **Post-quantum by default.** `ssl_ecdh_curve X25519MLKEM768:X25519` makes a
+  TLS 1.3 handshake prefer the ML-KEM-768 + X25519 hybrid and fall back to
+  X25519 for clients that do not offer it. The linked TLS library resolves
+  the group at `nginx -t` time: OpenSSL ≥ 3.5 (Debian 13, Ubuntu 25.04,
+  Alpine 3.22, current nginx images) knows it; older hosts reject the whole
+  file. In that case lessv-node re-renders the same block without the
+  directive, keeps serving X25519, and reports
+  `nginx_ok: true` + a `nginx_error` note (`nginx/OpenSSL does not support
+  X25519MLKEM768:X25519; serving X25519 only`). The plane turns that note
+  into a sync warning, so the degradation is visible but never turns a
+  healthy node red. `install.sh` prints the same hint when it detects an
+  older OpenSSL.
+- **Local socket, not a port.** The decoy's primary listener is
+  `/dev/shm/lessv-decoy.sock`; REALITY relays every handshake there, so the
+  stolen origin never touches the network stack. The loopback listener
+  exists for configs authored before the socket default and can be removed
+  once every node's `dest` names the socket.
+- `nginx_socket` in `/etc/lessv/node.toml` moves the socket (absolute path;
+  keep the preset's `dest` in sync). Both services run as root here, so the
+  socket's default ownership is enough; with a non-root Xray, set
+  `user=`/`group=` on the `listen` line instead.
+- `xray.service` starts after `nginx.service` (`after nginx` + `want nginx`
+  under OpenRC) because the socket must exist before the first handshake;
+  `install.sh` enables nginx so it comes up at boot.
 - Wildcard certificates use `wildcard.<zone>` as the `path` and the wildcard
   name as `server_name`.
 - The file references `current`, so certificate renewals need no nginx config
@@ -198,8 +234,9 @@ nginx -t && systemctl reload nginx      # rc-service nginx reload on Alpine
    where it died.
 2. **Panel: node sync** (`GET /api/admin/nodes/<id>/sync`): `nginx_ok`,
    `nginx_error`, and certificate lint warnings (`serverNames ... is not
-   covered by an assigned certificate`, `dest ... is not 127.0.0.1:<port>`,
-   invalid `shortIds`).
+   covered by an assigned certificate`, `dest ... is not a local Unix socket
+   or 127.0.0.1:<port>`, invalid `shortIds`). A `nginx: ...` sync warning
+   while `nginx_ok` is 1 is informational (the PQ fallback described above).
 3. **Node**: `journalctl -u lessv-node -n 100` (OpenRC:
    `tail -n 100 /var/log/lessv-node.log`); `ls -l /etc/lessv/certs/<path>/`;
    `readlink -f .../current`. The node's state file
@@ -226,6 +263,8 @@ nginx -t && systemctl reload nginx      # rc-service nginx reload on Alpine
 | LE CAA error on a name | a CAA record forbids issuance | fix/remove the CAA record (`0 issue "none"` blocks everything) |
 | `too many certificates already issued` | production rate limit | wait; use staging for any further testing |
 | panel warning `nginx is not healthy: nginx unit is not active` | nginx stopped/crashed — the text after the colon is the node's `nginx_error` field | the node restarts nginx on its next poll; if it stays down, `systemctl start nginx` / `rc-service nginx start` and read the node log |
+| sync warning `nginx: nginx/OpenSSL does not support X25519MLKEM768...` with `nginx_ok=1` | the decoy serves classical key exchange because the host's TLS library is older than OpenSSL 3.5 | informational; upgrade the distro (Debian 13+/Ubuntu 25.04+/Alpine 3.22+) if post-quantum key exchange is required |
+| `nginx -t` fails with `SSL_CTX_set1_curves_list("X25519MLKEM768:X25519") failed` | an old node binary (≤ 0.3.x) or a hand-edited config on a host without PQ support | upgrade lessv-node; the generated config falls back on its own from 0.4.0 |
 | node reports cert failure, files unchanged | artifact read/validate failed | check the object path from the error; do not edit files by hand |
 | renewed cert never appears on the node | assignment changed or ETag stuck | re-check assignment; compare `nodes.cert_etag` (the node's adopted ETag) with the manifest ETag from `GET /api/node/certs` — equal means the node already has this version |
 

@@ -9,6 +9,7 @@
  */
 
 const ACRONYMS = new Set([
+  "block",
   "grpc",
   "http",
   "httpupgrade",

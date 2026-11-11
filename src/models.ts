@@ -22,7 +22,7 @@
 import { z } from "zod";
 
 const NODE_ID_PATTERN = /^[a-z0-9]{1,32}$/;
-const PROFILE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const LINK_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 /** WHAT: the client-visible URI inputs a link profile may override. */
 export const LINK_PROFILE_OVERRIDE_KEYS = new Set([
@@ -138,17 +138,70 @@ export const NodeOut = z.object({
 });
 export type NodeOut = z.infer<typeof NodeOut>;
 
-/** WHAT: the JSON body for POST /api/admin/nodes/{node_id}/link-profiles. */
-export const LinkProfileIn = z.object({
+/** WHAT: the JSON body for PUT /api/admin/nodes/{node_id}/inbounds/{inbound_id}. */
+export const EndpointUpdate = z.object({
+  tag: z
+    .string()
+    .trim()
+    .refine((value) => value !== "", { message: "value must not be empty" })
+    .nullable()
+    .default(null),
+  label: z
+    .string()
+    .trim()
+    .refine((value) => value !== "", { message: "value must not be empty" })
+    .nullable()
+    .default(null),
+});
+export type EndpointUpdate = z.infer<typeof EndpointUpdate>;
+
+/**
+ * WHAT: one registered inbound as the API returns it.
+ *
+ * WHY id and tag both: the id is what access, link variants, and REALITY
+ * keys reference; the tag is what the authored config currently calls it.
+ * A rebind makes them differ, which is exactly the rename path.
+ */
+export const InboundOut = z.object({
+  id: z.string(),
+  tag: z.string(),
+  label: z.string(),
+  protocol: z.string(),
+  network: z.string(),
+  security: z.string(),
+});
+export type InboundOut = z.infer<typeof InboundOut>;
+
+/**
+ * WHAT: what an outbound does; `block` is never assignable to a user.
+ *
+ * WHY exposed at all: the admin UI must not offer a blackhole as an exit,
+ * and a client must be able to tell the difference without re-deriving it
+ * from the protocol string.
+ */
+export const OUTBOUND_KINDS = ["block", "direct", "proxy"] as const;
+
+/** WHAT: one registered outbound as the API returns it. */
+export const OutboundOut = z.object({
+  id: z.string(),
+  tag: z.string(),
+  label: z.string(),
+  protocol: z.string(),
+  kind: z.enum(OUTBOUND_KINDS),
+});
+export type OutboundOut = z.infer<typeof OutboundOut>;
+
+/** WHAT: the JSON body for POST /api/admin/nodes/{node_id}/inbound-links. */
+export const InboundLinkIn = z.object({
   id: z
     .string()
     .trim()
-    .refine((value) => PROFILE_ID_PATTERN.test(value), {
+    .refine((value) => LINK_ID_PATTERN.test(value), {
       message:
-        "profile id must start with a letter or digit and contain " +
+        "link id must start with a letter or digit and contain " +
         "only lowercase letters, digits, or hyphens",
     }),
-  inbound_tag: z
+  inbound_id: z
     .string()
     .trim()
     .refine((value) => value !== "", { message: "value must not be empty" }),
@@ -158,16 +211,16 @@ export const LinkProfileIn = z.object({
     .refine((value) => value !== "", { message: "value must not be empty" }),
   overrides: overridesSchema.default(() => ({})),
 });
-export type LinkProfileIn = z.infer<typeof LinkProfileIn>;
+export type InboundLinkIn = z.infer<typeof InboundLinkIn>;
 
 /**
- * WHAT: the JSON body for PUT .../link-profiles/{profile_id}.
+ * WHAT: the JSON body for PUT .../inbound-links/{link_id}.
  *
  * WHY every editable field is optional: null means unchanged. Identity
  * fields are never renamed through an update.
  */
-export const LinkProfileUpdate = z.object({
-  inbound_tag: z
+export const InboundLinkUpdate = z.object({
+  inbound_id: z
     .string()
     .trim()
     .refine((value) => value !== "", { message: "value must not be empty" })
@@ -181,23 +234,24 @@ export const LinkProfileUpdate = z.object({
     .default(null),
   overrides: overridesSchema.nullable().default(null),
 });
-export type LinkProfileUpdate = z.infer<typeof LinkProfileUpdate>;
+export type InboundLinkUpdate = z.infer<typeof InboundLinkUpdate>;
 
-/** WHAT: the JSON the API returns for one link profile. */
-export const LinkProfileOut = z.object({
+/** WHAT: the JSON the API returns for one link variant. */
+export const InboundLinkOut = z.object({
   id: z.string(),
-  inbound_tag: z.string(),
+  inbound_id: z.string(),
   label: z.string(),
   overrides: z.record(z.string(), z.union([z.string(), z.int()])),
   created_at: z.int(),
 });
-export type LinkProfileOut = z.infer<typeof LinkProfileOut>;
+export type InboundLinkOut = z.infer<typeof InboundLinkOut>;
 
 /**
  * WHAT: one node's section of a user's access payload.
  *
- * WHY lists and not the uuid map: uuids are server-generated facts; the
- * client only chooses which local inbounds and outbounds are allowed.
+ * WHY lists of ids and not the uuid map: uuids are server-generated facts;
+ * the client only chooses which registered inbounds and exits are allowed,
+ * and the registry id (not the tag) is what stays stable across a rename.
  */
 export const AccessIn = z.object({
   allowed_inbounds: z.array(z.string()).default(() => []),

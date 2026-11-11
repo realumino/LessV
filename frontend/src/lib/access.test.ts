@@ -12,10 +12,12 @@ import type { NodeOut, UserOut } from "../types";
 import {
   emptyAccessForm,
   formFromUser,
+  optionsFor,
   toAccessPayload,
   toggleNode,
-  toggleTag,
+  toggleOption,
 } from "./access";
+import type { EndpointsByNode } from "./access";
 
 function node(id: string, label = id): NodeOut {
   return {
@@ -42,8 +44,42 @@ function user(access: UserOut["access"]): UserOut {
   };
 }
 
+/** One node's endpoints: a REALITY inbound, a direct exit, and BLOCK. */
+function endpoints(): EndpointsByNode {
+  return {
+    tokyo01: {
+      inbounds: [
+        {
+          id: "reality",
+          tag: "reality",
+          label: "REALITY",
+          protocol: "vless",
+          network: "raw",
+          security: "reality",
+        },
+      ],
+      outbounds: [
+        {
+          id: "BLOCK",
+          tag: "BLOCK",
+          label: "BLOCK",
+          protocol: "blackhole",
+          kind: "block",
+        },
+        {
+          id: "niigata",
+          tag: "niigata",
+          label: "Niigata",
+          protocol: "freedom",
+          kind: "direct",
+        },
+      ],
+    },
+  };
+}
+
 describe("emptyAccessForm", () => {
-  it("lists every node, none authorized, with no tags", () => {
+  it("lists every node, none authorized, with no ids", () => {
     const form = emptyAccessForm([node("tokyo01"), node("osaka02")]);
 
     expect(Object.keys(form)).toEqual(["tokyo01", "osaka02"]);
@@ -62,10 +98,10 @@ describe("toggleNode", () => {
     expect(next.osaka02.authorized).toBe(false);
   });
 
-  it("keeps tag selections when membership is toggled off and on", () => {
+  it("keeps selections when membership is toggled off and on", () => {
     let form = emptyAccessForm([node("tokyo01")]);
     form = toggleNode(form, "tokyo01");
-    form = toggleTag(form, "tokyo01", "inbound", "reality");
+    form = toggleOption(form, "tokyo01", "inbound", "reality");
     form = toggleNode(form, "tokyo01");
     form = toggleNode(form, "tokyo01");
 
@@ -73,16 +109,16 @@ describe("toggleNode", () => {
   });
 });
 
-describe("toggleTag", () => {
-  it("adds and removes local tag names in the right list", () => {
+describe("toggleOption", () => {
+  it("adds and removes ids in the right list", () => {
     let form = toggleNode(emptyAccessForm([node("tokyo01")]), "tokyo01");
-    form = toggleTag(form, "tokyo01", "inbound", "reality");
-    form = toggleTag(form, "tokyo01", "outbound", "niigata");
+    form = toggleOption(form, "tokyo01", "inbound", "reality");
+    form = toggleOption(form, "tokyo01", "outbound", "niigata");
 
     expect(form.tokyo01.allowedInbounds).toEqual(["reality"]);
     expect(form.tokyo01.allowedOutbounds).toEqual(["niigata"]);
 
-    form = toggleTag(form, "tokyo01", "inbound", "reality");
+    form = toggleOption(form, "tokyo01", "inbound", "reality");
 
     expect(form.tokyo01.allowedInbounds).toEqual([]);
     expect(form.tokyo01.allowedOutbounds).toEqual(["niigata"]);
@@ -97,10 +133,10 @@ describe("toAccessPayload", () => {
     expect(Object.keys(toAccessPayload(form))).toEqual(["tokyo01"]);
   });
 
-  it("emits local tag names, never qualified ones", () => {
+  it("emits registered ids, never qualified tag names", () => {
     let form = toggleNode(emptyAccessForm([node("tokyo01")]), "tokyo01");
-    form = toggleTag(form, "tokyo01", "inbound", "reality");
-    form = toggleTag(form, "tokyo01", "outbound", "niigata");
+    form = toggleOption(form, "tokyo01", "inbound", "reality");
+    form = toggleOption(form, "tokyo01", "outbound", "niigata");
 
     const payload = toAccessPayload(form);
 
@@ -130,6 +166,7 @@ describe("toAccessPayload", () => {
         },
       }),
       [node("tokyo01")],
+      endpoints(),
     );
     form = toggleNode(form, "tokyo01");
 
@@ -138,7 +175,7 @@ describe("toAccessPayload", () => {
 });
 
 describe("formFromUser", () => {
-  it("marks members and copies stored tags without their uuids", () => {
+  it("marks members and copies stored ids without their uuids", () => {
     const form = formFromUser(
       user({
         tokyo01: {
@@ -148,6 +185,7 @@ describe("formFromUser", () => {
         },
       }),
       [node("tokyo01"), node("osaka02")],
+      endpoints(),
     );
 
     expect(form.tokyo01).toEqual({
@@ -157,5 +195,44 @@ describe("formFromUser", () => {
     });
     expect(form.osaka02.authorized).toBe(false);
     expect(JSON.stringify(form)).not.toContain("uuid-1");
+  });
+
+  it("drops a stored block outbound so the next save cleans it up", () => {
+    const form = formFromUser(
+      user({
+        tokyo01: {
+          allowed_inbounds: ["reality"],
+          allowed_outbounds: ["BLOCK", "niigata"],
+          uuids: { BLOCK: "uuid-block", niigata: "uuid-1" },
+        },
+      }),
+      [node("tokyo01")],
+      endpoints(),
+    );
+
+    expect(form.tokyo01.allowedOutbounds).toEqual(["niigata"]);
+  });
+});
+
+describe("optionsFor", () => {
+  it("offers registered inbounds with their labels and tags", () => {
+    const options = optionsFor("inbound", endpoints().tokyo01, ["reality"]);
+
+    expect(options).toEqual([
+      { id: "reality", label: "REALITY", detail: "reality", missing: false },
+    ]);
+  });
+
+  it("never offers the block route as an exit", () => {
+    const options = optionsFor("outbound", endpoints().tokyo01, []);
+
+    expect(options.map((option) => option.id)).toEqual(["niigata"]);
+  });
+
+  it("keeps a stored id the config no longer declares, marked missing", () => {
+    const options = optionsFor("outbound", endpoints().tokyo01, ["old-exit"]);
+
+    expect(options.map((option) => option.id)).toEqual(["niigata", "old-exit"]);
+    expect(options[1]!.missing).toBe(true);
   });
 });

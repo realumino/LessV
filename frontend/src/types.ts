@@ -53,7 +53,6 @@ export interface AccessOut {
   allowed_outbounds: string[];
   uuids: Record<string, string>;
 }
-
 /** One node's access section in a user write payload (no uuids). */
 export interface AccessIn {
   allowed_inbounds: string[];
@@ -115,40 +114,50 @@ export interface SubTokenOut {
   created_at: number;
 }
 
-/** GET /api/admin/nodes/{id}/inbounds — one inbound summary. */
-export interface InboundSummary {
+/** GET /api/admin/nodes/{id}/inbounds — one registered inbound. */
+export interface InboundOut {
+  id: string;
   tag: string;
+  label: string;
   protocol: string;
   network: string;
   security: string;
 }
 
-/** GET /api/admin/nodes/{id}/outbounds — one outbound summary. */
-export interface OutboundSummary {
+/** What an outbound does; `block` is never assignable to a user. */
+export type OutboundKind = "block" | "direct" | "proxy";
+
+/** GET /api/admin/nodes/{id}/outbounds — one registered outbound. */
+export interface OutboundOut {
+  id: string;
   tag: string;
+  label: string;
   protocol: string;
+  kind: OutboundKind;
 }
 
 /** One row of GET /api/admin/nodes/{id}/reality (public key only). */
 export interface RealityKey {
-  inbound: string;
+  inbound_id: string;
+  tag: string;
+  label: string;
   public_key: string | null;
   created_at: number | null;
 }
 
-/** GET/POST/PUT link profiles: one per-inbound client-side variant. */
-export interface LinkProfileOut {
+/** GET/POST/PUT inbound links: one extra client-side view of an inbound. */
+export interface InboundLinkOut {
   id: string;
-  inbound_tag: string;
+  inbound_id: string;
   label: string;
   overrides: Record<string, string | number>;
   created_at: number;
 }
 
-/** POST/PUT link profiles body. */
-export interface LinkProfileIn {
+/** POST/PUT inbound links body. */
+export interface InboundLinkIn {
   id: string;
-  inbound_tag: string;
+  inbound_id: string;
   label: string;
   overrides: Record<string, string | number>;
 }

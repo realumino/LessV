@@ -42,12 +42,19 @@ async function makeUser(username: string): Promise<void> {
   });
 }
 
-/** WHAT: insert one CDN-style profile for a node. */
-async function makeProfile(nodeId: string): Promise<void> {
-  await db.createLinkProfile(conn, {
+/** WHAT: insert one CDN-style link variant for a node. */
+async function makeVariant(nodeId: string): Promise<void> {
+  await db.insertNodeInbound(conn, {
+    node_id: nodeId,
+    id: "xhttp",
+    tag: "xhttp",
+    label: "XHTTP",
+    created_at: 1,
+  });
+  await db.createInboundLink(conn, {
     node_id: nodeId,
     id: "cdn",
-    inbound_tag: "xhttp",
+    inbound_id: "xhttp",
     label: "CDN",
     overrides: { address: "cdn.example.com", port: 443 },
     created_at: 1,
@@ -226,38 +233,82 @@ describe("the D1 data layer", () => {
     expect(keys["reality"]?.created_at).toBe(3);
   });
 
-  it("stores link-profile overrides as JSON and lists them", async () => {
+  it("stores link-variant overrides as JSON and lists them", async () => {
     const nodeId = uid("n");
-    await makeProfile(nodeId);
+    await makeVariant(nodeId);
 
-    const profile = await db.getLinkProfile(conn, nodeId, "cdn");
-    expect(profile?.label).toBe("CDN");
-    expect(profile?.overrides).toEqual({
+    const variant = await db.getInboundLink(conn, nodeId, "cdn");
+    expect(variant?.label).toBe("CDN");
+    expect(variant?.inbound_id).toBe("xhttp");
+    expect(variant?.overrides).toEqual({
       address: "cdn.example.com",
       port: 443,
     });
     expect(
-      (await db.listLinkProfiles(conn, nodeId)).map((row) => row.id),
+      (await db.listInboundLinks(conn, nodeId)).map((row) => row.id),
     ).toEqual(["cdn"]);
   });
 
-  it("updates and deletes one link profile", async () => {
+  it("updates and deletes one link variant", async () => {
     const nodeId = uid("n");
-    await makeProfile(nodeId);
+    await makeVariant(nodeId);
 
-    await db.updateLinkProfile(conn, {
+    await db.updateInboundLink(conn, {
       node_id: nodeId,
       id: "cdn",
-      inbound_tag: "xhttp",
+      inbound_id: "xhttp",
       label: "CDN Edge",
       overrides: { address: "edge.example.com" },
       created_at: 1,
     });
-    expect((await db.getLinkProfile(conn, nodeId, "cdn"))?.label).toBe(
+    expect((await db.getInboundLink(conn, nodeId, "cdn"))?.label).toBe(
       "CDN Edge",
     );
 
-    await db.deleteLinkProfile(conn, nodeId, "cdn");
-    expect(await db.getLinkProfile(conn, nodeId, "cdn")).toBeNull();
+    await db.deleteInboundLink(conn, nodeId, "cdn");
+    expect(await db.getInboundLink(conn, nodeId, "cdn")).toBeNull();
+  });
+
+  it("round-trips registered endpoints and moves legacy refs by tag", async () => {
+    const nodeId = uid("n");
+    await db.insertNodeInbound(conn, {
+      node_id: nodeId,
+      id: "real inbound",
+      tag: "real inbound",
+      label: "Real",
+      created_at: 1,
+    });
+    await db.insertNodeOutbound(conn, {
+      node_id: nodeId,
+      id: "BLOCK",
+      tag: "BLOCK",
+      label: "BLOCK",
+      created_at: 1,
+    });
+    expect((await db.listNodeInbounds(conn, nodeId)).map((row) => row.tag)).toEqual([
+      "real inbound",
+    ]);
+    expect((await db.listNodeOutbounds(conn, nodeId)).map((row) => row.id)).toEqual([
+      "BLOCK",
+    ]);
+
+    // A tag that cannot be an id gets a slug; refs keyed by the old tag must
+    // follow it or the variant/key would detach from its inbound.
+    await db.createInboundLink(conn, {
+      node_id: nodeId,
+      id: "cdn",
+      inbound_id: "real inbound",
+      label: "CDN",
+      overrides: {},
+      created_at: 1,
+    });
+    await db.upsertRealityKey(conn, nodeId, "real inbound", "v1:x", 1);
+    await db.remapInboundRefs(conn, nodeId, "real inbound", "real-inbound");
+    expect((await db.listInboundLinks(conn, nodeId))[0]!.inbound_id).toBe(
+      "real-inbound",
+    );
+    expect(Object.keys(await db.listRealityKeys(conn, nodeId))).toEqual([
+      "real-inbound",
+    ]);
   });
 });

@@ -57,6 +57,10 @@ adminUsers.post("/api/admin/users", async (c) => {
   if (unknown.length > 0) {
     throw new ApiError(404, `node '${unknown[0]}' not found`);
   }
+  const errors = await userService.validateAccess(c.env.DB, payload.access);
+  if (errors.length > 0) {
+    throw new ApiError(422, errors);
+  }
   return c.json(await userService.createUser(c.env.DB, payload), 201);
 });
 
@@ -80,6 +84,10 @@ adminUsers.put("/api/admin/users/:username", async (c) => {
     const unknown = await unknownNodeIds(c.env, Object.keys(payload.access));
     if (unknown.length > 0) {
       throw new ApiError(404, `node '${unknown[0]}' not found`);
+    }
+    const errors = await userService.validateAccess(c.env.DB, payload.access);
+    if (errors.length > 0) {
+      throw new ApiError(422, errors);
     }
   }
   const user = await userService.updateUser(c.env.DB, username, payload);
@@ -138,10 +146,10 @@ adminUsers.get("/api/admin/users/:username/links", async (c) => {
     throw new ApiError(404, "user not found");
   }
   const aggregated = await linkService.userLinks(c.env, username, user.status);
-  if (aggregated.accessCount > 0 && aggregated.withConfigCount === 0) {
+  if (aggregated.accessCount > 0 && aggregated.configCount === 0) {
     throw new ApiError(503, "no node config to build links from");
   }
-  if (aggregated.withConfigCount > 0 && aggregated.addressableCount === 0) {
+  if (aggregated.configCount > 0 && aggregated.addressableCount === 0) {
     throw new ApiError(409, "no node has a usable address");
   }
   return c.json({

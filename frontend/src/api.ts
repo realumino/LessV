@@ -27,15 +27,15 @@ import type {
   CertDomainUpdateIn,
   CertRunOut,
   CertificateOut,
-  InboundSummary,
-  LinkProfileIn,
-  LinkProfileOut,
+  InboundLinkIn,
+  InboundLinkOut,
+  InboundOut,
   NodeCertDomainsOut,
   NodeCertsOut,
   NodeOut,
   NodeRuntimeOut,
   NodeSyncOut,
-  OutboundSummary,
+  OutboundOut,
   RealityKey,
   StatusOut,
   UserCreateIn,
@@ -216,10 +216,55 @@ export const getNodeRuntime = (nodeId: string) =>
   );
 
 export const getNodeInbounds = (nodeId: string) =>
-  request<InboundSummary[]>(`/nodes/${encodeURIComponent(nodeId)}/inbounds`);
+  request<InboundOut[]>(`/nodes/${encodeURIComponent(nodeId)}/inbounds`);
 
 export const getNodeOutbounds = (nodeId: string) =>
-  request<OutboundSummary[]>(`/nodes/${encodeURIComponent(nodeId)}/outbounds`);
+  request<OutboundOut[]>(`/nodes/${encodeURIComponent(nodeId)}/outbounds`);
+
+/**
+ * WHAT: rename or rebind one registered endpoint (label and/or tag).
+ *
+ * WHY a PATCH: the registry row keeps its id while the config's tag may
+ * change; rebinding is how a tag rename keeps access, keys, and variants.
+ */
+export const updateNodeInbound = (
+  nodeId: string,
+  inboundId: string,
+  body: { tag?: string; label?: string },
+) =>
+  request<InboundOut>(
+    `/nodes/${encodeURIComponent(nodeId)}/inbounds/${encodeURIComponent(inboundId)}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+
+export const updateNodeOutbound = (
+  nodeId: string,
+  outboundId: string,
+  body: { tag?: string; label?: string },
+) =>
+  request<OutboundOut>(
+    `/nodes/${encodeURIComponent(nodeId)}/outbounds/${encodeURIComponent(outboundId)}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+
+/**
+ * WHAT: drop a registered inbound/outbound the config no longer declares.
+ *
+ * WHY guarded: the server refuses while the config still declares the tag
+ * or anything still references the row, so the operator must repoint or
+ * detach first.
+ */
+export const deleteNodeInbound = (nodeId: string, inboundId: string) =>
+  request<null>(
+    `/nodes/${encodeURIComponent(nodeId)}/inbounds/${encodeURIComponent(inboundId)}`,
+    { method: "DELETE" },
+  );
+
+export const deleteNodeOutbound = (nodeId: string, outboundId: string) =>
+  request<null>(
+    `/nodes/${encodeURIComponent(nodeId)}/outbounds/${encodeURIComponent(outboundId)}`,
+    { method: "DELETE" },
+  );
 
 // --- REALITY keys ----------------------------------------------------------
 
@@ -234,38 +279,38 @@ export const rotateNodeReality = (nodeId: string) =>
     { method: "POST" },
   );
 
-export const rotateNodeRealityKey = (nodeId: string, tag: string) =>
-  request<{ inbound: string; public_key: string | null }>(
-    `/nodes/${encodeURIComponent(nodeId)}/reality/${encodeURIComponent(tag)}/rotate`,
+export const rotateNodeRealityKey = (nodeId: string, inboundId: string) =>
+  request<{ inbound_id: string; public_key: string | null }>(
+    `/nodes/${encodeURIComponent(nodeId)}/reality/${encodeURIComponent(inboundId)}/rotate`,
     { method: "POST" },
   );
 
-// --- Link profiles ---------------------------------------------------------
+// --- Inbound links ---------------------------------------------------------
 
-export const listNodeProfiles = (nodeId: string) =>
-  request<LinkProfileOut[]>(
-    `/nodes/${encodeURIComponent(nodeId)}/link-profiles`,
+export const listInboundLinks = (nodeId: string) =>
+  request<InboundLinkOut[]>(
+    `/nodes/${encodeURIComponent(nodeId)}/inbound-links`,
   );
 
-export const createNodeProfile = (nodeId: string, body: LinkProfileIn) =>
-  request<LinkProfileOut>(
-    `/nodes/${encodeURIComponent(nodeId)}/link-profiles`,
+export const createInboundLink = (nodeId: string, body: InboundLinkIn) =>
+  request<InboundLinkOut>(
+    `/nodes/${encodeURIComponent(nodeId)}/inbound-links`,
     json(body),
   );
 
-export const updateNodeProfile = (
+export const updateInboundLink = (
   nodeId: string,
-  profileId: string,
-  body: Omit<LinkProfileIn, "id">,
+  linkId: string,
+  body: Omit<InboundLinkIn, "id">,
 ) =>
-  request<LinkProfileOut>(
-    `/nodes/${encodeURIComponent(nodeId)}/link-profiles/${encodeURIComponent(profileId)}`,
+  request<InboundLinkOut>(
+    `/nodes/${encodeURIComponent(nodeId)}/inbound-links/${encodeURIComponent(linkId)}`,
     { method: "PUT", body: JSON.stringify(body) },
   );
 
-export const deleteNodeProfile = (nodeId: string, profileId: string) =>
+export const deleteInboundLink = (nodeId: string, linkId: string) =>
   request<null>(
-    `/nodes/${encodeURIComponent(nodeId)}/link-profiles/${encodeURIComponent(profileId)}`,
+    `/nodes/${encodeURIComponent(nodeId)}/inbound-links/${encodeURIComponent(linkId)}`,
     { method: "DELETE" },
   );
 

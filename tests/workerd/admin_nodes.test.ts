@@ -166,14 +166,27 @@ describe("the node admin API", () => {
       `/api/admin/nodes/${node}/inbounds`,
     );
     expect(await inbounds.json()).toEqual([
-      { tag: "reality", protocol: "vless", network: "", security: "" },
+      {
+        id: "reality",
+        tag: "reality",
+        label: "REALITY",
+        protocol: "vless",
+        network: "",
+        security: "",
+      },
     ]);
     const outbounds = await planeJson(
       "GET",
       `/api/admin/nodes/${node}/outbounds`,
     );
     expect(await outbounds.json()).toEqual([
-      { tag: "niigata", protocol: "freedom" },
+      {
+        id: "niigata",
+        tag: "niigata",
+        label: "Niigata",
+        protocol: "freedom",
+        kind: "direct",
+      },
     ]);
   });
 

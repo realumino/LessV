@@ -44,7 +44,13 @@ function plainConfig(): Record<string, unknown> {
 }
 
 /** WHAT: one row of the reality key table (only the parts tests read). */
-type KeyOut = { inbound: string; public_key: string | null; created_at: number | null };
+type KeyOut = {
+  inbound_id: string;
+  tag: string;
+  label: string;
+  public_key: string | null;
+  created_at: number | null;
+};
 
 /** WHAT: parse one response body as a model shape. */
 async function body<T>(response: Response): Promise<T> {
@@ -98,7 +104,9 @@ describe("the reality API", () => {
 
     const list = await keys(node);
 
-    expect(list[0]!.inbound).toBe("REALITY");
+    expect(list[0]!.inbound_id).toBe("REALITY");
+    expect(list[0]!.tag).toBe("REALITY");
+    expect(list[0]!.label).toBe("REALITY");
     expect(list[0]!.public_key).toBeNull();
   });
 
@@ -145,9 +153,9 @@ describe("the reality API", () => {
       "POST",
       `/api/admin/nodes/${node}/reality/REALITY/rotate`,
     );
-    const result = await body<{ inbound: string; public_key: string }>(response);
+    const result = await body<{ inbound_id: string; public_key: string }>(response);
 
-    expect(result.inbound).toBe("REALITY");
+    expect(result.inbound_id).toBe("REALITY");
     expect(result.public_key).not.toBeNull();
   });
 
