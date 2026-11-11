@@ -13,19 +13,22 @@ import { MockAcme, type MockAcmeOptions } from "./support/mock-acme";
 import { MockCloudflareDns } from "./support/mock-dns";
 import {
   acceptChallenges,
-  awaitAuthorizations,
+  checkAuthorizations,
+  checkOrderReadiness,
+  checkOrderValidity,
+  checkTxtPropagation,
   cleanupFailedArtifacts,
   cleanupTxtRecords,
   createIssueDependencies,
   createLeafKeyAndCsr,
   createOrder,
   ensureAcmeAccount,
-  finalizeAndStore,
+  finalizeOrder,
   issueErrorMessage,
   loadIssue,
   publishTxtChallenges,
   purgePreviousCertificate,
-  waitForPropagation,
+  storeIssuedCertificate,
   type IssueDependencies,
 } from "../../src/cert/issue/steps";
 import {
@@ -81,17 +84,11 @@ describe("issuance workflow steps", () => {
     expect(published.targets[0].values).toHaveLength(2);
     expect(dns.records).toHaveLength(2);
 
-    await waitForPropagation(deps, published);
+    await expect(checkTxtPropagation(deps, published)).resolves.toBe(true);
     await acceptChallenges(deps, published);
-    await awaitAuthorizations(deps, published);
+    await expect(checkAuthorizations(deps, published)).resolves.toBe(true);
     const leaf = await createLeafKeyAndCsr(deps, runId, loaded.domain, loaded.identifiers);
-    const issued = await finalizeAndStore(
-      deps,
-      loaded.domain,
-      loaded.identifiers,
-      order,
-      leaf,
-    );
+    const issued = await finishIssuance(deps, loaded, order, leaf);
     const purge = await purgePreviousCertificate(deps, loaded.previousCertificate);
     const cleanup = await cleanupTxtRecords(deps, runId);
     await finishIssueRun(env.DB, runId, domain.id, { status: "succeeded" }, {
@@ -155,11 +152,11 @@ describe("issuance workflow steps", () => {
     await ensureAcmeAccount(deps);
     const order = await createOrder(deps, loaded.domain, loaded.identifiers);
     const published = await publishTxtChallenges(deps, runId, loaded.domain, order.authorizations);
-    await waitForPropagation(deps, published);
+    await expect(checkTxtPropagation(deps, published)).resolves.toBe(true);
     await acceptChallenges(deps, published);
-    await awaitAuthorizations(deps, published);
+    await expect(checkAuthorizations(deps, published)).resolves.toBe(true);
     const leaf = await createLeafKeyAndCsr(deps, runId, loaded.domain, loaded.identifiers);
-    await finalizeAndStore(deps, loaded.domain, loaded.identifiers, order, leaf);
+    await finishIssuance(deps, loaded, order, leaf);
 
     const stagingCurrent = await getCurrentCertificate(env.DB, domain.id, "staging");
     expect(stagingCurrent).not.toBeNull();
@@ -175,12 +172,12 @@ describe("issuance workflow steps", () => {
     await ensureAcmeAccount(deps);
     const order = await createOrder(deps, loaded.domain, loaded.identifiers);
     const published = await publishTxtChallenges(deps, runId, loaded.domain, order.authorizations);
-    await waitForPropagation(deps, published);
+    await expect(checkTxtPropagation(deps, published)).resolves.toBe(true);
     await acceptChallenges(deps, published);
 
     let failure: unknown;
     try {
-      await awaitAuthorizations(deps, published);
+      await checkAuthorizations(deps, published);
     } catch (error) {
       failure = error;
     }
@@ -200,6 +197,29 @@ describe("issuance workflow steps", () => {
     expect(await listPendingChallengeRecords(env.DB, runId)).toEqual([]);
   });
 });
+
+/**
+ * WHAT: drive the durable single-pass steps to a stored certificate.
+ *
+ * WHY a helper: the workflow polls each check through durable steps; these
+ * tests run the same calls in a tight loop against instant mock responses.
+ */
+async function finishIssuance(
+  deps: IssueDependencies,
+  loaded: Awaited<ReturnType<typeof loadIssue>>,
+  order: Awaited<ReturnType<typeof createOrder>>,
+  leaf: Awaited<ReturnType<typeof createLeafKeyAndCsr>>,
+) {
+  const ready = await checkOrderReadiness(deps, order);
+  expect(ready).not.toBeNull();
+  await finalizeOrder(deps, order, ready!, leaf);
+  let valid = await checkOrderValidity(deps, order);
+  for (let attempt = 0; valid === null && attempt < 5; attempt += 1) {
+    valid = await checkOrderValidity(deps, order);
+  }
+  expect(valid).not.toBeNull();
+  return storeIssuedCertificate(deps, loaded.domain, loaded.identifiers, order, leaf, valid!);
+}
 
 function makeDependencies(options: MockAcmeOptions): {
   deps: IssueDependencies;

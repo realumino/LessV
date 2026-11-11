@@ -17,7 +17,7 @@ import {
   dns01RecordName,
   dns01Value,
   normalizeDomainName,
-  waitForTxtPropagation,
+  observeTxtPropagation,
 } from "../acme/dns01";
 import { CloudflareApiError, createTxtRecord, deleteTxtRecord } from "../dns/cloudflare";
 import { parseCertificate, splitCertificateChain } from "../crypto/certificate";
@@ -368,22 +368,23 @@ export async function publishTxtChallenges(
   };
 }
 
-export async function waitForPropagation(
+/**
+ * WHAT: one propagation check; true once every TXT value is visible.
+ *
+ * WHY single-pass: the Workflow polls this through durable steps so each
+ * invocation stays inside the subrequest budget; the blocking variant is
+ * kept for non-Workflow callers and unit tests.
+ */
+export async function checkTxtPropagation(
   deps: IssueDependencies,
   published: PublishedChallenges,
-): Promise<void> {
-  if (published.targets.length === 0) return;
-  try {
-    await waitForTxtPropagation(published.targets, {
-      fetch: deps.fetcher,
-      timeoutMs: deps.timings.dnsTimeoutMs,
-      pollIntervalMs: deps.timings.dnsPollIntervalMs,
-      settleMs: deps.timings.dnsSettleMs,
-      requestTimeoutMs: deps.timings.dnsRequestTimeoutMs,
-    });
-  } catch (error) {
-    throw new NonRetryableError(issueErrorMessage(error));
-  }
+): Promise<boolean> {
+  if (published.targets.length === 0) return true;
+  const observation = await observeTxtPropagation(published.targets, {
+    fetch: deps.fetcher,
+    requestTimeoutMs: deps.timings.dnsRequestTimeoutMs,
+  });
+  return observation.allVisible;
 }
 
 export async function acceptChallenges(
@@ -408,24 +409,124 @@ export async function acceptChallenges(
   }
 }
 
-export async function awaitAuthorizations(
+/**
+ * WHAT: one authorization check; true when all are valid, false while pending.
+ *
+ * WHY single-pass: same durable-polling reason as the propagation check. An
+ * invalid authorization throws the CA's problem document verbatim, which is
+ * what the panel shows and what the order ring inspects for expiry.
+ */
+export async function checkAuthorizations(
   deps: IssueDependencies,
   published: PublishedChallenges,
-): Promise<void> {
+): Promise<boolean> {
   const pending = published.authorizations.filter(({ status }) => status !== "valid");
-  if (pending.length === 0) return;
+  if (pending.length === 0) return true;
 
   const { client } = await loadAcmeAccount(deps);
   for (const authorization of pending) {
+    let fresh: Awaited<ReturnType<typeof client.getAuthorization>>;
     try {
-      await client.waitForAuthorizationValid(authorization.authorizationUrl, {
-        timeoutMs: deps.timings.acmeTimeoutMs,
-        pollIntervalMs: deps.timings.acmePollIntervalMs,
-      });
+      fresh = await client.getAuthorization(authorization.authorizationUrl);
     } catch (error) {
       throwPermanentAcmeError(error);
     }
+    if (fresh.status === "invalid") {
+      const problem = fresh.error ?? {
+        type: "urn:ietf:params:acme:error:malformed",
+        detail: `Authorization for ${fresh.identifier.value} became invalid`,
+      };
+      throw new NonRetryableError(JSON.stringify(problem));
+    }
+    if (fresh.status !== "valid") return false;
   }
+  return true;
+}
+
+/**
+ * WHAT: one order-readiness check.
+ *
+ * WHY return the order: finalize needs the current `finalize` URL, and a
+ * durable polling loop must hand the freshest order to the next step.
+ * Returns null while the order is still pending.
+ */
+export interface ReadyOrder {
+  finalize: string;
+}
+
+export async function checkOrderReadiness(
+  deps: IssueDependencies,
+  order: NewOrderState,
+): Promise<ReadyOrder | null> {
+  const { client } = await loadAcmeAccount(deps);
+  let fresh: AcmeOrder;
+  try {
+    fresh = await client.getOrder(order.orderUrl);
+  } catch (error) {
+    throwPermanentAcmeError(error);
+  }
+  if (fresh.status === "ready") return { finalize: fresh.finalize };
+  if (fresh.status === "pending") return null;
+  if (fresh.status === "invalid") {
+    throw new NonRetryableError(JSON.stringify(fresh.error ?? {
+      type: "urn:ietf:params:acme:error:malformed",
+      detail: `Order ${order.orderUrl} became invalid`,
+    }));
+  }
+  throw new NonRetryableError(
+    `Expected order ${order.orderUrl} to become ready, received status ${fresh.status}`,
+  );
+}
+
+/** WHAT: submit the CSR once the order is ready (single ACME request). */
+export async function finalizeOrder(
+  deps: IssueDependencies,
+  order: NewOrderState,
+  readyOrder: ReadyOrder,
+  leaf: LeafKeyState,
+): Promise<void> {
+  const { client } = await loadAcmeAccount(deps);
+  try {
+    await client.finalizeOrder(readyOrder.finalize, b64uDecode(leaf.csrB64u), order.orderUrl);
+  } catch (error) {
+    throwPermanentAcmeError(error);
+  }
+}
+
+/**
+ * WHAT: one order-validity check; returns the valid order, null while processing.
+ */
+export interface ValidOrder {
+  certificate: string;
+}
+
+export async function checkOrderValidity(
+  deps: IssueDependencies,
+  order: NewOrderState,
+): Promise<ValidOrder | null> {
+  const { client } = await loadAcmeAccount(deps);
+  let fresh: AcmeOrder;
+  try {
+    fresh = await client.getOrder(order.orderUrl);
+  } catch (error) {
+    throwPermanentAcmeError(error);
+  }
+  if (fresh.status === "valid") {
+    if (!fresh.certificate) {
+      throw new NonRetryableError("Valid ACME order is missing its certificate URL");
+    }
+    return { certificate: fresh.certificate };
+  }
+  if (fresh.status === "processing" || fresh.status === "ready") return null;
+  if (fresh.status === "invalid") {
+    throw new NonRetryableError(JSON.stringify(fresh.error ?? {
+      type: "urn:ietf:params:acme:error:malformed",
+      detail: `Order ${order.orderUrl} became invalid`,
+    }));
+  }
+  throw new NonRetryableError(
+    `Expected finalized order ${order.orderUrl} to become valid, received status ${fresh.status}`,
+  );
 }
 
 export async function createLeafKeyAndCsr(
@@ -454,12 +555,20 @@ export async function createLeafKeyAndCsr(
   };
 }
 
-export async function finalizeAndStore(
+/**
+ * WHAT: download, verify, and persist the certificate of a valid order.
+ *
+ * WHY the order arrives as an argument: polling happens in durable workflow
+ * steps; this function performs the single, non-idempotent-sensitive tail
+ * (one download + R2 puts + the D1 commit).
+ */
+export async function storeIssuedCertificate(
   deps: IssueDependencies,
   domain: CertDomainRow,
   identifiers: AcmeIdentifier[],
   order: NewOrderState,
   leaf: LeafKeyState,
+  validOrder: ValidOrder,
 ): Promise<StoredCertificate> {
   const existing = await getCertificate(deps.db, leaf.certificateId);
   if (existing) {
@@ -470,22 +579,8 @@ export async function finalizeAndStore(
   }
 
   const { client } = await loadAcmeAccount(deps);
-  let validOrder: AcmeOrder;
-  try {
-    const readyOrder = await client.waitForOrderReady(order.orderUrl, {
-      timeoutMs: deps.timings.acmeTimeoutMs,
-      pollIntervalMs: deps.timings.acmePollIntervalMs,
-    });
-    await client.finalizeOrder(readyOrder.finalize, b64uDecode(leaf.csrB64u), order.orderUrl);
-    validOrder = await client.waitForOrderValid(order.orderUrl, {
-      timeoutMs: deps.timings.acmeTimeoutMs,
-      pollIntervalMs: deps.timings.acmePollIntervalMs,
-    });
-    if (!validOrder.certificate) {
-      throw new NonRetryableError("Valid ACME order is missing its certificate URL");
-    }
-  } catch (error) {
-    throwPermanentAcmeError(error);
+  if (!validOrder.certificate) {
+    throw new NonRetryableError("Valid ACME order is missing its certificate URL");
   }
 
   let downloadedChain: string;

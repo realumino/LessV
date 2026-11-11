@@ -27,6 +27,7 @@ describe("CertificateWorkflow orchestration", () => {
       await instance.modify(async (modifier) => {
         await mockSuccessfulRun(modifier, { domain, runId });
         await modifier.disableRetryDelays();
+        await modifier.disableSleeps();
       });
 
       await env.ISSUANCE.create({ id: workflowId, params: payload });
@@ -53,12 +54,13 @@ describe("CertificateWorkflow orchestration", () => {
     const payload: IssuePayload = { runId, domainId: domain.id, environment: "production" };
     await withWorkflowInstance(workflowId, async (instance) => {
       await instance.modify(async (modifier) => {
-        await mockSuccessfulRun(modifier, { domain, runId }, { skipSteps: ["await-authz-1"] });
+        await mockSuccessfulRun(modifier, { domain, runId }, { skipSteps: ["authz-1-check-0"] });
         await modifier.mockStepError(
-          { name: "await-authz-1" },
+          { name: "authz-1-check-0" },
           new Error("mock authorization failure"),
         );
         await modifier.disableRetryDelays();
+        await modifier.disableSleeps();
       });
 
       await env.ISSUANCE.create({ id: workflowId, params: payload });
@@ -92,12 +94,13 @@ describe("CertificateWorkflow orchestration", () => {
     const payload: IssuePayload = { runId, domainId: domain.id, environment: "staging" };
     await withWorkflowInstance(workflowId, async (instance) => {
       await instance.modify(async (modifier) => {
-        await mockSuccessfulRun(modifier, { domain, runId }, { skipSteps: ["await-authz-1"] });
+        await mockSuccessfulRun(modifier, { domain, runId }, { skipSteps: ["authz-1-check-0"] });
         await modifier.mockStepError(
-          { name: "await-authz-1" },
+          { name: "authz-1-check-0" },
           new Error("staging failure"),
         );
         await modifier.disableRetryDelays();
+        await modifier.disableSleeps();
       });
 
       await env.ISSUANCE.create({ id: workflowId, params: payload });
@@ -122,11 +125,12 @@ describe("CertificateWorkflow orchestration", () => {
     const payload: IssuePayload = { runId, domainId: domain.id, environment: "production" };
     await withWorkflowInstance(workflowId, async (instance) => {
       await instance.modify(async (modifier) => {
-        await mockSuccessfulRun(modifier, { domain, runId }, { skipSteps: ["await-authz-1"] });
+        await mockSuccessfulRun(modifier, { domain, runId }, { skipSteps: ["authz-1-check-0"] });
         // Attempt 1 fails at await-authz with a step-wrapped expired problem;
         // attempt 2 succeeds end to end.
-        await modifier.mockStepError({ name: "await-authz-1" }, new Error(EXPIRED_PROBLEM));
+        await modifier.mockStepError({ name: "authz-1-check-0" }, new Error(EXPIRED_PROBLEM));
         await modifier.disableRetryDelays();
+        await modifier.disableSleeps();
       });
 
       await env.ISSUANCE.create({ id: workflowId, params: payload });
@@ -153,11 +157,12 @@ describe("CertificateWorkflow orchestration", () => {
         await mockSuccessfulRun(
           modifier,
           { domain, runId },
-          { skipSteps: ["await-authz-1", "await-authz-2"] },
+          { skipSteps: ["authz-1-check-0", "authz-2-check-0"] },
         );
-        await modifier.mockStepError({ name: "await-authz-1" }, new Error(EXPIRED_PROBLEM));
-        await modifier.mockStepError({ name: "await-authz-2" }, new Error(EXPIRED_PROBLEM));
+        await modifier.mockStepError({ name: "authz-1-check-0" }, new Error(EXPIRED_PROBLEM));
+        await modifier.mockStepError({ name: "authz-2-check-0" }, new Error(EXPIRED_PROBLEM));
         await modifier.disableRetryDelays();
+        await modifier.disableSleeps();
       });
 
       await env.ISSUANCE.create({ id: workflowId, params: payload });
@@ -209,9 +214,16 @@ async function mockSuccessfulRun(
   for (const attempt of [1, 2]) {
     await modifier.mockStepResult({ name: `new-order-${attempt}` }, order(attempt));
     await modifier.mockStepResult({ name: `publish-txt-${attempt}` }, noop);
-    await modifier.mockStepResult({ name: `wait-propagation-${attempt}` }, { mocked: true });
+    await modifier.mockStepResult(
+      { name: `propagation-${attempt}-check-0` },
+      true,
+    );
+    await modifier.mockStepResult(
+      { name: `propagation-${attempt}-recheck` },
+      true,
+    );
     await modifier.mockStepResult({ name: `accept-challenges-${attempt}` }, { mocked: true });
-    const authzName = `await-authz-${attempt}`;
+    const authzName = `authz-${attempt}-check-0`;
     // The failing step gets its error registered by the caller, and the
     // introspector forbids mocking a result for it as well.
     if (!options.skipSteps?.includes(authzName)) {
@@ -224,7 +236,20 @@ async function mockSuccessfulRun(
     csrB64u: "AQ",
     publicJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
   });
-  await modifier.mockStepResult({ name: "finalize+store" }, {
+  const readyOrder = {
+    url: order(1).orderUrl,
+    status: "ready",
+    identifiers: [],
+    authorizations: [],
+    finalize: "https://acme.example/finalize/1",
+  };
+  await modifier.mockStepResult({ name: "order-ready-check-0" }, readyOrder);
+  await modifier.mockStepResult({ name: "finalize-order" }, { mocked: true });
+  await modifier.mockStepResult(
+    { name: "order-valid-check-0" },
+    { ...readyOrder, status: "valid", certificate: "https://acme.example/cert/1" },
+  );
+  await modifier.mockStepResult({ name: "store-certificate" }, {
     certificateId: runId,
     r2Prefix: `certs/production/${domain.name}/${runId}`,
     serial: "serial",

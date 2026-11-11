@@ -16,25 +16,31 @@ import {
   type WorkflowStep,
   type WorkflowStepConfig,
 } from "cloudflare:workers";
+import { NonRetryableError } from "cloudflare:workflows";
 import { finishIssueRun, recordRunPhase, type CertificateRow } from "../store/d1";
 import { AcmeError } from "../acme/errors";
 import {
   acceptChallenges,
-  awaitAuthorizations,
+  checkAuthorizations,
+  checkOrderReadiness,
+  checkOrderValidity,
+  checkTxtPropagation,
   cleanupFailedArtifacts,
   cleanupTxtRecords,
   createIssueDependencies,
   createLeafKeyAndCsr,
   createOrder,
   ensureAcmeAccount,
-  finalizeAndStore,
+  finalizeOrder,
   issueErrorMessage,
   loadIssue,
   publishTxtChallenges,
   purgePreviousCertificate,
-  waitForPropagation,
+  storeIssuedCertificate,
   type NewOrderState,
   type PublishedChallenges,
+  type ReadyOrder,
+  type ValidOrder,
 } from "./steps";
 import type { IssuePayload } from "./types";
 
@@ -105,8 +111,15 @@ export class CertificateWorkflow extends WorkflowEntrypoint<Env, IssuePayload> {
           );
 
           await this.phase(step, runId, `wait-propagation-${attempt}`);
-          await step.do(`wait-propagation-${attempt}`, async () =>
-            waitForPropagation(deps, published!),
+          await this.pollUntil(
+            step,
+            `propagation-${attempt}`,
+            {
+              attempts: Math.max(1, Math.ceil(deps.timings.dnsTimeoutMs / deps.timings.dnsPollIntervalMs)),
+              intervalMs: deps.timings.dnsPollIntervalMs,
+              settleMs: deps.timings.dnsSettleMs,
+            },
+            () => checkTxtPropagation(deps, published!),
           );
 
           await this.phase(step, runId, `accept-challenges-${attempt}`);
@@ -115,8 +128,14 @@ export class CertificateWorkflow extends WorkflowEntrypoint<Env, IssuePayload> {
           );
 
           await this.phase(step, runId, `await-authz-${attempt}`);
-          await step.do(`await-authz-${attempt}`, async () =>
-            awaitAuthorizations(deps, published!),
+          await this.pollUntil(
+            step,
+            `authz-${attempt}`,
+            {
+              attempts: Math.max(1, Math.ceil(deps.timings.acmeTimeoutMs / deps.timings.acmePollIntervalMs)),
+              intervalMs: deps.timings.acmePollIntervalMs,
+            },
+            () => checkAuthorizations(deps, published!),
           );
 
           break;
@@ -136,9 +155,31 @@ export class CertificateWorkflow extends WorkflowEntrypoint<Env, IssuePayload> {
       );
 
       await this.phase(step, runId, "finalize+store");
+      const readyOrder = await this.pollReadyOrder(
+        step,
+        "order-ready",
+        {
+          attempts: Math.max(1, Math.ceil(deps.timings.acmeTimeoutMs / deps.timings.acmePollIntervalMs)),
+          intervalMs: deps.timings.acmePollIntervalMs,
+        },
+        () => checkOrderReadiness(deps, order!),
+      );
+      await step.do("finalize-order", async () =>
+        finalizeOrder(deps, order!, readyOrder, leaf),
+      );
+      const validOrder = await this.pollValidOrder(
+        step,
+        "order-valid",
+        {
+          attempts: Math.max(1, Math.ceil(deps.timings.acmeTimeoutMs / deps.timings.acmePollIntervalMs)),
+          intervalMs: deps.timings.acmePollIntervalMs,
+        },
+        () => checkOrderValidity(deps, order!),
+      );
       const certificate = await step.do(
-        "finalize+store",
-        async () => finalizeAndStore(deps, loaded.domain, loaded.identifiers, order!, leaf),
+        "store-certificate",
+        async () =>
+          storeIssuedCertificate(deps, loaded.domain, loaded.identifiers, order!, leaf, validOrder),
       );
       certificateId = certificate.certificateId;
 
@@ -225,6 +266,63 @@ export class CertificateWorkflow extends WorkflowEntrypoint<Env, IssuePayload> {
 
   private async phase(step: WorkflowStep, runId: string, phase: string): Promise<void> {
     await step.do(`phase-${phase}`, async () => recordRunPhase(this.env.DB, runId, phase));
+  }
+
+  /**
+   * WHAT: durable boolean polling — one check per step, sleeps between.
+   *
+   * WHY not one long polling step: the per-invocation subrequest budget
+   * (50 on the free plan) is shared by every fetch inside a step, so a
+   * five-minute ACME or DoH poll loop can exhaust it and fail the run
+   * after the CA has already accepted the order. Sleeping between checks
+   * ends the invocation and gives every check a fresh budget.
+   */
+  private async pollUntil(
+    step: WorkflowStep,
+    name: string,
+    options: { attempts: number; intervalMs: number; settleMs?: number },
+    check: () => Promise<boolean>,
+  ): Promise<void> {
+    for (let index = 0; index < options.attempts; index += 1) {
+      const done = await step.do(`${name}-check-${index}`, check);
+      if (done) {
+        if (!options.settleMs) return;
+        await step.sleep(`${name}-settle`, options.settleMs);
+        if (await step.do(`${name}-recheck`, check)) return;
+      }
+      await step.sleep(`${name}-wait-${index}`, options.intervalMs);
+    }
+    throw new NonRetryableError(`${name} did not converge within ${options.attempts} checks`);
+  }
+
+  /** WHAT: durable polling for the first ready order. */
+  private async pollReadyOrder(
+    step: WorkflowStep,
+    name: string,
+    options: { attempts: number; intervalMs: number },
+    check: () => Promise<ReadyOrder | null>,
+  ): Promise<ReadyOrder> {
+    for (let index = 0; index < options.attempts; index += 1) {
+      const value = await step.do(`${name}-check-${index}`, check);
+      if (value !== null) return value;
+      await step.sleep(`${name}-wait-${index}`, options.intervalMs);
+    }
+    throw new NonRetryableError(`${name} did not converge within ${options.attempts} checks`);
+  }
+
+  /** WHAT: durable polling for the first valid order. */
+  private async pollValidOrder(
+    step: WorkflowStep,
+    name: string,
+    options: { attempts: number; intervalMs: number },
+    check: () => Promise<ValidOrder | null>,
+  ): Promise<ValidOrder> {
+    for (let index = 0; index < options.attempts; index += 1) {
+      const value = await step.do(`${name}-check-${index}`, check);
+      if (value !== null) return value;
+      await step.sleep(`${name}-wait-${index}`, options.intervalMs);
+    }
+    throw new NonRetryableError(`${name} did not converge within ${options.attempts} checks`);
   }
 }
 

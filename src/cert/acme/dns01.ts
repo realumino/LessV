@@ -95,69 +95,32 @@ export async function waitForTxtPropagation(
   targets: readonly TxtTarget[],
   options: PropagationOptions = {},
 ): Promise<void> {
-  if (targets.length === 0) throw new TypeError("At least one DNS-01 TXT target is required");
-  if (targets.some(({ name, values }) => !name || values.length === 0 || values.some((value) => !value))) {
-    throw new TypeError("Every DNS-01 TXT target must have a name and at least one value");
-  }
-
-  const fetcher = options.fetch ?? globalThis.fetch;
-  const wait = options.wait ?? sleep;
-  const now = options.now ?? Date.now;
-  const resolvers = options.resolvers ?? DEFAULT_DOH_RESOLVERS;
   const timeoutMs = options.timeoutMs ?? 5 * 60_000;
   const pollIntervalMs = options.pollIntervalMs ?? 5_000;
   const settleMs = options.settleMs ?? 10_000;
-  const requestTimeoutMs = options.requestTimeoutMs ?? 10_000;
-
-  if (resolvers.length === 0) throw new TypeError("At least one DNS-over-HTTPS resolver is required");
+  const wait = options.wait ?? sleep;
+  const now = options.now ?? Date.now;
   if (
     !Number.isFinite(timeoutMs) ||
     !Number.isFinite(pollIntervalMs) ||
     !Number.isFinite(settleMs) ||
-    !Number.isFinite(requestTimeoutMs) ||
     timeoutMs < 0 ||
     pollIntervalMs <= 0 ||
-    settleMs < 0 ||
-    requestTimeoutMs <= 0
+    settleMs < 0
   ) {
-    throw new RangeError("DNS propagation timeout/settle values must be non-negative; intervals must be positive");
+    throw new RangeError(
+      "DNS propagation timeout/settle values must be non-negative; intervals must be positive",
+    );
   }
-
   const deadline = now() + timeoutMs;
   const maxAttempts = Math.max(1, Math.ceil(timeoutMs / Math.max(pollIntervalMs, 1)) + 2);
-  const missingByResolver: Record<string, string[]> = {};
   let visibleSince: number | undefined;
+  let last: PropagationObservation = { allVisible: false, missingByResolver: {} };
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const observations = await Promise.all(
-      resolvers.map(async (resolver) => {
-        try {
-          const records = await Promise.all(
-            targets.map(async (target) => ({
-              target,
-              records: await queryTxtRecords(target.name, resolver, fetcher, requestTimeoutMs),
-            })),
-          );
-          const missing = records.flatMap(({ target, records: visible }) =>
-            target.values
-              .filter((value) => !visible.has(value))
-              .map((value) => `${target.name}=${value}`),
-          );
-          return { name: resolver.name, missing };
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          return { name: resolver.name, missing: [`resolver error: ${message}`] };
-        }
-      }),
-    );
-
-    for (const observation of observations) {
-      missingByResolver[observation.name] = observation.missing;
-    }
-
-    const allVisible = observations.every(({ missing }) => missing.length === 0);
+    last = await observeTxtPropagation(targets, options);
     const currentTime = now();
-    if (allVisible) {
+    if (last.allVisible) {
       visibleSince ??= currentTime;
       if (currentTime - visibleSince >= settleMs) return;
     } else {
@@ -166,12 +129,75 @@ export async function waitForTxtPropagation(
 
     const remaining = deadline - currentTime;
     if (remaining <= 0) break;
-
-    const settleRemaining = visibleSince === undefined ? pollIntervalMs : settleMs - (currentTime - visibleSince);
+    const settleRemaining =
+      visibleSince === undefined ? pollIntervalMs : settleMs - (currentTime - visibleSince);
     await wait(Math.max(0, Math.min(pollIntervalMs, settleRemaining, remaining)));
   }
 
-  throw new DnsPropagationError(missingByResolver);
+  throw new DnsPropagationError(last.missingByResolver);
+}
+
+/** WHAT: one observation pass over every resolver and target. */
+export interface PropagationObservation {
+  allVisible: boolean;
+  missingByResolver: Record<string, string[]>;
+}
+
+/**
+ * WHAT: query every resolver once and report which TXT values are missing.
+ *
+ * WHY single-pass: a Workflow step must stay inside the per-invocation
+ * subrequest budget (50 on the free plan), so the propagation wait becomes
+ * a durable loop of single-pass checks in the workflow instead of one long
+ * polling step that can exhaust it.
+ */
+export async function observeTxtPropagation(
+  targets: readonly TxtTarget[],
+  options: PropagationOptions = {},
+): Promise<PropagationObservation> {
+  if (targets.length === 0) throw new TypeError("At least one DNS-01 TXT target is required");
+  if (targets.some(({ name, values }) => !name || values.length === 0 || values.some((value) => !value))) {
+    throw new TypeError("Every DNS-01 TXT target must have a name and at least one value");
+  }
+
+  const fetcher = options.fetch ?? globalThis.fetch;
+  const resolvers = options.resolvers ?? DEFAULT_DOH_RESOLVERS;
+  const requestTimeoutMs = options.requestTimeoutMs ?? 10_000;
+  if (resolvers.length === 0) throw new TypeError("At least one DNS-over-HTTPS resolver is required");
+  if (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
+    throw new RangeError("DNS-over-HTTPS request timeout must be positive");
+  }
+
+  const missingByResolver: Record<string, string[]> = {};
+  const observations = await Promise.all(
+    resolvers.map(async (resolver) => {
+      try {
+        const records = await Promise.all(
+          targets.map(async (target) => ({
+            target,
+            records: await queryTxtRecords(target.name, resolver, fetcher, requestTimeoutMs),
+          })),
+        );
+        const missing = records.flatMap(({ target, records: visible }) =>
+          target.values
+            .filter((value) => !visible.has(value))
+            .map((value) => `${target.name}=${value}`),
+        );
+        return { name: resolver.name, missing };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { name: resolver.name, missing: [`resolver error: ${message}`] };
+      }
+    }),
+  );
+
+  for (const observation of observations) {
+    missingByResolver[observation.name] = observation.missing;
+  }
+  return {
+    allVisible: observations.every(({ missing }) => missing.length === 0),
+    missingByResolver,
+  };
 }
 
 async function queryTxtRecords(
