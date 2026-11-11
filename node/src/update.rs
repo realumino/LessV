@@ -62,19 +62,17 @@ pub fn version_matches(current: &str, target: &str) -> bool {
 /// WHAT: parse a `.dgst` body or a `.sha256sum` body into a lowercase hex
 /// digest.
 ///
-/// WHY both shapes: Xray publishes `SHA256=<hex>` in the `.dgst` sidecar,
-/// while the rules-dat release publishes `<hex>  <name>` in `.sha256sum`.
+/// WHY a token scan and not a prefix match: Xray's sidecar changed shape
+/// between releases (`SHA256=<hex>` in current releases, `SHA2-256= <hex>`
+/// in older ones), and the rules-dat release publishes `<hex>  <name>` in
+/// `.sha256sum`. A 64-hex token is the digest in every one of them.
 pub fn parse_digest(text: &str) -> Option<String> {
     for line in text.lines() {
-        let candidate = line
-            .trim()
-            .strip_prefix("SHA256=")
-            .unwrap_or(line.trim())
-            .split_whitespace()
-            .next()
-            .unwrap_or("");
-        if candidate.len() == 64 && candidate.chars().all(|ch| ch.is_ascii_hexdigit()) {
-            return Some(candidate.to_ascii_lowercase());
+        let value = line.split_once('=').map(|(_, rest)| rest).unwrap_or(line);
+        for token in value.split_whitespace() {
+            if token.len() == 64 && token.chars().all(|ch| ch.is_ascii_hexdigit()) {
+                return Some(token.to_ascii_lowercase());
+            }
         }
     }
     None
