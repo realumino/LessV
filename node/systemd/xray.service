@@ -1,0 +1,20 @@
+[Unit]
+Description=Xray Service (managed by lessv-node)
+Documentation=https://gitee.com/realumino/lessv
+After=network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# lessv-node writes the config 0600 as root; the service therefore runs as
+# root instead of the upstream `nobody` user, which could not read it.
+User=root
+Group=root
+ExecStart=/usr/local/bin/xray run -config /var/lib/lessv/config.json
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1000000
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -16,7 +16,7 @@
     "pretypes": "node scripts/ensure_wrangler_config.mjs",
     "build": "wrangler deploy --dry-run",
     "deploy": "node scripts/deploy.mjs",
-    "release:agent": "node scripts/release_agent.mjs"
+    "release:node": "node scripts/release_node.mjs"
   },
   "dependencies": {
     "@abraham/reflection": "^0.13.0",
