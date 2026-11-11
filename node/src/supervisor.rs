@@ -46,6 +46,47 @@ pub struct Supervisor {
     pub init: InitSystem,
 }
 
+/// WHAT: the process name reported by /proc/<pid>/comm, trimmed.
+fn process_name(pid: u32) -> Option<String> {
+    std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        .ok()
+        .map(|text| text.trim().to_string())
+}
+
+/// WHAT: the real PID of `service`, or 0 when it cannot be established.
+///
+/// WHY not the pidfile alone: OpenRC's `supervise-daemon` writes its own PID
+/// there, not the supervised child's. Reporting that as `xray_pid` would
+/// name the wrong process, so the pidfile is only trusted when /proc says it
+/// belongs to the service; otherwise /proc is scanned for a process with the
+/// service's name (smallest PID wins, which is the nginx master).
+fn service_pid(service: &str) -> u32 {
+    if let Ok(text) = std::fs::read_to_string(format!("/run/{service}.pid")) {
+        if let Ok(pid) = text.trim().parse::<u32>() {
+            if pid > 0 && process_name(pid).as_deref() == Some(service) {
+                return pid;
+            }
+        }
+    }
+    let mut matches: Vec<u32> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir("/proc") {
+        for entry in entries.flatten() {
+            let Some(pid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse::<u32>().ok())
+            else {
+                continue;
+            };
+            if pid > 0 && process_name(pid).as_deref() == Some(service) {
+                matches.push(pid);
+            }
+        }
+    }
+    matches.sort_unstable();
+    matches.first().copied().unwrap_or(0)
+}
+
 impl Supervisor {
     /// WHAT: resolve `restart_mode` (`systemd`, `openrc`, `auto`) to a backend.
     ///
@@ -138,13 +179,7 @@ impl Supervisor {
                 if status.code != 0 {
                     return (false, 0);
                 }
-                let pidfile = format!("/run/{service}.pid");
-                let pid = std::fs::read_to_string(&pidfile)
-                    .ok()
-                    .and_then(|text| text.trim().parse::<u32>().ok())
-                    .filter(|pid| *pid > 0)
-                    .unwrap_or(0);
-                (true, pid)
+                (true, service_pid(service))
             }
         }
     }
@@ -195,6 +230,11 @@ mod tests {
             Supervisor::from_mode("openrc").unwrap().init,
             InitSystem::OpenRc
         );
+    }
+
+    #[test]
+    fn unknown_service_has_no_pid() {
+        assert_eq!(service_pid("lessv-node-does-not-exist"), 0);
     }
 
     #[test]
