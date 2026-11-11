@@ -36,6 +36,8 @@ import type {
   NodeRuntimeOut,
   NodeSyncOut,
   OutboundOut,
+  PresetBuildOut,
+  PresetCatalogOut,
   RealityKey,
   StatusOut,
   UserCreateIn,
@@ -224,6 +226,45 @@ export const putNodeConfig = (nodeId: string, config: unknown) =>
 export const getNodeRuntime = (nodeId: string) =>
   request<NodeRuntimeOut>(
     `/nodes/${encodeURIComponent(nodeId)}/config/runtime`,
+  );
+
+/**
+ * WHAT: ask one node to update its Xray binary (or refresh its Geodata).
+ *
+ * WHY a request and not an immediate change: the node downloads, verifies,
+ * and tests the artifact itself; the call only records what the admin
+ * confirmed, and the next heartbeat delivers it.
+ */
+export const updateNodeXray = (nodeId: string, version: string) =>
+  request<unknown>(`/nodes/${encodeURIComponent(nodeId)}/xray-update`, {
+    method: "POST",
+    body: JSON.stringify({ version }),
+  });
+
+export const updateNodeGeodata = (nodeId: string) =>
+  request<unknown>(`/nodes/${encodeURIComponent(nodeId)}/geodata-update`, {
+    method: "POST",
+  });
+
+/** WHAT: the preset catalog for one node (base skeleton + descriptors). */
+export const getNodePresets = (nodeId: string) =>
+  request<PresetCatalogOut>(`/nodes/${encodeURIComponent(nodeId)}/presets`);
+
+/**
+ * WHAT: merge one preset into a document and return the result, unsaved.
+ *
+ * WHY the document is in the body: it may be the editor's unsaved draft, and
+ * the ordinary config PUT remains the only write path.
+ */
+export const buildNodePreset = (
+  nodeId: string,
+  presetId: string,
+  config: Record<string, unknown> | null,
+  options: Record<string, string>,
+) =>
+  request<PresetBuildOut>(
+    `/nodes/${encodeURIComponent(nodeId)}/presets/${encodeURIComponent(presetId)}`,
+    { method: "POST", body: JSON.stringify({ config, options }) },
   );
 
 export const getNodeInbounds = (nodeId: string) =>

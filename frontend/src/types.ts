@@ -28,6 +28,16 @@ export interface NodeRuntimeOut {
   warnings: string[];
 }
 
+/** One maintenance action the plane asked this node to perform. */
+export interface NodeActionOut {
+  action: "update_xray" | "update_geodata";
+  state: "pending" | "ok" | "failed";
+  target: string | null;
+  message: string | null;
+  requested_at: number;
+  finished_at: number | null;
+}
+
 /** GET /api/admin/nodes/{id}/sync — drift plus liveness at a glance. */
 export interface NodeSyncOut {
   node_id: string;
@@ -39,8 +49,11 @@ export interface NodeSyncOut {
   health: string | null;
   agent_version: string | null;
   xray_version: string | null;
+  /** The XTLS/Xray-rules-dat release the node installed. */
+  geodata_version: string | null;
   last_error: string | null;
   warnings: string[];
+  actions: NodeActionOut[];
   nginx_ok: number | null;
   nginx_error: string | null;
   cert_synced_at: number | null;
@@ -160,6 +173,35 @@ export interface InboundLinkIn {
   inbound_id: string;
   label: string;
   overrides: Record<string, string | number>;
+}
+
+/** One input a preset dialog collects. */
+export interface PresetFieldOut {
+  name: string;
+  label: string;
+  placeholder: string;
+  hint: string;
+}
+
+/** One preset as the config page describes it. */
+export interface PresetOut {
+  id: "reality" | "warp" | "geo_block";
+  label: string;
+  summary: string;
+  fields: PresetFieldOut[];
+  defaults: Record<string, string>;
+}
+
+/** GET /api/admin/nodes/{id}/presets. */
+export interface PresetCatalogOut {
+  base: Record<string, unknown>;
+  presets: PresetOut[];
+}
+
+/** POST /api/admin/nodes/{id}/presets/{preset_id} — the merged document. */
+export interface PresetBuildOut {
+  config: Record<string, unknown>;
+  warnings: string[];
 }
 
 /** GET /api/admin/status — the header's cheap composite snapshot. */

@@ -113,7 +113,7 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
    GitHub 装 Xray、从发行版仓库装 nginx）：
    ```bash
    ssh root@<server-ip>
-   VERSION=0.5.0; BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
+   VERSION=0.6.0; BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
    case "$(uname -m)" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; esac
    curl -fsSLO $BASE/lessv-node-$VERSION-linux-$ARCH.tar.gz
    curl -fsSLO $BASE/SHA256SUMS
@@ -127,7 +127,8 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
    `install.sh` 装 curl/tar/unzip/ca-certificates、nginx 与 Xray v26.11.9
    （官方 release，`.dgst` 校验）、二进制到 `/usr/local/bin/lessv-node`；
    建 `/etc/lessv`、`/etc/lessv/certs`、`/var/lib/lessv`、
-   `/var/www/lessv-decoy`；写 `lessv-node.service` + `xray.service`（xray 在
+   `/var/lib/lessv/assets`、`/var/www/lessv-decoy`；写 `lessv-node.service` +
+   `xray.service`（xray 在
    nginx 之后启动，因为 REALITY 依赖它的 socket）
    （OpenRC 为 `/etc/init.d/lessv-node` + `/etc/init.d/xray`）；删除发行版
    默认 nginx site；写 `/etc/lessv/node.toml`（0600）并 enroll；enable +
@@ -136,12 +137,12 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
    配好 musl 交叉工具链的主机；`GITEE_TOKEN=<私人令牌> npm run release:node
    -- --targets amd64 --upload` 会创建/复用 tag `node-v<版本>` 的发行版并
    上传 tarball、`install.sh`、`VERSION`、`SHA256SUMS`。）
-3. **写一份 REALITY 配置**：节点页用 **REALITY preset** 按钮生成自偷结构
+3. **写一份配置**：Config tab 里文档编辑器默认填入已保存的配置；新节点先按
+   **Base config**（空骨架 + `BLOCK` blackhole），再点 **Presets** 里的
+   **REALITY inbound** 生成自偷 inbound
    （`dest=/dev/shm/lessv-decoy.sock`、`serverNames=[节点域名]`、随机 8 位
-   `shortId`、chrome fingerprint、vision flow；outbounds 恒为
-   `BLOCK` + `direct`）。dest 是 lessv-node 生成的 decoy 的 Unix socket，
-   两端必须一致；只有 nginx 与 Xray 同机时才有意义。
-   点 Fill editor 后自己按 Save config。`privateKey` 保持为空：配置时
+   `shortId`、chrome fingerprint、vision flow）。预设只是片段，合并结果会填回
+   编辑器，检查完整的 JSON 后自己按 Save config。`privateKey` 保持为空：渲染时
    `ensureKeys` 生成并注入，私钥永远不会出现在前端。等价的 API 方式：
    ```bash
    curl -sS -X PUT -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
@@ -225,6 +226,38 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 - orphan 行在没有任何引用、且配置不再声明时可以删除（否则 409 并说明是谁
   在引用它）。
 
+## 配置预设与节点维护
+
+节点页 Config tab 的工作流：编辑器（默认是已保存的文档）→ **Base config**
+（空骨架：`inbounds: []`、唯一的 `BLOCK` blackhole outbound、空 routing）→
+**Presets** → 预览合并后的完整 JSON → **Save config**。预设不会自己保存。
+
+- **REALITY inbound**：只生成 inbound 片段（443、`dest` 指向 decoy socket、
+  `serverNames=[域名]`、shortId/flow/tag 可调）。重复构建按 tag 原位替换，
+  不会累积 `serverNames`/`shortIds`。
+- **WARP outbound**：面板向 Cloudflare 注册一个免费 WARP 设备（wgcf 同款
+  握手），生成 `protocol: "wireguard"` 的 outbound（`reserved` 来自设备
+  `client_id`，`noKernelTun: true` 用内建栈，不需要 `/dev/net/tun`）。
+  每次预览都会注册一个新设备。
+- **Block destinations by geodata**：把 `geoip:<国家码>` / `geosite:<分类>`
+  的流量路由到指定 outbound（默认 `BLOCK`），依赖节点上的 geodata。
+
+节点页 header 的 **Maintenance** 由管理员确认后下发：
+
+- **Update Xray**：默认 `latest`，也可填 `v26.11.9`。节点自己解析 GitHub
+  release、校验 `.dgst` 的 SHA-256、解压、用新二进制跑 `version` 与
+  `run -test`（对当前 live 配置）、备份旧二进制、替换、重启并确认存活；
+  任一步失败保留/恢复旧二进制。重复请求已安装的版本不会重新下载。
+- **Refresh Geodata**：从 `XTLS/Xray-rules-dat` 下载
+  `geoip-full.dat`/`geosite.dat`（校验 `.sha256sum`），落到
+  `/var/lib/lessv/assets`（Xray unit 的 `XRAY_LOCATION_ASSET`），重启 Xray，
+  失败恢复上一对文件。首次运行无条件安装一次；之后只要配置里出现
+  `geoip:`/`geosite:` 就每 7 天自动刷新，失败 24 小时后重试。
+
+两个动作的 `pending`/`ok`/`failed`、目标与错误都显示在节点 header，并出现在
+`GET /api/admin/nodes/<id>/sync` 的 `actions` 里。Xray 与 geodata 的版本随
+每次心跳上报，fleet 不再依赖 enroll 时的快照。
+
 ## 用户与订阅
 
 - 用户页新建用户，按节点勾选 inbound 与出口——`BLOCK` 不出现，它只是黑洞
@@ -249,10 +282,10 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 
 ## 当前状态
 
-- 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.5.0`（Gitee
-  Release `node-v0.5.0`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
-  构建：`npm run release:node`）。
-- 测试矩阵：Worker 407 passed / 57 files；前端 41 passed；lessv-node 47 Rust 单元测试。
+- 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.6.0`（Gitee
+  Release `node-v0.6.0`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
+  构建：`npm run release:node`）。协议 3。
+- 测试矩阵：Worker 444 passed / 62 files；前端 36 passed；lessv-node 64 Rust 单元测试。
 - 未做（候选方向）：nginx 配置面板托管、B 拓扑（TLS/WS/xhttp）、Clash
   订阅、stats/quota、到期通知、多管理员。
 
@@ -266,9 +299,9 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
   token、配置、用户授权行、端点注册表、REALITY 密钥与证书分配；证书域名与签发历史
   属于域级资源，不受影响。机器上最后应用的配置不会被远程清除——删除是面板侧动作，
   机器仍需单独下线。
-- 面板显示的 `agent_version`/`xray_version` 是 **enroll 时**上报的事实；
-  `install.sh` 原位升级复用 token、不重新 enroll，所以要刷新显示需要复用
-  同一 token 重跑一次 `lessv-node enroll`（同一个 node id 与参数）。
+- `agent_version`/`xray_version`/`geodata_version` 由每次心跳上报，面板显示
+  当前事实；`install.sh` 原位升级仍然复用 token、不重新 enroll，节点重启后
+  心跳会自动刷新 `xray_version`。
 - nginx 假站点配置由 lessv-node 按证书清单生成；面板不渲染、不托管它的
   内容（只有证书域名的 server_name 与路径来自清单）。decoy 只监听
   `/dev/shm/lessv-decoy.sock`（默认，REALITY 的 dest），80 端口只做 302，
@@ -279,8 +312,13 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
   `nginx_ok=0` + 错误（`install.sh` 也会在安装时直接拒绝这种宿主机）。
 - `ADMIN_KEY` 等价 root：持有它即可调用全部 admin API。
 - `KEY_SECRET` 不可轮换——换掉它，历史节点密钥全部不可读。
-- REALITY preset 发出的黑洞 outbound tag 是大写 `BLOCK`。早期 preset
-  生成过小写 `block`，它会被当成可路由出口（渲染成 `<node>-block`，并多出
-  一个黑洞选项）——受影响的旧节点用 preset 重新生成并保存一次配置即可。
+- 黑洞 outbound tag 约定为大写 `BLOCK`。早期 REALITY preset 生成过小写
+  `block`，它会被当成可路由出口（渲染成 `<node>-block`，并多出黑洞选项）——
+  受影响的旧节点用 Base config + REALITY inbound 预设重新生成并保存一次配置。
+- WARP 注册走 Cloudflare 的 app API（`v0a2158`，仅纯 TLS 客户端，不需要 App
+  指纹）。注册失败会以 502 显示，不会写入半份配置；每个 WARP 设备只存在于
+  配置里的 outbound，面板不保存设备凭据。
+- GeoIP 使用 rules-dat 的 **full** 版（按国家码可用）；lite 版只有地区白名单，
+  不能用于任意国家的 `geoip:` 规则。
 - staging 证书不续期，7 天后由清扫任务删除；长期测试节点需要重新 Test
   issue。

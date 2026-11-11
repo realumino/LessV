@@ -14,7 +14,15 @@ import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { NavLink, Outlet, useNavigate, useParams } from "react-router";
 
-import { deleteNode, getNode, getNodeSync, mintNodeToken, updateNode } from "../api";
+import {
+  deleteNode,
+  getNode,
+  getNodeSync,
+  mintNodeToken,
+  updateNode,
+  updateNodeGeodata,
+  updateNodeXray,
+} from "../api";
 import Badge from "../components/Badge";
 import ConfirmButton from "../components/ConfirmButton";
 import ErrorNote from "../components/ErrorNote";
@@ -205,9 +213,15 @@ function NodeHeader({
         <Fact label="Applied" value={<HashChip hash={sync?.applied_hash ?? null} />} />
         <Fact label="Desired" value={<HashChip hash={sync?.desired_hash ?? null} />} />
         <Fact label="Xray" value={sync?.xray_version ?? "—"} />
+        <Fact
+          label="Geodata"
+          value={sync?.geodata_version ?? "—"}
+          hint="XTLS/Xray-rules-dat release; refreshed weekly."
+        />
         <Fact label="nginx" value={<NginxFact sync={sync} />} />
         <Fact label="Last error" value={sync?.last_error ?? "—"} />
       </dl>
+      <Maintenance nodeId={node.id} sync={sync} onChanged={onRefresh} />
       {sync && sync.warnings.length > 0 && (
         <ul className="list-inside list-disc text-sm text-amber-700">
           {sync.warnings.map((warning) => (
@@ -399,6 +413,98 @@ function EditableName({ node, onSaved }: { node: NodeOut; onSaved: () => void })
       </span>
       {error && <ErrorNote>{error}</ErrorNote>}
     </span>
+  );
+}
+
+/**
+ * The node's maintenance controls: update Xray, refresh Geodata.
+ *
+ * WHY confirmation before the request: both actions replace files on a live
+ * host and restart Xray, so the button that records the request is the
+ * operator's sign-off. The node still does the download and its own
+ * rollback; the panel only shows what it reported.
+ */
+function Maintenance({
+  nodeId,
+  sync,
+  onChanged,
+}: {
+  nodeId: string;
+  sync: NodeSyncOut | null;
+  onChanged: () => void;
+}) {
+  const [version, setVersion] = useState("latest");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (request: () => Promise<{ error: string | null }>) => {
+    setBusy(true);
+    setError(null);
+    const result = await request();
+    setBusy(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    onChanged();
+  };
+
+  const actions = sync?.actions ?? [];
+  return (
+    <div className="space-y-2 border-t border-apple-border pt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-apple-muted">
+          Maintenance
+        </h3>
+        <input
+          className={`${inputClass} w-44 font-mono text-xs`}
+          value={version}
+          onChange={(event) => setVersion(event.target.value)}
+          placeholder="latest or v26.11.9"
+          aria-label="Xray version"
+        />
+        <ConfirmButton
+          className={secondaryButton}
+          disabled={busy || version.trim() === ""}
+          message={`Ask ${nodeId} to install Xray ${version.trim()}? The node verifies the vendor SHA-256, tests the new binary against its live config, restarts, and rolls back if it does not stay up.`}
+          onConfirm={() => void run(() => updateNodeXray(nodeId, version.trim()))}
+        >
+          Update Xray
+        </ConfirmButton>
+        <ConfirmButton
+          className={secondaryButton}
+          disabled={busy}
+          message={`Ask ${nodeId} to download the latest GeoIP/GeoSite data? Xray restarts to load it, and the previous files are restored if it does not stay up.`}
+          onConfirm={() => void run(() => updateNodeGeodata(nodeId))}
+        >
+          Refresh Geodata
+        </ConfirmButton>
+      </div>
+      {error && <ErrorNote>{error}</ErrorNote>}
+      {actions.length > 0 && (
+        <ul className="space-y-0.5 text-xs text-apple-muted">
+          {actions.map((action) => (
+            <li key={action.action}>
+              <span className="font-mono">{action.action}</span>{" "}
+              {action.target && action.action === "update_xray" && (
+                <span className="font-mono">→ {action.target} </span>
+              )}
+              {action.state === "pending" && <span>pending — next heartbeat</span>}
+              {action.state === "ok" && (
+                <span className="text-apple-green">
+                  ok · {relativeTime(action.finished_at)}
+                </span>
+              )}
+              {action.state === "failed" && (
+                <span className="text-apple-red">
+                  failed · {action.message ?? "no detail"}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
