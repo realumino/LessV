@@ -215,9 +215,9 @@ async function checkAuthAndHealth(host, auth) {
 /**
  * WHAT: check 2 — node sync state (hashes, health, nginx, cert report).
  *
- * WHY every violation is collected: the expected deployment fails exactly
- * `cert_synced_at` (agent < 0.2.1 never reports it); listing all offenders
- * in one FAIL line keeps that visible without extra noise.
+ * WHY every violation is collected: a node that has not completed a
+ * certificate sync yet reports no `cert_synced_at`; listing all offenders in
+ * one FAIL line keeps that visible without extra noise.
  */
 async function checkSync(host, auth, node) {
   const sync = await http(`${host}/api/admin/nodes/${node}/sync`, { headers: auth });

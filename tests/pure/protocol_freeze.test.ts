@@ -3,8 +3,8 @@
  * endpoint, cert-stage reports, X-Lessv-Node header).
  *
  * Why a pin and not a docstring: both repos implement this number, and the
- * agent's zero-code-change proof against the plane depends on it not
- * drifting silently. Bumping it means editing this test, the agent, and
+ * node's zero-code-change proof against the plane depends on it not
+ * drifting silently. Bumping it means editing this test, the node, and
  * docs/PROTOCOL.md together.
  */
 

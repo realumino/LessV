@@ -179,7 +179,7 @@ function TlsCertCell({
 /**
  * Create a node with the identity the admin must choose. The share-link
  * domain is set later on the node page, and the node's reported IP shows
- * up on its own after the agent enrolls — neither belongs in this form.
+ * up on its own after the node enrolls — neither belongs in this form.
  */
 function CreateNodeForm({ onCreated }: { onCreated: (id: string) => void }) {
   const [id, setId] = useState("");

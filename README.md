@@ -1,6 +1,6 @@
 # LessV
 
-一个跑在 Cloudflare Workers 上的 Xray 面板：REALITY、nginx 自偷、Let's Encrypt 自动签发、订阅。节点端是 Python agent（systemd 常驻，与面板心跳同步）。
+一个跑在 Cloudflare Workers 上的 Xray 面板：REALITY、nginx 自偷、Let's Encrypt 自动签发、订阅。节点端是 `lessv-node`（Rust 静态单二进制，systemd/OpenRC 常驻，与面板心跳同步）。
 
 由 Lesserv-Cloud、Lesserv-Agent、ssl-cert-worker 三个仓库合并而来。
 
@@ -16,7 +16,7 @@
                                ▼
                               D1 (migrations/)
 用户 ── /sub/{token} ──► 订阅 ◄── 用户/节点/REALITY/证书
-节点 ── Xray(REALITY 443) ──► agent (Python, systemd)
+节点 ── Xray(REALITY 443) ──► lessv-node (Rust, systemd/OpenRC)
          ▲ nginx 假站点 (8443) │
          └── 证书 ◄── ACME (DNS-01) ◄── Worker
 ```
@@ -26,8 +26,8 @@
 ```
 src/            Worker（Hono 路由 + 服务层）
 frontend/       管理面板 SPA（React + Vite，挂 /admin）
-migrations/     D1 schema（0001–0004 核心，0005/0006 证书）
-agent/          lessv_agent（Python）+ systemd + install.sh + pytest
+migrations/     D1 schema（0001–0004 核心，0005–0007 证书）
+node/           lessv-node（Rust 单二进制）+ install.sh + systemd/OpenRC + Rust 测试
 tests/          workerd 集成测试 + pure 单元测试
 scripts/        wrangler 配置引导 + deploy.mjs
 docs/           PROTOCOL（pull 契约 v2）+ OPERATIONS（证书/nginx 运维）
@@ -53,7 +53,7 @@ npm --prefix frontend run dev    # Vite dev server，代理 API 到 :8787
 | 类型 | `npm run types && npm run typecheck` |
 | Worker 构建 | `npm run build` |
 | 前端 | `npm --prefix frontend test` / `run build` |
-| Agent | `python -m pytest -q agent/tests` |
+| 节点 | `cd node && cargo test`（Linux；发布物为 musl 静态二进制） |
 | 部署脚本 | `npm run deploy -- --dry-run`（无云） |
 
 测试不读 `.dev.vars`、不依赖任何本地 secret：secret 绑定在 `vitest.config.ts` 里声明（固定测试值）。若本地存在 `.dev.vars`，miniflare 启动时会多打印一行 loading 提示，但测试绑定不受影响。
@@ -83,60 +83,52 @@ npm --prefix frontend run dev    # Vite dev server，代理 API 到 :8787
 
 回滚：`npx wrangler rollback`。
 
-## 首节点（≤30 分钟，不含 Xray 安装）
+## 首节点（≤30 分钟）
 
-前提：VPS（Debian 12+，root SSH，443 与 8443 空闲，可出站 443）已装好 Xray
-（`bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install`）；
-nginx 已装（没装则由第 1 步安装——`apt-get install -y nginx`，agent 的
-install.sh 会硬性检查 nginx）；一个 **DNS only**（proxied 关闭）的 A 记录
-指向服务器 IP（REALITY 与 nginx 都必须直连）；面板已部署（上节）。
-计时从第 1 条命令开始，到第 8 步的客户端探针成功结束。
+前提：VPS（Debian 12+/Ubuntu 22.04+/Alpine 3.2x，root SSH，443 与 8443
+空闲，可出站 443 与 GitHub/Gitee）；一个 **DNS only**（proxied 关闭）的 A
+记录指向服务器 IP（REALITY 与 nginx 都必须直连）；面板已部署（上节）。
+`install.sh` 负责 nginx、Xray、服务单元与 enroll，计时从第 1 条命令开始，
+到第 6 步的客户端探针成功结束。
 
 ```bash
 CP=https://<cp-host>; NODE=<node-id>; NAME=<节点域名>
 ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 ```
 
-1. **装 nginx**（agent install.sh 的硬性前提；这是计时起点）：
-   ```bash
-   ssh root@<server-ip> 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx && nginx -v'
-   ```
-2. **建节点 + mint token**（面板或 API）：
+1. **建节点 + mint token**（面板或 API；token 只显示一次）：
    ```bash
    curl -sS -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
      -d "{\"id\":\"$NODE\",\"label\":\"First node\",\"address\":\"$NAME\"}" \
      $CP/api/admin/nodes
    curl -sS -X POST -H "Authorization: Bearer $ADMIN_KEY" \
-     $CP/api/admin/nodes/$NODE/token   # 只显示一次
+     $CP/api/admin/nodes/$NODE/token
    ```
-3. **下载并安装 agent**（release tarball 由面板托管在 R2 上（`CERTS` 桶），
-admin key 保护；token 走 stdin，不要作为参数）。
-先在 VPS 的 root shell 里下载（key 用 `read -rs` 粘贴，不进 shell 历史）：
+2. **在节点上下载 release 并安装**（Gitee Release 分发；`install.sh` 从
+   GitHub 装 Xray、从发行版仓库装 nginx）：
    ```bash
    ssh root@<server-ip>
-   export CP=https://<cp-host>
-   read -rs ADMIN_KEY    # 粘贴 .env.production 里 ADMIN_KEY 的值后回车（不进 shell 历史）
-   curl -fsS -H "Authorization: Bearer $ADMIN_KEY" -o lessv-agent-0.2.1.tar.gz "$CP/api/admin/agent-release?version=0.2.1"
-   curl -fsS -H "Authorization: Bearer $ADMIN_KEY" -o lessv-agent-0.2.1.tar.gz.sha256 "$CP/api/admin/agent-release?version=0.2.1&sha256"
-   sha256sum -c lessv-agent-0.2.1.tar.gz.sha256
-   mkdir -p /tmp/lessv-agent && tar -xzf lessv-agent-0.2.1.tar.gz -C /tmp/lessv-agent --strip-components=1
-   exit
+   VERSION=0.3.0; BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
+   case "$(uname -m)" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; esac
+   curl -fsSLO $BASE/lessv-node-$VERSION-linux-$ARCH.tar.gz
+   curl -fsSLO $BASE/SHA256SUMS
+   sha256sum -c --ignore-missing SHA256SUMS
+   tar -xzf lessv-node-$VERSION-linux-$ARCH.tar.gz
+   cd lessv-node-$VERSION-linux-$ARCH
+   read -rs -p 'Node token: ' TOKEN; printf '%s\n' "$TOKEN" | ./install.sh --cp $CP --node $NODE
    ```
-   再从本机触发安装：
-   ```bash
-   ssh -t root@<server-ip> 'cd /tmp/lessv-agent && ./install.sh --cp https://<cp-host> --node <node-id>'
-   ```
-   期望：`lessv-agent installed and started`；`journalctl -u lessv-agent -n 20`
-   有 enroll 成功记录。install.sh 会：检查 python3/systemd/nginx/Xray 与
-   xray.service；建 `/etc/lessv`、`/etc/lessv/certs`、`/var/lib/lessv`、
-   `/var/www/lessv-decoy`；装包到 `/usr/local/lib/lessv-agent`；写 systemd
-   drop-in `/etc/systemd/system/xray.service.d/99-lessv.conf`（`User=root` +
-   `ExecStart=... run -config /var/lib/lessv/config.json`，因为 agent 以
-   0600 root 写配置，官方 unit 的非 root 用户读不了）；enroll；enable。
-   （维护者本地构建替代下载：`npm run release:agent` →
-   `dist/lessv-agent-<ver>.tar.gz` + `.sha256`，要求 `agent/` 无未提交改动；
-   加 `--upload` 会在构建后把两个文件推到 R2 `CERTS` 桶 `agent/` 前缀。）
-4. **写一份 REALITY 配置**：节点页用 **REALITY preset** 按钮生成自偷结构
+   期望：`lessv-node installed and started`。systemd：
+   `journalctl -u lessv-node -n 20`；OpenRC：`tail -n 20 /var/log/lessv-node.log`。
+   `install.sh` 装 curl/tar/unzip/ca-certificates、nginx 与 Xray v26.11.9
+   （官方 release，`.dgst` 校验）、二进制到 `/usr/local/bin/lessv-node`；
+   建 `/etc/lessv`、`/etc/lessv/certs`、`/var/lib/lessv`、
+   `/var/www/lessv-decoy`；写 `lessv-node.service` + `xray.service`
+   （OpenRC 为 `/etc/init.d/lessv-node` + `/etc/init.d/xray`）；删除发行版
+   默认 nginx site；写 `/etc/lessv/node.toml`（0600）并 enroll；enable +
+   start。重复执行即原位升级：已有 node.toml 时复用 token，不要求重新粘贴。
+   （维护者构建：`npm run release:node -- --targets amd64,arm64`，Linux 或
+   配好 musl 交叉工具链的主机；`--upload` 需要 `GITEE_TOKEN`。）
+3. **写一份 REALITY 配置**：节点页用 **REALITY preset** 按钮生成自偷结构
    （`dest=127.0.0.1:8443`、`serverNames=[节点域名]`、随机 8 位 `shortId`、
    chrome fingerprint、vision flow；outbounds 恒为 `BLOCK` + `direct`），
    点 Fill editor 后自己按 Save config。`privateKey` 保持为空：配置时
@@ -147,34 +139,15 @@ admin key 保护；token 走 stdin，不要作为参数）。
    ```
    等 ≤60s：`GET /api/admin/nodes/$NODE/sync` 的 `applied_hash ==
    desired_hash`，`health=ok`。
-5. **签证书**（详见下节）：前端 Certificates 页添加证书域名 → 先 **Test
-   issue**（LE staging，不动生产）→ succeeded 后再 **Issue**（生产，输入域
-   名确认）。
-6. **分配证书**：节点页 Certs tab 勾选证书域名，保存。等 fleet 的 applied
-   = desired；agent 自动拉取证书到 `/etc/lessv/certs/<域名 path>/current/`
-   并 `nginx -t` + reload（inactive 时改为 start）。
-7. **装 nginx 假站点**（每节点一次；片段里的路径必须与证书域一致；详细
-   说明见 `docs/OPERATIONS.md`）：
-   ```bash
-   ssh root@<server-ip> 'cat > /etc/nginx/sites-available/lessv-decoy <<"NGINX"
-   server {
-       listen 127.0.0.1:8443 ssl;
-       server_name <域名>;
-       ssl_certificate     /etc/lessv/certs/<域名 path>/current/fullchain.pem;
-       ssl_certificate_key /etc/lessv/certs/<域名 path>/current/privkey.pem;
-       ssl_protocols       TLSv1.2 TLSv1.3;
-       root  /var/www/lessv-decoy;
-       index index.html;
-       location / { try_files $uri $uri/ =404; }
-   }
-   NGINX
-   rm -f /etc/nginx/sites-enabled/default
-   ln -sf /etc/nginx/sites-available/lessv-decoy /etc/nginx/sites-enabled/
-   nginx -t && systemctl reload nginx'
-   ```
-   首次启用应在证书同步完成后（agent 已写入 `current`）。不要再让 nginx
-   监听 443——443 属于 Xray。
-8. **建用户 + 订阅 + 客户端探针**（详见下节）：
+4. **签证书**（详见下节）：前端 Certificates 页添加证书域名 → 先 **Test
+   issue**（LE staging，不动生产）→ succeeded 后再决定是否 **Issue**（生产，
+   输入域名确认）。
+5. **分配证书 + 选环境**：节点页 Certs tab 勾选证书域名，并在
+   Production/Staging 选择器里选环境（默认 production），保存。等 fleet
+   的 applied = desired；lessv-node 自动拉取证书到
+   `/etc/lessv/certs/<域名 path>/current/`，按清单生成 nginx 假站点配置，
+   `nginx -t` + reload（未运行时改为 start）。
+6. **建用户 + 订阅 + 客户端探针**（详见下节）：
    ```bash
    curl -sS -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
      -d "{\"username\":\"<user>\",\"access\":{\"$NODE\":{\"allowed_inbounds\":[\"reality\"],\"allowed_outbounds\":[\"direct\"]}}}" \
@@ -186,7 +159,10 @@ admin key 保护；token 走 stdin，不要作为参数）。
    等 fleet 的 applied = desired（心跳 30s + apply，首次 60–90s）；导入
    v2rayN / NekoBox / Shadowrocket / Hiddify，更新订阅后连接，打开
    `https://api.ipify.org` 确认出口 IP 是节点地址；浏览器打开
-   `https://<域名>/` 应看到假站点且证书有效（无需 `-k`）。
+   `https://<域名>/` 应看到假站点且证书有效（无需 `-k`）。使用 staging
+   证书时，浏览器/curl 需要信任 Let's Encrypt staging 根
+   （`https://letsencrypt.org/certs/staging/letsencrypt-stg-root-x1.pem`，
+   装进系统信任库）；REALITY 隧道本身不依赖该信任。
 
 ## 证书
 
@@ -202,10 +178,16 @@ admin key 保护；token 走 stdin，不要作为参数）。
   重试。
 - **分配**：节点页 Certs tab（`PUT /api/admin/nodes/:id/cert-domains`）按
   证书域名分配，续期后自动跟随，无需重新勾选。
+- **环境**：同一 Certs tab 的 Production/Staging 选择器（等价于
+  `PUT /api/admin/nodes/:id` 带 `{"cert_environment":"staging"}`，默认
+  production）决定该节点拉哪个环境的 current 证书：同一个分配、两个独立
+  的 current 指针。staging 证书仅供测试——不受客户端信任（测试客户端需
+  信任 LE staging 根）、不续期、7 天后清扫；节点没有 staging 证书时拿到
+  空清单，不会回退到生产证书。
 - **续期**：每日 cron（`17 3 * * *` UTC）对寿命超过 1/3 的生产证书续期
   （45 天 `tlsserver` → 第 15 天；`renew_before_days` 可覆盖），按域名加锁
   + 抖动；staging 不续期、7 天后清扫。续期成功会重渲染节点 desired hash，
-  agent 拉新 ETag、原子切换 `current`、`nginx -t` + reload——Xray 永不重启。
+  lessv-node 拉新 ETag、原子切换 `current`、`nginx -t` + reload——Xray 永不重启。
 - **面板能看到什么**：域名页的 Runs（LE 错误原文 + 失败 phase）、
   production/staging current 证书（serial/not_after/profile）、节点 Certs
   tab、fleet 的 `nginx_ok`/`nginx_error`/`cert_synced_at`，以及证书 lint
@@ -226,21 +208,19 @@ admin key 保护；token 走 stdin，不要作为参数）。
 
 ## 排障
 
-`journalctl -u lessv-agent -n 50`、`journalctl -u xray -n 30`、
+`journalctl -u lessv-node -n 50`（OpenRC：`tail -n 50 /var/log/lessv-node.log`）、`journalctl -u xray -n 30`、
 `xray run -test -c /var/lib/lessv/config.json`、面板 fleet 的
 `health`/`last_error`/`nginx_ok`/证书 lint warnings。证书与 nginx 的运维
 细节（测试签发、强制续期、停 nginx 排障、失败对照表）见
-`docs/OPERATIONS.md`；agent↔面板协议见 `docs/PROTOCOL.md`。不要手工改
-`/var/lib/lessv/config.json`；让面板/agent 收敛。
+`docs/OPERATIONS.md`；node↔面板协议见 `docs/PROTOCOL.md`。不要手工改
+`/var/lib/lessv/config.json`；让面板/lessv-node 收敛。
 
 ## 当前状态
 
-- 发布物：平面 `v0.1.0`（本地 tag），agent `0.2.1`（tarball 由平面托管：
-  `GET /api/admin/agent-release` + `.sha256` 校验文件，构建/上传见
-  `npm run release:agent`）。
-- 测试矩阵：Worker 393 passed / 56 files；前端 37 passed；agent 63 passed /
-  13 skipped（POSIX 文件模式/符号链接测试在 Windows skip，Linux 上
-  70 passed / 0 skipped）。
+- 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.3.0`（Gitee
+  Release `node-v0.3.0`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
+  构建：`npm run release:node`）。
+- 测试矩阵：Worker 397 passed / 56 files；前端 37 passed；lessv-node 35 Rust 单元测试。
 - 未做（候选方向）：nginx 配置面板托管、B 拓扑（TLS/WS/xhttp）、Clash
   订阅、stats/quota、到期通知、多管理员。
 

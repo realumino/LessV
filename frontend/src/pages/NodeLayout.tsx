@@ -113,7 +113,7 @@ export default function NodeLayout() {
 }
 
 /**
- * The nginx certificate state: synced/ok/failed + when the agent last
+ * The nginx certificate state: synced/ok/failed + when the node last
  * pulled. WHY a mini component: the sync payload mixes timestamps and
  * error strings, and the layout keeps facts as plain values.
  */
@@ -161,7 +161,7 @@ function NodeHeader({
           <ConfirmButton
             className={dangerButton}
             disabled={busy}
-            message={`Re-generate ${node.id}'s token? The current token stops working immediately; the agent is rejected until agent.toml is updated.`}
+            message={`Re-generate ${node.id}'s token? The current token stops working immediately; the node is rejected until node.toml is updated.`}
             onConfirm={onMint}
           >
             Re-generate token
@@ -181,7 +181,7 @@ function NodeHeader({
         />
         <Fact label="Last seen" value={relativeTime(sync?.last_seen ?? null)} />
         <Fact label="Health" value={sync?.health ?? "—"} />
-        <Fact label="Agent" value={sync?.agent_version ?? "—"} />
+        <Fact label="Node" value={sync?.agent_version ?? "—"} />
         <Fact label="Applied" value={<HashChip hash={sync?.applied_hash ?? null} />} />
         <Fact label="Desired" value={<HashChip hash={sync?.desired_hash ?? null} />} />
         <Fact label="Xray" value={sync?.xray_version ?? "—"} />

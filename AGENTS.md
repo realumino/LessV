@@ -7,11 +7,12 @@ wins.
 ## What this repo is
 
 Self-hosted Xray management plane on Cloudflare Workers (Hono + D1 + R2 +
-Workflows), a React admin SPA served by the same Worker, and a Python node
-agent (stdlib only, systemd-managed). Monorepo, single deployable unit.
+Workflows), a React admin SPA served by the same Worker, and `lessv-node`, a
+static Rust reconciler managed by systemd or OpenRC. Monorepo, single
+deployable unit.
 
 Entry docs, in order: `README.md` (deploy + first node), `docs/PROTOCOL.md`
-(agent↔plane contract), `docs/OPERATIONS.md` (certificates/nginx/ops). Read
+(node↔plane contract), `docs/OPERATIONS.md` (certificates/nginx/ops). Read
 the one covering the area you are changing, and keep every doc true in the
 same commit as the change.
 
@@ -19,7 +20,8 @@ same commit as the change.
 
 - `src/` — Worker: Hono routers + services; `src/cert/` is the ACME subsystem
 - `frontend/` — admin SPA (React + Vite), own package.json
-- `agent/` — `lessv_agent` Python package + `install.sh` + systemd unit + pytest
+- `node/` — Rust crate `lessv-node` (one static binary), `install.sh`,
+  systemd/OpenRC units, Rust unit tests; released through Gitee Releases
 - `migrations/` — append-only D1 SQL; no foreign keys by convention
 - `tests/` — `pure/` (hermetic unit), `cert/` (ACME against a mock CA),
   `workerd/` (integration via the Cloudflare vitest plugin), `fixtures/`
@@ -44,7 +46,7 @@ same commit as the change.
   committed with placeholder values only)
 
 Generated, never edit or commit: `.wrangler/`, `dist/`, `frontend/dist/`,
-`__pycache__/`, `.pytest_cache/`.
+`node/target/`.
 
 ## Public/local separation
 
@@ -69,8 +71,8 @@ The remote is public. The tracked tree carries current truth only:
 - Comments state invariants and reasons, self-contained — no references to
   plans, sessions, or files that do not exist in the tree.
 - `docs/PROTOCOL.md`, `PROTOCOL_VERSION` (`src/routers/node.ts`), and the
-  agent's version constant change together in one commit; the protocol
-  version is pinned by `tests/pure/protocol_freeze.test.ts`.
+  node version (`node/Cargo.toml`) change together in one commit; the
+  protocol version is pinned by `tests/pure/protocol_freeze.test.ts`.
 
 ## Verification
 
@@ -81,7 +83,7 @@ npm test
 npm run typecheck
 npm --prefix frontend test
 npm --prefix frontend run build
-python -m pytest -q agent/tests
+(cd node && cargo test)          # Linux host or a musl cross toolchain
 ```
 
 - The suite is hermetic: no `.dev.vars`, no network, no real DNS. ACME in
@@ -91,8 +93,11 @@ python -m pytest -q agent/tests
   limit: 5 production certificates per week per domain).
 - Deploys go through `npm run deploy` only — never bare `wrangler deploy`
   (the prebuild swaps `frontend/dist` for stubs).
-- POSIX-only agent tests skip on Windows; keep them skip-safe. Scripts stay
-  cross-platform (Node stdlib, no shell assumptions).
+- The Rust crate is Linux-only (`std::os::unix`), so `cargo test` runs on a
+  Linux host; release artifacts are static musl binaries built with
+  `npm run release:node` and published to Gitee Releases. Scripts stay
+  cross-platform (Node stdlib, no shell assumptions) except the POSIX
+  installers they ship.
 
 ## Standing invariants
 
@@ -102,10 +107,11 @@ python -m pytest -q agent/tests
   run; they must not persist them into tracked files.
 - `KEY_SECRET` is never rotated: it seals REALITY, certificate, and ACME
   account keys; rotation makes every sealed key unreadable.
-- `/var/lib/lessv/config.json` on nodes is agent-owned; node configuration
-  changes go through the plane API, never by hand on the node.
-- Agent runtime dependencies: Python stdlib only. Worker dependencies stay
-  minimal; each addition needs a concrete justification.
+- `/var/lib/lessv/config.json` on nodes is `lessv-node`-owned; node
+  configuration changes go through the plane API, never by hand on the node.
+- `lessv-node` has no runtime dependencies beyond the static binary itself
+  (nginx and Xray are provisioned by `install.sh` from their vendors). Worker
+  dependencies stay minimal; each addition needs a concrete justification.
 
 ## Working rules
 
