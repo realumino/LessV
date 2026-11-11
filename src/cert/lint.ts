@@ -72,22 +72,40 @@ export function realityInbounds(
     reality.push({
       tag: typeof inbound["tag"] === "string" ? inbound["tag"] : "",
       serverNames: (settings as Record<string, unknown>)["serverNames"],
-      dest: (settings as Record<string, unknown>)["dest"],
+      // Xray 26 accepts both names for the stolen origin; `dest` is what the
+      // panel's preset writes, `target` is what the reference deployment uses.
+      dest:
+        (settings as Record<string, unknown>)["dest"] ??
+        (settings as Record<string, unknown>)["target"],
       shortIds: (settings as Record<string, unknown>)["shortIds"],
     });
   }
   return reality;
 }
 
+/** WHAT: the longest Unix socket path a local `dest` may name (sun_path). */
+const SOCKET_PATH_MAX = 108;
+
 /**
- * WHAT: return true when `dest` is the loopback form `127.0.0.1:<port>`.
+ * WHAT: return true when `dest` names an origin on this host.
  *
- * WHY the prefix is exact: self-steal means nginx on the same host; a
- * public `dest` is the temporary fixture the preset replaces and must be
- * flagged.
+ * WHY two accepted forms: REALITY's stolen origin is nginx on the same
+ * machine, reachable either through a Unix socket (current preset and
+ * lessv-node default) or the loopback port older configs were authored
+ * with. A public `dest` is not self-steal and must be flagged.
  */
-export function destIsLoopback(dest: unknown): boolean {
-  return typeof dest === "string" && /^127\.0\.0\.1:\d+$/.test(dest);
+export function destIsLocal(dest: unknown): boolean {
+  if (typeof dest !== "string" || dest === "") {
+    return false;
+  }
+  if (/^127\.0\.0\.1:\d+$/.test(dest)) {
+    return true;
+  }
+  return (
+    dest.startsWith("/") &&
+    dest.length <= SOCKET_PATH_MAX &&
+    !dest.split("/").includes("..")
+  );
 }
 
 /** WHAT: every shortId is even-length hex (possibly empty string allowed?). */
@@ -127,9 +145,9 @@ export function certLintWarnings(input: LintInput): string[] {
       }
     }
     // Dest and shortIds are independent of the serverNames check.
-    if (!destIsLoopback(inbound.dest)) {
+    if (!destIsLocal(inbound.dest)) {
       warnings.push(
-        `reality inbound '${tag}' dest '${String(inbound.dest)}' is not 127.0.0.1:<port>`,
+        `reality inbound '${tag}' dest '${String(inbound.dest)}' is not a local Unix socket or 127.0.0.1:<port>`,
       );
     }
     if (!shortIdsValid(inbound.shortIds)) {

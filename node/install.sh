@@ -182,6 +182,25 @@ install_base_packages() {
     fi
 }
 
+# WHAT: report whether the installed nginx can negotiate the post-quantum
+# hybrid group.
+#
+# WHY a version hint and not the real probe: lessv-node tests the actual
+# directive against the live config and falls back with a reported note. At
+# install time the operator only needs to know whether this host will be
+# post-quantum capable, and `nginx -V` names the TLS library it links.
+nginx_pq_hint() {
+    line=$(nginx -V 2>&1 | grep -oE '(built|running) with OpenSSL [0-9]+\.[0-9]+' | tail -n 1)
+    [ -n "$line" ] || return 1
+    ver=${line##* }
+    major=${ver%%.*}
+    minor=${ver#*.}
+    if [ "$major" -gt 3 ]; then
+        return 0
+    fi
+    [ "$major" -eq 3 ] && [ "$minor" -ge 5 ]
+}
+
 install_nginx() {
     if [ "$SKIP_NGINX" -eq 1 ]; then
         return
@@ -218,6 +237,17 @@ install_nginx() {
     if ! nginx -t >/dev/null 2>&1; then
         echo "warning: nginx -t fails before the first certificate sync; lessv-node will write the decoy config and reload" >&2
     fi
+    if ! nginx_pq_hint; then
+        echo "warning: this nginx links an OpenSSL older than 3.5, so the decoy cannot negotiate" >&2
+        echo "         X25519MLKEM768 (post-quantum). It will serve X25519 and report the fallback." >&2
+        echo "         Debian 13+, Ubuntu 25.04+, and Alpine 3.22+ ship a capable OpenSSL." >&2
+    fi
+    # The decoy listens on a Unix socket under /dev/shm and Xray relays
+    # REALITY handshakes to it; both services run as root here.
+    case "$INIT" in
+        systemd) systemctl enable nginx >/dev/null 2>&1 || true ;;
+        openrc) rc-update add nginx default >/dev/null 2>&1 || true ;;
+    esac
 }
 
 install_xray() {

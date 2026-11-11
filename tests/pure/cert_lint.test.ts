@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   certLintWarnings,
-  destIsLoopback,
+  destIsLocal,
   realityInbounds,
   sanCovers,
   shortIdsValid,
@@ -87,7 +87,7 @@ describe("REALITY field checks", () => {
     });
     expect(warnings).toEqual([
       "reality inbound 'reality' has no serverNames",
-      "reality inbound 'reality' dest 'www.microsoft.com:443' is not 127.0.0.1:<port>",
+      "reality inbound 'reality' dest 'www.microsoft.com:443' is not a local Unix socket or 127.0.0.1:<port>",
       "reality inbound 'reality' has invalid shortIds",
     ]);
   });
@@ -164,10 +164,12 @@ describe("nginx health", () => {
 });
 
 describe("helpers", () => {
-  it("destIsLoopback and shortIdsValid shapes", () => {
-    expect(destIsLoopback("127.0.0.1:8443")).toBe(true);
-    expect(destIsLoopback("localhost:8443")).toBe(false);
-    expect(destIsLoopback("127.0.0.1:")).toBe(false);
+  it("destIsLocal and shortIdsValid shapes", () => {
+    expect(destIsLocal("127.0.0.1:8443")).toBe(true);
+    expect(destIsLocal("/dev/shm/lessv-decoy.sock")).toBe(true);
+    expect(destIsLocal("/run/../etc/passwd")).toBe(false);
+    expect(destIsLocal("localhost:8443")).toBe(false);
+    expect(destIsLocal("127.0.0.1:")).toBe(false);
     expect(shortIdsValid(["abcd1234", "ef", ""])).toBe(true);
     expect(shortIdsValid(["abc"])).toBe(false);
     expect(shortIdsValid("nope")).toBe(false);

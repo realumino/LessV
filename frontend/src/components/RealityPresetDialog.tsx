@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 import Modal from "./Modal";
 import CopyButton from "./CopyButton";
 import { inputClass, secondaryButton } from "./styles";
-import { buildRealityPreset, randomShortId } from "../lib/reality_preset";
+import { DECOY_SOCKET, buildRealityPreset, randomShortId } from "../lib/reality_preset";
 
 export default function RealityPresetDialog({
   nodeAddress,
@@ -25,24 +25,26 @@ export default function RealityPresetDialog({
   onFill: (json: string) => void;
 }) {
   const [domain, setDomain] = useState(nodeAddress);
-  const [port, setPort] = useState("8443");
+  const [socketPath, setSocketPath] = useState(DECOY_SOCKET);
   const [shortId, setShortId] = useState(randomShortId());
 
-  const preview = useMemo(() => {
-    const parsedPort = Number.parseInt(port, 10);
-    return buildRealityPreset({
-      domain,
-      nginxPort: Number.isFinite(parsedPort) ? parsedPort : undefined,
-      shortId: shortId.trim(),
-    });
-  }, [domain, port, shortId]);
+  const preview = useMemo(
+    () =>
+      buildRealityPreset({
+        domain,
+        socketPath: socketPath.trim(),
+        shortId: shortId.trim(),
+      }),
+    [domain, socketPath, shortId],
+  );
 
   return (
     <Modal title="REALITY preset (self-steal)" onClose={onClose} wide>
       <p className="text-sm text-apple-muted">
-        Generates the authored config for loopback self-steal: Xray listens
-        on 443 and borrows the certificate nginx serves on 127.0.0.1. Fill
-        the editor, then press Save config yourself.
+        Generates the authored config for self-steal over the decoy's Unix
+        socket: Xray listens on 443 and relays handshakes to nginx through a
+        local socket, so no TCP port is exposed for the origin. Fill the
+        editor, then press Save config yourself.
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="block text-sm">
@@ -55,12 +57,12 @@ export default function RealityPresetDialog({
           />
         </label>
         <label className="block text-sm">
-          <span className="mb-1 block font-medium">nginx HTTPS port</span>
+          <span className="mb-1 block font-medium">Decoy socket</span>
           <input
-            className={inputClass}
-            value={port}
-            onChange={(event) => setPort(event.target.value)}
-            inputMode="numeric"
+            className={`${inputClass} font-mono`}
+            value={socketPath}
+            onChange={(event) => setSocketPath(event.target.value)}
+            placeholder={DECOY_SOCKET}
           />
         </label>
         <label className="block text-sm">

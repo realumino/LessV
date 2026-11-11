@@ -5,13 +5,24 @@
  * structure whose only judgment calls are defaults
  * and warnings; testing it without a browser keeps the contract honest,
  * and the dialog stays a thin field collector.
+ *
+ * WHY the stolen origin is a Unix socket and not a loopback port: Xray and
+ * nginx live on the same host, so the ClientHello relay (and every
+ * fallback request) can stay inside the kernel. It costs no TCP port, is
+ * unreachable from the network even if a firewall is opened for 443, and
+ * matches the reference deployment's `listen unix:... ssl` +
+ * `realitySettings.dest = <socket>` pairing. lessv-node renders the decoy
+ * on this socket by default.
  */
+
+/** WHAT: the decoy socket lessv-node listens on and this preset targets. */
+export const DECOY_SOCKET = "/dev/shm/lessv-decoy.sock";
 
 export interface RealityPresetInput {
   /** The domain REALITY presents in its certificate (serverNames[0]). */
   domain: string;
-  /** The loopback nginx HTTPS port (dest=127.0.0.1:<port>). Default 8443. */
-  nginxPort?: number;
+  /** The decoy's Unix socket (default `DECOY_SOCKET`). */
+  socketPath?: string;
   /** An existing shortId to keep; default a fresh random 8-hex value. */
   shortId?: string;
   /** The VLESS flow; default xtls-rprx-vision. */
@@ -42,9 +53,11 @@ export function buildRealityPreset(input: RealityPresetInput): RealityPresetResu
       `${domain} is an IP address — self-steal needs a domain plus a certificate`,
     );
   }
-  const port = input.nginxPort ?? 8443;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    warnings.push(`nginx port ${String(input.nginxPort)} is not a TCP port`);
+  const socketPath = input.socketPath?.trim() || DECOY_SOCKET;
+  if (!socketPath.startsWith("/")) {
+    warnings.push(`nginx socket '${socketPath}' must be an absolute path`);
+  } else if (socketPath.length > 100) {
+    warnings.push(`nginx socket path is too long (${socketPath.length} > 100)`);
   }
   const shortId = input.shortId ?? randomShortId();
   if (!/^[0-9a-f]*$/.test(shortId) || shortId.length % 2 !== 0) {
@@ -65,7 +78,7 @@ export function buildRealityPreset(input: RealityPresetInput): RealityPresetResu
           network: "tcp",
           security: "reality",
           realitySettings: {
-            dest: `127.0.0.1:${port}`,
+            dest: socketPath,
             serverNames: domain ? [domain] : [],
             privateKey: "",
             shortIds: [shortId],

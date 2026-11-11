@@ -29,6 +29,34 @@ pub struct State {
     pub cert_synced_at: Option<i64>,
     #[serde(default)]
     pub last_nginx_ok: Option<bool>,
+    /// Informational nginx message that does not mean failure (today: the
+    /// decoy fell back to classical key exchange because the host's TLS
+    /// library lacks the post-quantum group). Repeated in every report so a
+    /// plane reading a later poll still sees the degradation.
+    #[serde(default)]
+    pub last_nginx_note: Option<String>,
+    /// The certificate set the decoy config was rendered from.
+    ///
+    /// WHY remembered: the nginx file is generated from the manifest, and a
+    /// 304 (unchanged certificates) must still be able to detect that the
+    /// file no longer matches what this version of the renderer writes — for
+    /// example after a binary upgrade. Without the list the node cannot
+    /// render, and would need a certificate change to converge.
+    ///
+    /// WHY optional: `None` is a state written before this record existed
+    /// (fetch the manifest once); `Some([])` is a node that legitimately has
+    /// no certificates, where a 304 stays a 304.
+    #[serde(default)]
+    pub certs: Option<Vec<StoredCert>>,
+}
+
+/// WHAT: one manifest certificate as the decoy renderer needs it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredCert {
+    #[serde(default)]
+    pub domain: String,
+    #[serde(default)]
+    pub path: String,
 }
 
 fn default_true() -> bool {
@@ -46,6 +74,8 @@ impl Default for State {
             cert_etag: String::new(),
             cert_synced_at: None,
             last_nginx_ok: None,
+            last_nginx_note: None,
+            certs: None,
         }
     }
 }

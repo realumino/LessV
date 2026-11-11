@@ -1,13 +1,21 @@
 //! nginx decoy site: render the static server blocks from the manifest.
 //!
-//! WHAT: one `server` block per assigned certificate, all on
-//! `127.0.0.1:8443 ssl`, pointing at the versioned `current` symlinks, plus
-//! the `nginx -t` gate.
+//! WHAT: one `server` block per assigned certificate, listening on the
+//! decoy's Unix socket (the REALITY `dest`) and, for authored configs that
+//! still name a loopback port, on `127.0.0.1:8443` as well; plus the
+//! `nginx -t` gate.
 //! WHY the node owns this file: the certificate paths and the SNI names are
 //! exactly the facts the plane delivers, so keeping them in one generated
 //! file means a renewal needs no manual nginx edit — the reload after the
-//! swap is enough. The form stays static on purpose: Xray's REALITY `dest`
-//! is loopback 8443 and nginx never listens on 443.
+//! swap is enough. The form stays static on purpose: Xray owns 443 and this
+//! decoy never listens on it.
+//!
+//! WHY the Unix socket is the default: Xray and nginx share the host, so the
+//! stolen handshake and every fallback request can stay inside the kernel.
+//! It needs no TCP port, cannot be reached from the network even if the
+//! firewall is opened, and matches the reference deployment. The loopback
+//! listener stays as a compatibility path for configs authored before the
+//! socket default (a `realitySettings.dest` of `127.0.0.1:8443`).
 
 use std::fs;
 use std::path::Path;
@@ -21,9 +29,21 @@ pub struct ServerCert {
     pub path: String,
 }
 
+/// WHAT: the loopback port older authored configs point at.
+pub const LEGACY_LOOPBACK: &str = "127.0.0.1:8443";
+
+/// WHAT: the post-quantum hybrid group (ML-KEM-768 + X25519).
+///
+/// WHY this exact list: it is what OpenSSL 3.5+ and BoringSSL negotiate, and
+/// the trailing X25519 keeps older clients working. nginx passes the list to
+/// the linked TLS library verbatim, so a library without the group fails
+/// `nginx -t` — which is why the caller falls back (`render` takes `pq`).
+pub const PQ_CURVES: &str = "X25519MLKEM768:X25519";
+
 const HEADER: &str = "\
 # Managed by lessv-node. Regenerated from GET /api/node/certs on every sync;
-# edits are overwritten. Xray owns 443 — this decoy listens on loopback only.
+# edits are overwritten. Xray owns 443 — this decoy listens on a Unix socket
+# (REALITY's dest) and on loopback for pre-socket authored configs.
 ";
 
 /// WHAT: render the decoy configuration for a set of certificates.
@@ -32,31 +52,40 @@ const HEADER: &str = "\
 /// certificate even when its SNI matches nothing, and the decoy must look
 /// like an ordinary site to a scanner. Sorting by domain keeps the file (and
 /// therefore reload behavior) stable.
-pub fn render(cfg: &Config, certs: &[ServerCert]) -> String {
+///
+/// WHY `pq` is a parameter: the directive is only meaningful when the
+/// linked OpenSSL knows the group. The caller tries with it first and
+/// re-renders without it when `nginx -t` rejects it, so an older host keeps
+/// working with a reported warning instead of a failed certificate sync.
+pub fn render(cfg: &Config, certs: &[ServerCert], pq: bool) -> String {
     let certs: Vec<&ServerCert> = {
         let mut sorted: Vec<&ServerCert> = certs.iter().collect();
         sorted.sort_by(|a, b| a.domain.cmp(&b.domain));
         sorted
     };
+    let socket = cfg.nginx_socket.display();
     let mut out = String::from(HEADER);
     for (index, cert) in certs.iter().enumerate() {
         let current = cfg
             .cert_dir
             .join(&cert.path)
             .join("current");
-        let listen = if index == 0 {
-            "127.0.0.1:8443 ssl default_server"
+        let default = if index == 0 { " default_server" } else { "" };
+        let curves = if pq {
+            format!("    ssl_ecdh_curve     {PQ_CURVES};\n")
         } else {
-            "127.0.0.1:8443 ssl"
+            String::new()
         };
         out.push_str(&format!(
             "\nserver {{\n\
-             \x20   listen {listen};\n\
+             \x20   listen unix:{socket} ssl{default};\n\
+             \x20   listen {LEGACY_LOOPBACK} ssl;\n\
              \x20   server_name {domain};\n\
              \n\
              \x20   ssl_certificate     {fullchain};\n\
              \x20   ssl_certificate_key {privkey};\n\
-             \x20   ssl_protocols       TLSv1.2 TLSv1.3;\n\
+             \x20   ssl_protocols       TLSv1.3;\n\
+             {curves}\
              \n\
              \x20   root  {root};\n\
              \x20   index index.html;\n\
@@ -135,6 +164,7 @@ mod tests {
                     path: "wildcard.example.org".to_string(),
                 },
             ],
+            true,
         );
         assert!(body.contains("server_name *.example.org;"));
         assert!(body.contains("server_name b.example.org;"));
@@ -151,9 +181,54 @@ mod tests {
     }
 
     #[test]
+    fn listens_on_the_configured_socket_and_tls13_only() {
+        let body = render(&sample_cfg(), &[cert("a.example.org")], true);
+        assert!(body.contains(
+            "listen unix:/dev/shm/lessv-decoy.sock ssl default_server;"
+        ));
+        assert_eq!(
+            body.matches("listen unix:/dev/shm/lessv-decoy.sock ssl")
+                .count(),
+            1
+        );
+        assert!(body.contains("ssl_protocols       TLSv1.3;"));
+        assert!(body.contains(&format!("ssl_ecdh_curve     {PQ_CURVES};")));
+    }
+
+    #[test]
+    fn omits_pq_directive_when_the_host_cannot_do_it() {
+        let body = render(&sample_cfg(), &[cert("a.example.org")], false);
+        assert!(!body.contains("ssl_ecdh_curve"));
+        assert!(body.contains("ssl_protocols       TLSv1.3;"));
+        assert!(body.contains("listen unix:/dev/shm/lessv-decoy.sock ssl default_server;"));
+    }
+
+    #[test]
+    fn every_block_serves_both_listeners() {
+        let body = render(
+            &sample_cfg(),
+            &[cert("a.example.org"), cert("b.example.org")],
+            true,
+        );
+        assert_eq!(body.matches("listen 127.0.0.1:8443 ssl;").count(), 2);
+        assert_eq!(
+            body.matches("listen unix:/dev/shm/lessv-decoy.sock ssl;")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
     fn empty_manifest_renders_only_the_header() {
-        let body = render(&sample_cfg(), &[]);
+        let body = render(&sample_cfg(), &[], true);
         assert!(!body.contains("server {"));
         assert!(body.starts_with("# Managed by lessv-node"));
+    }
+
+    fn cert(domain: &str) -> ServerCert {
+        ServerCert {
+            domain: domain.to_string(),
+            path: domain.to_string(),
+        }
     }
 }

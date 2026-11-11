@@ -21,7 +21,7 @@ describe("buildRealityPreset", () => {
     const reality = stream.realitySettings as Record<string, unknown>;
     expect(stream).toMatchObject({ network: "tcp", security: "reality" });
     expect(reality).toMatchObject({
-      dest: "127.0.0.1:8443",
+      dest: "/dev/shm/lessv-decoy.sock",
       serverNames: ["tokyo01.example.com"],
       privateKey: "",
       shortIds: [expect.stringMatching(/^[0-9a-f]{8}$/)],
@@ -36,7 +36,7 @@ describe("buildRealityPreset", () => {
   it("honors explicit fields", () => {
     const { config } = buildRealityPreset({
       domain: "a.example.com",
-      nginxPort: 9443,
+      socketPath: "/run/lessv/decoy.sock",
       shortId: "abcd1234",
       flow: "none",
       tag: "tls-in",
@@ -46,7 +46,7 @@ describe("buildRealityPreset", () => {
     expect((inbound.settings as Record<string, unknown>).flow).toBe("none");
     expect(
       ((inbound.streamSettings as Record<string, unknown>).realitySettings as Record<string, unknown>).dest,
-    ).toBe("127.0.0.1:9443");
+    ).toBe("/run/lessv/decoy.sock");
     expect(
       ((inbound.streamSettings as Record<string, unknown>).realitySettings as Record<string, unknown>).shortIds,
     ).toEqual(["abcd1234"]);
@@ -68,9 +68,9 @@ describe("buildRealityPreset", () => {
     ).toMatchObject({ serverNames: ["203.0.113.7"] });
   });
 
-  it("warns on bad ports and bad shortIds", () => {
-    const badPort = buildRealityPreset({ domain: "a.example.com", nginxPort: 70000 });
-    expect(badPort.warnings.some((warning) => warning.includes("port"))).toBe(true);
+  it("warns on a relative socket path and bad shortIds", () => {
+    const badSocket = buildRealityPreset({ domain: "a.example.com", socketPath: "decoy.sock" });
+    expect(badSocket.warnings.some((warning) => warning.includes("absolute"))).toBe(true);
     const badSid = buildRealityPreset({ domain: "a.example.com", shortId: "xyz" });
     expect(badSid.warnings.some((warning) => warning.includes("shortId"))).toBe(true);
   });

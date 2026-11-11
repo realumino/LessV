@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 
 use crate::config::Config;
 use crate::nginx::{self, ServerCert};
-use crate::state::State;
+use crate::state::{State, StoredCert};
 use crate::util::{atomic_write, head};
 
 /// WHAT: one validated manifest entry.
@@ -288,8 +288,49 @@ pub struct CertSyncer<'a> {
 }
 
 impl CertSyncer<'_> {
+    /// WHAT: the decoy renderer's output for the certificates state remembers.
+    ///
+    /// WHY both variants: a host without the post-quantum group is served the
+    /// classical file, and both are "current" for that host.
+    fn expected_decoy(&self, certs: &[StoredCert]) -> (String, String) {
+        let entries: Vec<ServerCert> = certs
+            .iter()
+            .map(|cert| ServerCert {
+                domain: cert.domain.clone(),
+                path: cert.path.clone(),
+            })
+            .collect();
+        (
+            nginx::render(self.cfg, &entries, true),
+            nginx::render(self.cfg, &entries, false),
+        )
+    }
+
+    /// WHAT: true when the generated decoy file no longer matches the renderer.
+    ///
+    /// WHY this forces a manifest fetch: the file depends on the certificate
+    /// set, so a 304 alone cannot tell the node whether its version of the
+    /// renderer would write something different. An empty remembered set
+    /// means the state predates that record — fetch the manifest once.
+    fn decoy_stale(&self, st: &State) -> bool {
+        if !self.cfg.manage_nginx {
+            return false;
+        }
+        let Some(certs) = st.certs.as_deref() else {
+            return true;
+        };
+        if certs.is_empty() {
+            return false;
+        }
+        let (pq, classic) = self.expected_decoy(certs);
+        match fs::read(&self.cfg.nginx_conf_path) {
+            Ok(bytes) => bytes != pq.as_bytes() && bytes != classic.as_bytes(),
+            Err(_) => true,
+        }
+    }
+
     pub fn run(&self, st: &mut State) {
-        let etag_header = if st.cert_etag.is_empty() {
+        let etag_header = if st.cert_etag.is_empty() || self.decoy_stale(st) {
             None
         } else {
             Some(st.cert_etag.as_str())
@@ -312,7 +353,21 @@ impl CertSyncer<'_> {
                 return;
             }
         };
-        if manifest.etag == st.cert_etag && all_currents_exist(self.cfg, &manifest.certs) {
+        let stale = self.decoy_stale(st);
+        st.certs = Some(
+            manifest
+                .certs
+                .iter()
+                .map(|cert| StoredCert {
+                    domain: cert.domain.clone(),
+                    path: cert.path.clone(),
+                })
+                .collect(),
+        );
+        if manifest.etag == st.cert_etag
+            && all_currents_exist(self.cfg, &manifest.certs)
+            && !stale
+        {
             self.noop_check(st);
             return;
         }
@@ -369,12 +424,19 @@ impl CertSyncer<'_> {
             return;
         }
         st.last_nginx_ok = Some(active);
+        // The note describes a healthy nginx that fell back to classical key
+        // exchange; it is only meaningful while nginx is up.
+        let note = if active {
+            st.last_nginx_note.as_deref()
+        } else {
+            None
+        };
         let body = self.cert_report(
             active,
             None,
             active,
             if active {
-                None
+                note
             } else {
                 Some("nginx unit is not active")
             },
@@ -392,6 +454,7 @@ impl CertSyncer<'_> {
 
     fn report_failure(&self, st: &mut State, error: &str) {
         st.last_nginx_ok = Some(false);
+        st.last_nginx_note = None;
         let body = self.cert_report(
             false,
             Some(error),
@@ -442,6 +505,7 @@ impl CertSyncer<'_> {
             previous.push((dir, previous_target));
         }
 
+        let mut nginx_note: Option<String> = None;
         if self.cfg.manage_nginx && !manifest.certs.is_empty() {
             let entries: Vec<ServerCert> = manifest
                 .certs
@@ -451,16 +515,51 @@ impl CertSyncer<'_> {
                     path: cert.path.clone(),
                 })
                 .collect();
-            let body = nginx::render(self.cfg, &entries);
-            let previous_config = match nginx::write_config(&self.cfg.nginx_conf_path, &body) {
-                Ok(previous) => previous,
-                Err(error) => {
-                    self.rollback(&previous);
-                    self.report_failure(st, &format!("nginx config write failed: {error}"));
-                    return;
+            let pq_body = nginx::render(self.cfg, &entries, true);
+            let previous_config =
+                match nginx::write_config(&self.cfg.nginx_conf_path, &pq_body) {
+                    Ok(previous) => previous,
+                    Err(error) => {
+                        self.rollback(&previous);
+                        self.report_failure(st, &format!("nginx config write failed: {error}"));
+                        return;
+                    }
+                };
+            let (mut ok, mut output) = self.nginx.test();
+            if !ok {
+                // The hybrid group is resolved by the linked TLS library at
+                // config-test time, so an older host rejects the whole file.
+                // Retrying without the directive is the only way to keep the
+                // decoy serving; the degradation is reported, not hidden.
+                let classic = nginx::render(self.cfg, &entries, false);
+                if classic != pq_body {
+                    if let Err(error) =
+                        nginx::write_config(&self.cfg.nginx_conf_path, &classic)
+                    {
+                        self.rollback(&previous);
+                        nginx::restore_config(
+                            &self.cfg.nginx_conf_path,
+                            previous_config.as_deref(),
+                        );
+                        self.report_failure(
+                            st,
+                            &format!("nginx config write failed: {error}"),
+                        );
+                        return;
+                    }
+                    let (classic_ok, classic_output) = self.nginx.test();
+                    if classic_ok {
+                        ok = true;
+                        output = String::new();
+                        nginx_note = Some(format!(
+                            "nginx/OpenSSL does not support {}; serving X25519 only",
+                            nginx::PQ_CURVES
+                        ));
+                    } else {
+                        output = classic_output;
+                    }
                 }
-            };
-            let (ok, output) = self.nginx.test();
+            }
             if !ok {
                 self.rollback(&previous);
                 nginx::restore_config(&self.cfg.nginx_conf_path, previous_config.as_deref());
@@ -486,11 +585,12 @@ impl CertSyncer<'_> {
         }
 
         let synced_at = self.now;
+        st.last_nginx_note = nginx_note.clone();
         let body = self.cert_report(
             true,
             None,
             true,
-            None,
+            nginx_note.as_deref(),
             Some(manifest.etag.as_str()),
             Some(synced_at),
         );
@@ -553,27 +653,44 @@ mod tests {
 
     struct FakeNginx {
         test_ok: bool,
+        /// WHAT: when set, the first `test()` rejects the PQ directive and
+        /// every later one passes — the shape of a host whose TLS library
+        /// does not know the hybrid group.
+        pq_rejected: bool,
         active: std::cell::Cell<bool>,
         reload_ok: bool,
         /// WHAT: a successful start makes the fake report itself active.
         heals: bool,
         reloads: RefCell<u32>,
+        tests: RefCell<u32>,
     }
 
     impl FakeNginx {
         fn good() -> Self {
             FakeNginx {
                 test_ok: true,
+                pq_rejected: false,
                 active: std::cell::Cell::new(true),
                 reload_ok: true,
                 heals: true,
                 reloads: RefCell::new(0),
+                tests: RefCell::new(0),
             }
         }
     }
 
     impl NginxOps for FakeNginx {
         fn test(&self) -> (bool, String) {
+            *self.tests.borrow_mut() += 1;
+            if self.pq_rejected && *self.tests.borrow() == 1 {
+                return (
+                    false,
+                    format!(
+                        "SSL_CTX_set1_curves_list(\"{}\") failed",
+                        nginx::PQ_CURVES
+                    ),
+                );
+            }
             (self.test_ok, if self.test_ok { String::new() } else { "boom".into() })
         }
         fn active(&self) -> bool {
@@ -658,6 +775,146 @@ mod tests {
         let reports = reports.into_inner();
         assert_eq!(reports.len(), 1);
         assert_eq!(reports[0]["ok"], json!(true));
+        assert_eq!(reports[0]["nginx_error"], json!(null));
+        assert!(conf.contains(&format!("ssl_ecdh_curve     {};", nginx::PQ_CURVES)));
+        assert_eq!(state.last_nginx_note, None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pq_rejection_falls_back_to_classical_and_reports_it() {
+        let dir = temp_dir();
+        let config = cfg(&dir);
+        let nginx = FakeNginx {
+            pq_rejected: true,
+            ..FakeNginx::good()
+        };
+        let fetched = manifest(&"d".repeat(64), vec![cert("example.org", 'd')]);
+        let mut state = State::default();
+        let fetch = |_etag: Option<&str>| Ok(Some(fetched.clone()));
+        let reports = RefCell::new(Vec::<Value>::new());
+        let report = |body: Value| {
+            reports.borrow_mut().push(body);
+            Ok(())
+        };
+        let syncer = CertSyncer {
+            cfg: &config,
+            nginx: &nginx,
+            fetch: &fetch,
+            report: &report,
+            now: 150,
+        };
+        syncer.run(&mut state);
+        assert_eq!(state.cert_etag, format!("\"{}\"", "d".repeat(64)));
+        assert_eq!(*nginx.tests.borrow(), 2);
+        let conf = fs::read_to_string(&config.nginx_conf_path).unwrap();
+        assert!(!conf.contains("ssl_ecdh_curve"));
+        assert!(conf.contains("ssl_protocols       TLSv1.3;"));
+        let reports = reports.into_inner();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0]["ok"], json!(true));
+        assert_eq!(reports[0]["nginx_ok"], json!(true));
+        let note = reports[0]["nginx_error"].as_str().unwrap();
+        assert!(note.contains("X25519 only"), "{note}");
+        assert_eq!(state.last_nginx_note.as_deref(), Some(note));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_stale_decoy_config_forces_a_manifest_fetch_and_rewrite() {
+        let dir = temp_dir();
+        let config = cfg(&dir);
+        let nginx = FakeNginx::good();
+        let fingerprint = "a".repeat(64);
+        let domain = config.cert_dir.join("example.org");
+        fs::create_dir_all(domain.join(&fingerprint)).unwrap();
+        symlink(&fingerprint, domain.join("current")).unwrap();
+        fs::write(
+            &config.nginx_conf_path,
+            "# rendered by an older node: loopback only
+",
+        )
+        .unwrap();
+        let mut state = State {
+            cert_etag: format!("\"{fingerprint}\""),
+            certs: Some(vec![StoredCert {
+                domain: "example.org".to_string(),
+                path: "example.org".to_string(),
+            }]),
+            ..State::default()
+        };
+        let fetched = manifest(&fingerprint, vec![cert("example.org", 'a')]);
+        let seen = RefCell::new(Vec::<Option<String>>::new());
+        let fetch = |header: Option<&str>| {
+            seen.borrow_mut().push(header.map(|value| value.to_string()));
+            Ok(Some(fetched.clone()))
+        };
+        let report = |_body: Value| Ok(());
+        let syncer = CertSyncer {
+            cfg: &config,
+            nginx: &nginx,
+            fetch: &fetch,
+            report: &report,
+            now: 250,
+        };
+        syncer.run(&mut state);
+        // The conditional request is dropped: only the manifest can tell the
+        // node what the current renderer would write.
+        assert_eq!(*seen.borrow(), vec![None]);
+        let conf = fs::read_to_string(&config.nginx_conf_path).unwrap();
+        assert!(conf.contains("listen unix:/dev/shm/lessv-decoy.sock ssl default_server;"));
+        assert_eq!(*nginx.reloads.borrow(), 1);
+        assert_eq!(state.cert_etag, format!("\"{fingerprint}\""));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_current_decoy_config_keeps_the_conditional_request() {
+        let dir = temp_dir();
+        let config = cfg(&dir);
+        let nginx = FakeNginx::good();
+        let fingerprint = "a".repeat(64);
+        let domain = config.cert_dir.join("example.org");
+        fs::create_dir_all(domain.join(&fingerprint)).unwrap();
+        symlink(&fingerprint, domain.join("current")).unwrap();
+        let stored = vec![StoredCert {
+            domain: "example.org".to_string(),
+            path: "example.org".to_string(),
+        }];
+        let entries = [ServerCert {
+            domain: "example.org".to_string(),
+            path: "example.org".to_string(),
+        }];
+        fs::write(
+            &config.nginx_conf_path,
+            nginx::render(&config, &entries, true),
+        )
+        .unwrap();
+        let mut state = State {
+            cert_etag: format!("\"{fingerprint}\""),
+            certs: Some(stored),
+            ..State::default()
+        };
+        let fetched = manifest(&fingerprint, vec![cert("example.org", 'a')]);
+        let seen = RefCell::new(Vec::<Option<String>>::new());
+        let fetch = |header: Option<&str>| {
+            seen.borrow_mut().push(header.map(|value| value.to_string()));
+            Ok(Some(fetched.clone()))
+        };
+        let report = |_body: Value| Ok(());
+        let syncer = CertSyncer {
+            cfg: &config,
+            nginx: &nginx,
+            fetch: &fetch,
+            report: &report,
+            now: 260,
+        };
+        syncer.run(&mut state);
+        assert_eq!(
+            *seen.borrow(),
+            vec![Some(format!("\"{fingerprint}\""))]
+        );
+        assert_eq!(*nginx.reloads.borrow(), 0);
         let _ = fs::remove_dir_all(&dir);
     }
 

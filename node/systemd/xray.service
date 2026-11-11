@@ -1,8 +1,10 @@
 [Unit]
 Description=Xray Service (managed by lessv-node)
 Documentation=https://gitee.com/realumino/lessv
-After=network-online.target nss-lookup.target
-Wants=network-online.target
+# The decoy origin is a Unix socket created by nginx; REALITY relays every
+# handshake to it, so nginx must be up before Xray starts accepting.
+After=network-online.target nss-lookup.target nginx.service
+Wants=network-online.target nginx.service
 
 [Service]
 Type=simple

@@ -18,6 +18,7 @@ pub const DEFAULT_XRAY_CONFIG: &str = "/var/lib/lessv/config.json";
 pub const DEFAULT_CERT_DIR: &str = "/etc/lessv/certs";
 pub const DEFAULT_DECOY_ROOT: &str = "/var/www/lessv-decoy";
 pub const DEFAULT_NGINX_CONF: &str = "/etc/nginx/conf.d/lessv-decoy.conf";
+pub const DEFAULT_DECOY_SOCKET: &str = "/dev/shm/lessv-decoy.sock";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
@@ -37,6 +38,8 @@ pub struct Config {
     pub nginx_service: String,
     pub nginx_conf_path: PathBuf,
     pub nginx_root: PathBuf,
+    /// Unix socket the decoy listens on; REALITY's `dest` points here.
+    pub nginx_socket: PathBuf,
     pub cert_group: String,
     pub state_path: PathBuf,
 }
@@ -59,6 +62,7 @@ impl Default for Config {
             nginx_service: "nginx".to_string(),
             nginx_conf_path: PathBuf::from(DEFAULT_NGINX_CONF),
             nginx_root: PathBuf::from(DEFAULT_DECOY_ROOT),
+            nginx_socket: PathBuf::from(DEFAULT_DECOY_SOCKET),
             cert_group: String::new(),
             state_path: PathBuf::from(DEFAULT_STATE_PATH),
         }
@@ -166,6 +170,7 @@ pub fn parse(text: &str, path: &Path) -> Result<Config, ConfigError> {
             "nginx_service" => cfg.nginx_service = as_string(value)?,
             "nginx_conf_path" => cfg.nginx_conf_path = PathBuf::from(as_string(value)?),
             "nginx_root" => cfg.nginx_root = PathBuf::from(as_string(value)?),
+            "nginx_socket" => cfg.nginx_socket = PathBuf::from(as_string(value)?),
             "cert_group" => cfg.cert_group = as_string(value)?,
             "state_path" => cfg.state_path = PathBuf::from(as_string(value)?),
             "manage_nginx" => {
@@ -249,6 +254,7 @@ pub fn validate(mut cfg: Config, path: &Path) -> Result<Config, ConfigError> {
         ("cert_dir", &cfg.cert_dir),
         ("nginx_conf_path", &cfg.nginx_conf_path),
         ("nginx_root", &cfg.nginx_root),
+        ("nginx_socket", &cfg.nginx_socket),
         ("state_path", &cfg.state_path),
     ] {
         if !path_value.is_absolute() {
@@ -301,6 +307,7 @@ pub fn to_toml(cfg: &Config) -> String {
         ("nginx_service", cfg.nginx_service.as_str()),
         ("nginx_conf_path", &cfg.nginx_conf_path.to_string_lossy()),
         ("nginx_root", &cfg.nginx_root.to_string_lossy()),
+        ("nginx_socket", &cfg.nginx_socket.to_string_lossy()),
         ("cert_group", cfg.cert_group.as_str()),
         ("state_path", &cfg.state_path.to_string_lossy()),
     ] {
