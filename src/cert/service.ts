@@ -511,10 +511,11 @@ export async function nodeCertDomainState(
     name: row.name,
     status: row.status,
     assigned: assigned.has(row.id),
-    current_certificate: summaryFromJoined("production", row),
+    current_certificate: summaryFromJoined(node.cert_environment, row),
   }));
   return {
     node_id: nodeId,
+    cert_environment: node.cert_environment,
     domains,
     nginx_ok: node.nginx_ok,
     nginx_error: node.nginx_error,
@@ -524,7 +525,7 @@ export async function nodeCertDomainState(
 
 export async function nodeCertSummaries(env: Env, nodeId: string): Promise<NodeCertsOut> {
   const node = await requireNode(env, nodeId);
-  const rows = await listNodeAssignedDomains(env.DB, nodeId);
+  const rows = await listNodeAssignedDomains(env.DB, nodeId, node.cert_environment);
   const certs: NodeCertSummary[] = [];
   for (const row of rows) {
     if (row.certificate_id === null) continue;
@@ -541,6 +542,7 @@ export async function nodeCertSummaries(env: Env, nodeId: string): Promise<NodeC
   }
   return {
     node_id: nodeId,
+    cert_environment: node.cert_environment,
     nginx_ok: node.nginx_ok,
     nginx_error: node.nginx_error,
     cert_synced_at: node.cert_synced_at,
@@ -557,16 +559,19 @@ export async function requireNode(env: Env, nodeId: string): Promise<NodeRow> {
 // --------------------------------------------------------------- delivery
 
 /**
- * WHAT: the node's production delivery manifest — assigned active domains
- * with their current production certificate PEMs and the composite ETag.
+ * WHAT: the node's delivery manifest — assigned active domains with their
+ * current certificate PEMs for the node's own ACME environment, plus the
+ * composite ETag.
  *
  * WHY all-or-nothing: a missing R2 object or unseal failure throws, so the
  * router answers 500 and the agent keeps its previous files; a partial
  * manifest could let nginx serve mismatched key/cert pairs.
  *
- * WHY staging never appears: the query joins production currents only
- * (`environment='production' AND is_current=1`), and test-issue flips
- * staging rows exclusively (§3.3).
+ * WHY the environment comes from the node row: production and staging are
+ * separate current pointers per domain, and a node is served exactly one of
+ * them. A staging node with no staging certificate therefore receives an
+ * empty manifest — never the production bytes, which clients would trust
+ * while the operator believes they are testing the staging path.
  */
 export interface NodeCertManifestEntry {
   domain: string;
@@ -587,7 +592,8 @@ export interface NodeCertManifest {
 }
 
 export async function nodeCertManifest(env: Env, nodeId: string): Promise<NodeCertManifest> {
-  const rows = await listNodeAssignedDomains(env.DB, nodeId);
+  const node = await requireNode(env, nodeId);
+  const rows = await listNodeAssignedDomains(env.DB, nodeId, node.cert_environment);
   const active = rows.filter((row) => row.domain_status === "active" && row.certificate_id !== null);
   const certs: NodeCertManifestEntry[] = [];
   for (const row of active) {

@@ -98,6 +98,15 @@ export const NodeCreate = z.object({
 export type NodeCreate = z.infer<typeof NodeCreate>;
 
 /**
+ * WHAT: the ACME environment whose current certificates a node receives.
+ *
+ * WHY a shared enum: the node row, the update body, and the node cert views
+ * all name the same two values, and a typo in one of them would silently
+ * select no certificate at all.
+ */
+export const CERT_ENVIRONMENTS = ["production", "staging"] as const;
+
+/**
  * WHAT: the JSON body for PUT /api/admin/nodes/{node_id}.
  *
  * WHY every field is optional: partial update — null means "leave
@@ -107,6 +116,7 @@ export type NodeCreate = z.infer<typeof NodeCreate>;
 export const NodeUpdate = z.object({
   label: z.string().nullable().default(null),
   address: z.string().nullable().default(null),
+  cert_environment: z.enum(CERT_ENVIRONMENTS).nullable().default(null),
 });
 export type NodeUpdate = z.infer<typeof NodeUpdate>;
 
@@ -114,13 +124,15 @@ export type NodeUpdate = z.infer<typeof NodeUpdate>;
  * WHAT: the JSON the API returns for one node.
  *
  * WHY has_config: a list view must learn which nodes have a config without
- * fetching every config blob.
+ * fetching every config blob. WHY cert_environment: the Certs tab shows
+ * which environment's certificates this node is served from.
  */
 export const NodeOut = z.object({
   id: z.string(),
   label: z.string(),
   address: z.string(),
   reported_address: z.string().nullable(),
+  cert_environment: z.enum(CERT_ENVIRONMENTS),
   created_at: z.int(),
   has_config: z.boolean(),
 });

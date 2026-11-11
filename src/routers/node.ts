@@ -206,8 +206,8 @@ nodeApi.post("/api/node/report", async (c) => {
 });
 
 /**
- * WHAT: the node's production certificate manifest (assigned active
- * domains, current production certificates, composite ETag).
+ * WHAT: the node's certificate manifest (assigned active domains, the
+ * current certificates of the node's cert environment, composite ETag).
  *
  * WHY 304 on If-None-Match: certificate bytes are big and identical almost
  * every poll; the ETag is the cheap question. WHY no-store: the body

@@ -87,10 +87,14 @@ describe("the D1 data layer", () => {
     const nodeId = uid("n");
     await makeNode(nodeId);
 
+    const created = await db.getNode(conn, nodeId);
+    expect(created?.cert_environment).toBe("production");
+
     await db.replaceNode(conn, {
       id: nodeId,
       label: "Tokyo 01 (new)",
       address: "new.example.com",
+      cert_environment: created!.cert_environment,
     });
     await db.setReportedAddress(conn, nodeId, "203.0.113.7");
 

@@ -188,7 +188,7 @@ describe("D1 persistence", () => {
     expect(await listPendingChallengeRecords(env.DB, runId)).toEqual([]);
   });
 
-  it("replaces node assignments and joins assigned production currents", async () => {
+  it("replaces node assignments and joins the current certificate of the requested environment", async () => {
     const domainA = await seedDomain("a");
     const domainB = await seedDomain("b");
     const nodeId = crypto.randomUUID();
@@ -200,7 +200,7 @@ describe("D1 persistence", () => {
 
     const production = certificate(domainB.id, "production", "b".repeat(64));
     await activateCertificate(env.DB, production);
-    const assigned = await listNodeAssignedDomains(env.DB, nodeId);
+    const assigned = await listNodeAssignedDomains(env.DB, nodeId, "production");
     expect(assigned.map((row) => row.domain_name).sort()).toEqual(
       [domainA.name, domainB.name].sort(),
     );
@@ -210,6 +210,10 @@ describe("D1 persistence", () => {
       certificate_fingerprint_sha256: "b".repeat(64),
     });
     expect(assigned.find((row) => row.domain_id === domainA.id)?.certificate_id).toBeNull();
+
+    // The same assignment read for staging: no current pointer, no certificate.
+    const stagingRows = await listNodeAssignedDomains(env.DB, nodeId, "staging");
+    expect(stagingRows.map((row) => row.certificate_id)).toEqual([null, null]);
 
     await replaceNodeCertDomains(env.DB, nodeId, [], 2000);
     expect(await listNodeCertDomains(env.DB, nodeId)).toEqual([]);

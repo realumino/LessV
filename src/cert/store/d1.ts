@@ -12,7 +12,8 @@
  * WHY environment is a parameter on every current-certificate read: the
  * staging/production isolation is enforced here — one
  * partial unique index per `(domain_id, environment)`, and the delivery
- * path queries `environment='production' AND is_current=1` only.
+ * path queries `environment = <the node's cert_environment> AND
+ * is_current = 1`.
  */
 
 import type { AcmeEnvironment, IssueTrigger } from "../issue/types";
@@ -844,15 +845,21 @@ export async function replaceNodeCertDomains(
 
 /**
  * WHAT: assigned active domains for one node joined with their current
- * production certificate, domain-name-ordered.
+ * certificate in the given ACME environment, domain-name-ordered.
  *
  * WHY the join skips nothing: delivery omits a domain whose current
- * production certificate is missing (§4.2), so the caller needs the row
- * even when the certificate columns are NULL.
+ * certificate in that environment is missing (§4.2), so the caller needs
+ * the row even when the certificate columns are NULL.
+ *
+ * WHY the environment is bound and never defaulted here: it comes from the
+ * node row, and the two environments never substitute for each other — a
+ * staging node with no staging certificate gets nothing, not the
+ * production one.
  */
 export async function listNodeAssignedDomains(
   db: D1Database,
   nodeId: string,
+  environment: AcmeEnvironment,
 ): Promise<NodeAssignedDomainRow[]> {
   const { results } = await db.prepare(
     `SELECT d.id AS domain_id, d.name AS domain_name, d.status AS domain_status,
@@ -865,10 +872,10 @@ export async function listNodeAssignedDomains(
        FROM node_cert_domains n
        JOIN cert_domains d ON d.id = n.domain_id
        LEFT JOIN certificates c ON c.domain_id = d.id
-         AND c.environment = 'production' AND c.is_current = 1
+         AND c.environment = ? AND c.is_current = 1
       WHERE n.node_id = ?
       ORDER BY d.name`,
-  ).bind(nodeId).all<NodeAssignedDomainRow>();
+  ).bind(environment, nodeId).all<NodeAssignedDomainRow>();
   return results;
 }
 

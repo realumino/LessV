@@ -11,6 +11,7 @@ function node(id: string): NodeOut {
     label: id,
     address: "",
     reported_address: null,
+    cert_environment: "production",
     created_at: 0,
     has_config: true,
   };

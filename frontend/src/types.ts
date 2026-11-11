@@ -15,6 +15,8 @@ export interface NodeOut {
   address: string;
   /** What the node reported about itself at enroll — display only. */
   reported_address: string | null;
+  /** Which ACME environment's current certificates this node receives. */
+  cert_environment: "production" | "staging";
   created_at: number;
   has_config: boolean;
 }
@@ -266,6 +268,8 @@ export interface NodeCertDomainOut {
 /** GET/PUT /api/admin/nodes/{id}/cert-domains. */
 export interface NodeCertDomainsOut {
   node_id: string;
+  /** The environment whose current certificate this node is served. */
+  cert_environment: "production" | "staging";
   domains: NodeCertDomainOut[];
   nginx_ok: number | null;
   nginx_error: string | null;
@@ -287,6 +291,8 @@ export interface NodeCertSummary {
 /** GET /api/admin/nodes/{id}/certs. */
 export interface NodeCertsOut {
   node_id: string;
+  /** The environment these summaries describe. */
+  cert_environment: "production" | "staging";
   nginx_ok: number | null;
   nginx_error: string | null;
   cert_synced_at: number | null;

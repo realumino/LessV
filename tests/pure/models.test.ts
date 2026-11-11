@@ -1,5 +1,5 @@
 /**
- * User models and the uuid rule.
+ * User and node update models, the uuid rule, and the cert environment enum.
  *
  * Ported from tests/pure/test_user_models.py with its assertions intact.
  * Zod validation and `ensureUuids` take plain values and return plain
@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { UserCreate, UserUpdate } from "../../src/models";
+import { NodeUpdate, UserCreate, UserUpdate } from "../../src/models";
 import { ensureUuids } from "../../src/services/user_service";
 
 describe("UserCreate", () => {
@@ -66,6 +66,33 @@ describe("UserUpdate", () => {
 
   it("accepts an access map or null", () => {
     expect(UserUpdate.parse({ access: {} }).access).toEqual({});
+  });
+});
+
+describe("NodeUpdate", () => {
+  it("defaults every field to null (unchanged)", () => {
+    const update = NodeUpdate.parse({});
+
+    expect(update.label).toBeNull();
+    expect(update.address).toBeNull();
+    expect(update.cert_environment).toBeNull();
+  });
+
+  it("accepts both certificate environments", () => {
+    expect(NodeUpdate.parse({ cert_environment: "staging" }).cert_environment).toBe(
+      "staging",
+    );
+    expect(
+      NodeUpdate.parse({ cert_environment: "production" }).cert_environment,
+    ).toBe("production");
+  });
+
+  it("rejects an unknown environment instead of silently ignoring it", () => {
+    expect(
+      NodeUpdate.safeParse({ cert_environment: "letsencrypt" }).success,
+    ).toBe(false);
+    expect(NodeUpdate.safeParse({ cert_environment: "" }).success).toBe(false);
+    expect(NodeUpdate.safeParse({ cert_environment: null }).success).toBe(true);
   });
 });
 

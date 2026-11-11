@@ -57,6 +57,7 @@ export function toOut(node: db.NodeRow): NodeOut {
     label: node.label,
     address: node.address,
     reported_address: node.reported_address,
+    cert_environment: node.cert_environment,
     created_at: node.created_at,
     has_config: node.config_json !== null,
   };
@@ -85,9 +86,10 @@ export async function createNode(
 /**
  * WHAT: merge a partial update (null = unchanged); null when missing.
  *
- * WHY no sync here: label and address never change a rendered config — the
- * address only feeds share links, which are derived at request time.
- * Renaming a label can never break a client.
+ * WHY no sync here: label, address, and the cert environment never change a
+ * rendered config — the address only feeds share links (derived at request
+ * time) and the environment only selects which current certificate the
+ * manifest serves. Renaming a label can never break a client.
  */
 export async function updateNode(
   conn: D1Database,
@@ -103,6 +105,9 @@ export async function updateNode(
   }
   if (data.address !== null) {
     node.address = data.address;
+  }
+  if (data.cert_environment !== null) {
+    node.cert_environment = data.cert_environment;
   }
   await db.replaceNode(conn, node);
   return toOut((await db.getNode(conn, nodeId)) as db.NodeRow);

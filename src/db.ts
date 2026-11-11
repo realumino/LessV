@@ -47,6 +47,8 @@ export type NodeRow = {
   cert_etag: string | null;
   /** Unix seconds of the last successful certificate sync. */
   cert_synced_at: number | null;
+  /** Which ACME environment's current certificates this node receives. */
+  cert_environment: "production" | "staging";
   created_at: number;
 };
 
@@ -178,7 +180,9 @@ export async function getNode(
  * WHY it takes a complete object: deciding what values a new node gets is
  * business logic that belongs to the service layer; this function only
  * knows how to store what it is given. Agent-facing columns start as NULL —
- * nothing is filled until an agent reports.
+ * nothing is filled until an agent reports. `cert_environment` starts at
+ * production: consuming staging certificates is a deliberate per-node
+ * switch, never a default.
  */
 export async function createNode(
   db: D1Database,
@@ -193,8 +197,8 @@ export async function createNode(
   await executeWrite(
     db,
     `
-        INSERT INTO nodes (id, label, address, config_json, created_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO nodes (id, label, address, config_json, cert_environment, created_at)
+        VALUES (?, ?, ?, ?, 'production', ?)
         `,
     [
       node.id,
@@ -207,21 +211,29 @@ export async function createNode(
 }
 
 /**
- * WHAT: overwrite the editable columns (label, address) of one node.
+ * WHAT: overwrite the editable columns (label, address, cert environment)
+ * of one node.
  *
- * WHY label/address only: the id is the identity (never renamed via update)
+ * WHY these three only: the id is the identity (never renamed via update)
  * and `config_json` has its own setter — `setNodeConfig` — because saving a
- * config is a distinct act that also triggers a sync.
+ * config is a distinct act that also triggers a sync. `cert_environment` is
+ * written from the row the service merged, so an update that does not
+ * mention it keeps the stored value instead of resetting it.
  */
 export async function replaceNode(
   db: D1Database,
-  node: { id: string; label: string; address: string },
+  node: {
+    id: string;
+    label: string;
+    address: string;
+    cert_environment: "production" | "staging";
+  },
 ): Promise<void> {
-  await executeWrite(db, "UPDATE nodes SET label = ?, address = ? WHERE id = ?", [
-    node.label,
-    node.address,
-    node.id,
-  ]);
+  await executeWrite(
+    db,
+    "UPDATE nodes SET label = ?, address = ?, cert_environment = ? WHERE id = ?",
+    [node.label, node.address, node.cert_environment, node.id],
+  );
 }
 
 /**

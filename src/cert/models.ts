@@ -163,6 +163,8 @@ export interface NodeCertDomainOut {
 /** WHAT: the GET body for /api/admin/nodes/:id/cert-domains. */
 export interface NodeCertDomainsOut {
   node_id: string;
+  /** The environment whose current certificate this node is served. */
+  cert_environment: AcmeEnvironmentLabel;
   domains: NodeCertDomainOut[];
   nginx_ok: number | null;
   nginx_error: string | null;
@@ -184,6 +186,8 @@ export interface NodeCertSummary {
 /** WHAT: the GET body for /api/admin/nodes/:id/certs. */
 export interface NodeCertsOut {
   node_id: string;
+  /** The environment these summaries describe. */
+  cert_environment: AcmeEnvironmentLabel;
   nginx_ok: number | null;
   nginx_error: string | null;
   cert_synced_at: number | null;

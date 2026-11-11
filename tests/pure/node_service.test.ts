@@ -65,6 +65,7 @@ describe("toOut", () => {
       nginx_error: null,
       cert_etag: null,
       cert_synced_at: null,
+      cert_environment: "production",
       created_at: 1,
     };
   }
@@ -81,5 +82,12 @@ describe("toOut", () => {
 
     expect(out.reported_address).toBeNull();
     expect(out.has_config).toBe(false);
+  });
+
+  it("carries the cert environment through", () => {
+    expect(toOut(nodeRow()).cert_environment).toBe("production");
+    expect(
+      toOut({ ...nodeRow(), cert_environment: "staging" }).cert_environment,
+    ).toBe("staging");
   });
 });

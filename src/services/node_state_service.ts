@@ -230,8 +230,12 @@ export async function syncState(
 }
 
 /**
- * WHAT: lint warnings for one node's assigned production certificates plus
- * the per-domain expiry summaries the fleet view renders.
+ * WHAT: lint warnings for one node's assigned certificates plus the
+ * per-domain expiry summaries the fleet view renders.
+ *
+ * WHY the node's cert environment: the lint asks whether the config's
+ * serverNames are covered by the certificates this node actually serves,
+ * and on a staging node that set is the staging current pointers.
  *
  * WHY the store import and not the service: `cert/service` pulls the
  * render path in, which pulls this module — a cycle. The store + pure lint
@@ -241,10 +245,10 @@ export async function certLintState(
   env: Env,
   nodeId: string,
   config: Record<string, unknown> | null,
-  node: Pick<db.NodeRow, "nginx_ok" | "nginx_error">,
+  node: Pick<db.NodeRow, "nginx_ok" | "nginx_error" | "cert_environment">,
   now: Date,
 ): Promise<{ warnings: string[]; certs: Array<{ domain: string; not_after: string; profile: string }> }> {
-  const rows = await listNodeAssignedDomains(env.DB, nodeId);
+  const rows = await listNodeAssignedDomains(env.DB, nodeId, node.cert_environment);
   const certs: LintCert[] = [];
   const summaries: Array<{ domain: string; not_after: string; profile: string }> = [];
   for (const row of rows) {

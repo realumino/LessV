@@ -177,7 +177,11 @@ export const createNode = (body: {
 
 export const updateNode = (
   nodeId: string,
-  body: { label?: string; address?: string },
+  body: {
+    label?: string;
+    address?: string;
+    cert_environment?: NodeOut["cert_environment"];
+  },
 ) =>
   request<NodeOut>(`/nodes/${encodeURIComponent(nodeId)}`, {
     method: "PUT",
