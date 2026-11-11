@@ -125,17 +125,23 @@ else; the node renders one file from the certificate manifest:
 - Debian/Ubuntu/RHEL: `/etc/nginx/conf.d/lessv-decoy.conf`
 - Alpine: `/etc/nginx/http.d/lessv-decoy.conf`
 
-One `server` block per assigned certificate, the first one carrying
-`default_server` so an unmatched SNI still gets a certificate:
+One `server` block per assigned certificate, listening **only** on the
+decoy's Unix socket, plus one plain-HTTP block that redirects everything to
+HTTPS:
 
 ```nginx
 # Managed by lessv-node. Regenerated from GET /api/node/certs on every sync;
 # edits are overwritten. Xray owns 443 — this decoy listens on a Unix socket
-# (REALITY's dest) and on loopback for pre-socket authored configs.
+# (REALITY's dest) only, and redirects plain HTTP on :80 to HTTPS.
+
+server {
+    listen 80 default_server;
+    server_name <domain> [<domain> ...];
+    return 301 https://$host$request_uri;
+}
 
 server {
     listen unix:/dev/shm/lessv-decoy.sock ssl default_server;
-    listen 127.0.0.1:8443 ssl;
     server_name <domain>;
 
     ssl_certificate     /etc/lessv/certs/<path>/current/fullchain.pem;
@@ -143,8 +149,23 @@ server {
     ssl_protocols       TLSv1.3;
     ssl_ecdh_curve      X25519MLKEM768:X25519;
 
+    server_tokens off;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy no-referrer always;
+    add_header X-Robots-Tag "noindex, nofollow, noarchive, nosnippet" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+    add_header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://api.ipify.org https://api64.ipify.org; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
+
     root  /var/www/lessv-decoy;
     index index.html;
+
+    location = /robots.txt {
+        default_type text/plain;
+        return 200 "User-agent: *
+Disallow: /
+";
+    }
 
     location / {
         try_files $uri $uri/ =404;
@@ -161,11 +182,23 @@ server {
   the apply fails, the previous nginx config is restored, and the node reports
   `nginx_ok: false` with the `nginx -t` output. `install.sh` refuses to
   install on a host whose nginx links an older OpenSSL.
-- **Local socket, not a port.** The decoy's primary listener is
+- **Local socket, not a port.** The decoy's only listener is
   `/dev/shm/lessv-decoy.sock`; REALITY relays every handshake there, so the
-  stolen origin never touches the network stack. The loopback listener
-  exists for configs authored before the socket default and can be removed
-  once every node's `dest` names the socket.
+  stolen origin never touches the network stack. An authored `dest` that is
+  not this socket (for example `127.0.0.1:8443`) is a lint warning and a
+  broken fallback — the compatibility loopback listener was removed.
+- **Plain HTTP only redirects.** The `:80` block answers every assigned name
+  with `301 https://$host$request_uri`; it carries no certificate. Port 80
+  must be free (the installer removes the distribution's default site), and a
+  bind conflict fails `nginx -t`/reload, which surfaces as a cert-stage
+  failure instead of a silent half-config.
+- **Anti-crawl headers and a managed page.** The decoy sends `X-Robots-Tag:
+  noindex, nofollow, noarchive, nosnippet`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, `nosniff`, a restrictive CSP, and a
+  `robots.txt` that disallows everything. `index.html` is rendered by
+  lessv-node from a template that starts with
+  `<!-- lessv-node-decoy-page -->`: while that marker is present the page
+  follows upgrades; delete the marker to keep your own page untouched.
 - `nginx_socket` in `/etc/lessv/node.toml` moves the socket (absolute path;
   keep the preset's `dest` in sync). Both services run as root here, so the
   socket's default ownership is enough; with a non-root Xray, set
@@ -239,7 +272,7 @@ nginx -t && systemctl reload nginx      # rc-service nginx reload on Alpine
    (`/var/lib/lessv/state.json`) carries `cert_etag`, `cert_synced_at`,
    `last_nginx_ok`, and `certs` (the certificate set the decoy config was
    rendered from; used to notice that a renderer upgrade made the generated
-   file stale).
+   file stale). The decoy page lives at `/var/www/lessv-decoy/index.html`.
 4. **nginx**: `nginx -t`; `systemctl status nginx` (`rc-service nginx status` on
    Alpine); `journalctl -u nginx -n 50` (`tail -n 50 /var/log/nginx/error.log`).
 5. **HTTP checks**: `curl -v https://<domain>` (must validate without

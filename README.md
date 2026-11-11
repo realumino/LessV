@@ -7,7 +7,7 @@
 ## 拓扑
 
 只做拓扑 A：Xray REALITY 监听 443，`dest=/dev/shm/lessv-decoy.sock`（本机 Unix
-socket；旧配置的 `127.0.0.1:8443` 仍兼容），证书只属于 nginx 假站点。
+socket，decoy 唯一的监听口），证书只属于 nginx 假站点。
 
 ```
 浏览器 ── /admin ──────────► Worker (Hono SPA)
@@ -86,8 +86,8 @@ npm --prefix frontend run dev    # Vite dev server，代理 API 到 :8787
 
 ## 首节点（≤30 分钟）
 
-前提：VPS（Debian 13+/Ubuntu 25.04+/Alpine 3.22+，root SSH，443 空闲，可出站
-443 与 GitHub/Gitee）；一个 **DNS only**（proxied 关闭）的 A 记录指向服务器
+前提：VPS（Debian 13+/Ubuntu 25.04+/Alpine 3.22+，root SSH，80 与 443 空闲
+（80 用于 302 到 https），可出站 443 与 GitHub/Gitee）；一个 **DNS only**（proxied 关闭）的 A 记录指向服务器
 IP（REALITY 与 nginx 都必须直连）；面板已部署（上节）。发行版的要求来自 TLS
 1.3 + PQ：nginx 链接的 OpenSSL 必须 ≥ 3.5，decoy 只提供
 `X25519MLKEM768:X25519`，**不回退到经典密钥交换**——不满足的宿主机
@@ -113,7 +113,7 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
    GitHub 装 Xray、从发行版仓库装 nginx）：
    ```bash
    ssh root@<server-ip>
-   VERSION=0.4.1; BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
+   VERSION=0.5.0; BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
    case "$(uname -m)" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; esac
    curl -fsSLO $BASE/lessv-node-$VERSION-linux-$ARCH.tar.gz
    curl -fsSLO $BASE/SHA256SUMS
@@ -155,7 +155,9 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 5. **分配证书 + 选环境**：节点页 Certs tab 勾选证书域名，并在
    Production/Staging 选择器里选环境（默认 production），保存。等 fleet
    的 applied = desired；lessv-node 自动拉取证书到
-   `/etc/lessv/certs/<域名 path>/current/`，按清单生成 nginx 假站点配置，
+   `/etc/lessv/certs/<域名 path>/current/`，按清单生成 nginx 假站点配置（只监听
+   本机 socket；80 端口 302 到 https）和 decoy 页面（绿色“Your Connection is
+   secure”卡片，展示访客出口 IP 并外链 Cloudflare Radar），
    `nginx -t` + reload（未运行时改为 start）。
 6. **建用户 + 订阅 + 客户端探针**（详见下节）：
    ```bash
@@ -246,10 +248,10 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 
 ## 当前状态
 
-- 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.4.1`（Gitee
-  Release `node-v0.4.1`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
+- 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.5.0`（Gitee
+  Release `node-v0.5.0`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
   构建：`npm run release:node`）。
-- 测试矩阵：Worker 407 passed / 57 files；前端 41 passed；lessv-node 41 Rust 单元测试。
+- 测试矩阵：Worker 407 passed / 57 files；前端 41 passed；lessv-node 47 Rust 单元测试。
 - 未做（候选方向）：nginx 配置面板托管、B 拓扑（TLS/WS/xhttp）、Clash
   订阅、stats/quota、到期通知、多管理员。
 
@@ -264,9 +266,10 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
   `install.sh` 原位升级复用 token、不重新 enroll，所以要刷新显示需要复用
   同一 token 重跑一次 `lessv-node enroll`（同一个 node id 与参数）。
 - nginx 假站点配置由 lessv-node 按证书清单生成；面板不渲染、不托管它的
-  内容（只有证书域名的 server_name 与路径来自清单）。decoy 同时监听
-  `/dev/shm/lessv-decoy.sock`（默认，REALITY 的 dest）与 `127.0.0.1:8443`
-  （兼容旧配置），不监听 443。
+  内容（只有证书域名的 server_name 与路径来自清单）。decoy 只监听
+  `/dev/shm/lessv-decoy.sock`（默认，REALITY 的 dest），80 端口只做 302，
+  不监听 443。`index.html` 也是托管产物（带标记时随升级刷新；删掉标记即可
+  自定义）。
 - decoy 固定 `TLSv1.3` + `X25519MLKEM768:X25519`，**没有非 PQ 回退**：链接的
   OpenSSL < 3.5 时 `nginx -t` 失败，节点回滚到上一份 nginx 配置并上报
   `nginx_ok=0` + 错误（`install.sh` 也会在安装时直接拒绝这种宿主机）。

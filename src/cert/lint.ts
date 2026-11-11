@@ -87,21 +87,16 @@ export function realityInbounds(
 const SOCKET_PATH_MAX = 108;
 
 /**
- * WHAT: return true when `dest` names an origin on this host.
+ * WHAT: return true when `dest` is the local Unix socket the decoy listens on.
  *
- * WHY two accepted forms: REALITY's stolen origin is nginx on the same
- * machine, reachable either through a Unix socket (current preset and
- * lessv-node default) or the loopback port older configs were authored
- * with. A public `dest` is not self-steal and must be flagged.
+ * WHY sockets only: the generated decoy has exactly one listener, the Unix
+ * socket REALITY relays into. An authored `127.0.0.1:<port>` (or any public
+ * host) would dial something that does not exist, so it must be flagged —
+ * the old loopback compatibility listener is gone.
  */
-export function destIsLocal(dest: unknown): boolean {
-  if (typeof dest !== "string" || dest === "") {
-    return false;
-  }
-  if (/^127\.0\.0\.1:\d+$/.test(dest)) {
-    return true;
-  }
+export function destIsLocalSocket(dest: unknown): boolean {
   return (
+    typeof dest === "string" &&
     dest.startsWith("/") &&
     dest.length <= SOCKET_PATH_MAX &&
     !dest.split("/").includes("..")
@@ -145,9 +140,9 @@ export function certLintWarnings(input: LintInput): string[] {
       }
     }
     // Dest and shortIds are independent of the serverNames check.
-    if (!destIsLocal(inbound.dest)) {
+    if (!destIsLocalSocket(inbound.dest)) {
       warnings.push(
-        `reality inbound '${tag}' dest '${String(inbound.dest)}' is not a local Unix socket or 127.0.0.1:<port>`,
+        `reality inbound '${tag}' dest '${String(inbound.dest)}' is not the local Unix socket the decoy listens on`,
       );
     }
     if (!shortIdsValid(inbound.shortIds)) {

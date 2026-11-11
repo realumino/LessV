@@ -43,7 +43,7 @@ Request:
 ```json
 {
   "protocol": 2,
-  "agent_version": "0.4.1",
+  "agent_version": "0.5.0",
   "xray_version": "26.10.21",
   "detected_ip": "203.0.113.7",
   "platform": "Linux-6.1-x86_64"

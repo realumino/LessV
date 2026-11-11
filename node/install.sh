@@ -12,7 +12,7 @@
 # Usage:
 #   ./install.sh --cp <control-plane-url> --node <node-id>
 #   ./install.sh --cp <url> --node <id> --token-file <path>
-#   ./install.sh --version 0.4.1 --cp <url> --node <id>
+#   ./install.sh --version 0.5.0 --cp <url> --node <id>
 #
 # The token is read from a hidden prompt (or a 0600 file) and piped to the
 # binary on stdin; it never appears in argv, the environment, or a log.
@@ -294,26 +294,14 @@ install_xray() {
 
 # -------------------------------------------------------------------- layout
 
+# WHAT: create the host layout, including the decoy document root.
+#
+# WHY the page itself is not written here: lessv-node owns it as a managed
+# artifact (it carries a marker and is refreshed on upgrades unless the
+# operator replaced it). The installer only guarantees the directory, so a
+# fresh node has its page as soon as the first certificate sync runs.
 install_layout() {
     install -d -m 0755 /etc/lessv /etc/lessv/certs /var/lib/lessv /var/www/lessv-decoy
-    if [ ! -f /var/www/lessv-decoy/index.html ]; then
-        cat > /var/www/lessv-decoy/index.html <<'HTML'
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Welcome</title>
-<style>
-body { font-family: system-ui, sans-serif; margin: 4rem auto; max-width: 32rem; color: #222; }
-</style>
-</head>
-<body>
-<h1>Welcome</h1>
-<p>This site is under construction.</p>
-</body>
-</html>
-HTML
-    fi
 }
 
 install_binary() {

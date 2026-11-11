@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   certLintWarnings,
-  destIsLocal,
+  destIsLocalSocket,
   realityInbounds,
   sanCovers,
   shortIdsValid,
@@ -27,7 +27,7 @@ function realityInbound(overrides: Record<string, unknown> = {}): Record<string,
       network: "tcp",
       security: "reality",
       realitySettings: {
-        dest: "127.0.0.1:8443",
+        dest: "/dev/shm/lessv-decoy.sock",
         serverNames: ["tokyo01.example.com"],
         shortIds: ["abcd1234"],
         privateKey: "x",
@@ -87,7 +87,7 @@ describe("REALITY field checks", () => {
     });
     expect(warnings).toEqual([
       "reality inbound 'reality' has no serverNames",
-      "reality inbound 'reality' dest 'www.microsoft.com:443' is not a local Unix socket or 127.0.0.1:<port>",
+      "reality inbound 'reality' dest 'www.microsoft.com:443' is not the local Unix socket the decoy listens on",
       "reality inbound 'reality' has invalid shortIds",
     ]);
   });
@@ -164,12 +164,12 @@ describe("nginx health", () => {
 });
 
 describe("helpers", () => {
-  it("destIsLocal and shortIdsValid shapes", () => {
-    expect(destIsLocal("127.0.0.1:8443")).toBe(true);
-    expect(destIsLocal("/dev/shm/lessv-decoy.sock")).toBe(true);
-    expect(destIsLocal("/run/../etc/passwd")).toBe(false);
-    expect(destIsLocal("localhost:8443")).toBe(false);
-    expect(destIsLocal("127.0.0.1:")).toBe(false);
+  it("destIsLocalSocket and shortIdsValid shapes", () => {
+    expect(destIsLocalSocket("/dev/shm/lessv-decoy.sock")).toBe(true);
+    expect(destIsLocalSocket("/run/../etc/passwd")).toBe(false);
+    expect(destIsLocalSocket("127.0.0.1:8443")).toBe(false);
+    expect(destIsLocalSocket("localhost:8443")).toBe(false);
+    expect(destIsLocalSocket("")).toBe(false);
     expect(shortIdsValid(["abcd1234", "ef", ""])).toBe(true);
     expect(shortIdsValid(["abc"])).toBe(false);
     expect(shortIdsValid("nope")).toBe(false);

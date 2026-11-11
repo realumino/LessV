@@ -323,7 +323,32 @@ impl CertSyncer<'_> {
         }
     }
 
+    /// WHAT: keep the decoy page in step with this binary's template.
+    ///
+    /// WHY outside the certificate state machine: the page depends on no
+    /// manifest entry, so a node whose certificate set never changes (no
+    /// renewal for weeks) must still pick up a page change after an upgrade.
+    /// The marker keeps operator-customized pages untouched.
+    fn ensure_decoy_page(&self) {
+        if !self.cfg.manage_nginx {
+            return;
+        }
+        let path = self.cfg.nginx_root.join("index.html");
+        let current = fs::read_to_string(&path).ok();
+        let managed = current
+            .as_deref()
+            .map(|body| body.contains(nginx::DECOY_PAGE_MARKER))
+            .unwrap_or(true);
+        if !managed || current.as_deref() == Some(nginx::DECOY_PAGE) {
+            return;
+        }
+        if let Err(error) = atomic_write(&path, nginx::DECOY_PAGE.as_bytes(), 0o644) {
+            crate::log_warn(&format!("cannot write {}: {error}", path.display()));
+        }
+    }
+
     pub fn run(&self, st: &mut State) {
+        self.ensure_decoy_page();
         let etag_header = if st.cert_etag.is_empty() || self.decoy_stale(st) {
             None
         } else {
@@ -735,7 +760,7 @@ mod tests {
         assert_eq!(reports.len(), 1);
         assert_eq!(reports[0]["ok"], json!(true));
         assert_eq!(reports[0]["nginx_error"], json!(null));
-        assert!(conf.contains(&format!("ssl_ecdh_curve     {};", nginx::PQ_CURVES)));
+        assert!(conf.contains(&format!("ssl_ecdh_curve      {};", nginx::PQ_CURVES)));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -830,7 +855,7 @@ mod tests {
         assert_eq!(*seen.borrow(), vec![None]);
         let conf = fs::read_to_string(&config.nginx_conf_path).unwrap();
         assert!(conf.contains("listen unix:/dev/shm/lessv-decoy.sock ssl default_server;"));
-        assert!(conf.contains(&format!("ssl_ecdh_curve     {};", nginx::PQ_CURVES)));
+        assert!(conf.contains(&format!("ssl_ecdh_curve      {};", nginx::PQ_CURVES)));
         assert_eq!(*nginx.reloads.borrow(), 1);
         assert_eq!(state.cert_etag, format!("\"{fingerprint}\""));
         let _ = fs::remove_dir_all(&dir);
@@ -883,6 +908,82 @@ mod tests {
             vec![Some(format!("\"{fingerprint}\""))]
         );
         assert_eq!(*nginx.reloads.borrow(), 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// WHAT: a CertSyncer whose only job is the page pass (304, active nginx).
+    fn page_syncer<'a>(
+        cfg: &'a Config,
+        nginx: &'a FakeNginx,
+        fetch: &'a dyn Fn(Option<&str>) -> Result<Option<Value>, String>,
+    ) -> CertSyncer<'a> {
+        CertSyncer {
+            cfg,
+            nginx,
+            fetch,
+            report: &|_body: Value| Ok(()),
+            now: 100,
+        }
+    }
+
+    #[test]
+    fn writes_the_managed_decoy_page_when_missing() {
+        let dir = temp_dir();
+        let config = cfg(&dir);
+        let nginx = FakeNginx::good();
+        let fetch = |_etag: Option<&str>| Ok(None);
+        let syncer = page_syncer(&config, &nginx, &fetch);
+        let mut state = State::default();
+        syncer.run(&mut state);
+        let page = fs::read_to_string(config.nginx_root.join("index.html")).unwrap();
+        assert!(page.contains(nginx::DECOY_PAGE_MARKER));
+        assert!(page.contains("Your Connection is secure"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn keeps_a_customized_page_and_refreshes_a_managed_one() {
+        let dir = temp_dir();
+        let config = cfg(&dir);
+        let nginx = FakeNginx::good();
+        let fetch = |_etag: Option<&str>| Ok(None);
+        let page_path = config.nginx_root.join("index.html");
+        fs::create_dir_all(&config.nginx_root).unwrap();
+
+        // Customized (no marker): never touched.
+        fs::write(&page_path, "<h1>my own page</h1>
+").unwrap();
+        let syncer = page_syncer(&config, &nginx, &fetch);
+        syncer.run(&mut State::default());
+        assert_eq!(
+            fs::read_to_string(&page_path).unwrap(),
+            "<h1>my own page</h1>
+"
+        );
+
+        // Managed (marker present) but stale: rewritten to this template.
+        fs::write(
+            &page_path,
+            format!("<!doctype html>
+{} <p>old</p>
+", nginx::DECOY_PAGE_MARKER),
+        )
+        .unwrap();
+        syncer.run(&mut State::default());
+        assert_eq!(fs::read_to_string(&page_path).unwrap(), nginx::DECOY_PAGE);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn leaves_the_page_alone_when_nginx_is_not_managed() {
+        let dir = temp_dir();
+        let mut config = cfg(&dir);
+        config.manage_nginx = false;
+        let nginx = FakeNginx::good();
+        let fetch = |_etag: Option<&str>| Ok(None);
+        let syncer = page_syncer(&config, &nginx, &fetch);
+        syncer.run(&mut State::default());
+        assert!(!config.nginx_root.join("index.html").exists());
         let _ = fs::remove_dir_all(&dir);
     }
 
