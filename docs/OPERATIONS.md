@@ -152,18 +152,15 @@ server {
 }
 ```
 
-- **Post-quantum by default.** `ssl_ecdh_curve X25519MLKEM768:X25519` makes a
-  TLS 1.3 handshake prefer the ML-KEM-768 + X25519 hybrid and fall back to
-  X25519 for clients that do not offer it. The linked TLS library resolves
-  the group at `nginx -t` time: OpenSSL ≥ 3.5 (Debian 13, Ubuntu 25.04,
-  Alpine 3.22, current nginx images) knows it; older hosts reject the whole
-  file. In that case lessv-node re-renders the same block without the
-  directive, keeps serving X25519, and reports
-  `nginx_ok: true` + a `nginx_error` note (`nginx/OpenSSL does not support
-  X25519MLKEM768:X25519; serving X25519 only`). The plane turns that note
-  into a sync warning, so the degradation is visible but never turns a
-  healthy node red. `install.sh` prints the same hint when it detects an
-  older OpenSSL.
+- **Post-quantum, without a fallback.** `ssl_ecdh_curve
+  X25519MLKEM768:X25519` makes a TLS 1.3 handshake prefer the ML-KEM-768 +
+  X25519 hybrid and fall back to X25519 for clients that do not offer it.
+  The linked TLS library resolves the group at `nginx -t` time: OpenSSL ≥ 3.5
+  (Debian 13, Ubuntu 25.04, Alpine 3.22, current nginx images) knows it;
+  older hosts reject the whole file. There is **no classical-only render**:
+  the apply fails, the previous nginx config is restored, and the node reports
+  `nginx_ok: false` with the `nginx -t` output. `install.sh` refuses to
+  install on a host whose nginx links an older OpenSSL.
 - **Local socket, not a port.** The decoy's primary listener is
   `/dev/shm/lessv-decoy.sock`; REALITY relays every handshake there, so the
   stolen origin never touches the network stack. The loopback listener
@@ -235,15 +232,14 @@ nginx -t && systemctl reload nginx      # rc-service nginx reload on Alpine
 2. **Panel: node sync** (`GET /api/admin/nodes/<id>/sync`): `nginx_ok`,
    `nginx_error`, and certificate lint warnings (`serverNames ... is not
    covered by an assigned certificate`, `dest ... is not a local Unix socket
-   or 127.0.0.1:<port>`, invalid `shortIds`). A `nginx: ...` sync warning
-   while `nginx_ok` is 1 is informational (the PQ fallback described above).
+   or 127.0.0.1:<port>`, invalid `shortIds`).
 3. **Node**: `journalctl -u lessv-node -n 100` (OpenRC:
    `tail -n 100 /var/log/lessv-node.log`); `ls -l /etc/lessv/certs/<path>/`;
    `readlink -f .../current`. The node's state file
    (`/var/lib/lessv/state.json`) carries `cert_etag`, `cert_synced_at`,
-   `last_nginx_ok`, `last_nginx_note` (the PQ fallback text, if any), and
-   `certs` (the certificate set the decoy config was rendered from; used to
-   notice that a renderer upgrade made the generated file stale).
+   `last_nginx_ok`, and `certs` (the certificate set the decoy config was
+   rendered from; used to notice that a renderer upgrade made the generated
+   file stale).
 4. **nginx**: `nginx -t`; `systemctl status nginx` (`rc-service nginx status` on
    Alpine); `journalctl -u nginx -n 50` (`tail -n 50 /var/log/nginx/error.log`).
 5. **HTTP checks**: `curl -v https://<domain>` (must validate without
@@ -265,8 +261,7 @@ nginx -t && systemctl reload nginx      # rc-service nginx reload on Alpine
 | LE CAA error on a name | a CAA record forbids issuance | fix/remove the CAA record (`0 issue "none"` blocks everything) |
 | `too many certificates already issued` | production rate limit | wait; use staging for any further testing |
 | panel warning `nginx is not healthy: nginx unit is not active` | nginx stopped/crashed — the text after the colon is the node's `nginx_error` field | the node restarts nginx on its next poll; if it stays down, `systemctl start nginx` / `rc-service nginx start` and read the node log |
-| sync warning `nginx: nginx/OpenSSL does not support X25519MLKEM768...` with `nginx_ok=1` | the decoy serves classical key exchange because the host's TLS library is older than OpenSSL 3.5 | informational; upgrade the distro (Debian 13+/Ubuntu 25.04+/Alpine 3.22+) if post-quantum key exchange is required |
-| `nginx -t` fails with `SSL_CTX_set1_curves_list("X25519MLKEM768:X25519") failed` | an old node binary (≤ 0.3.x) or a hand-edited config on a host without PQ support | upgrade lessv-node; the generated config falls back on its own from 0.4.0 |
+| `nginx -t rejected the decoy (post-quantum X25519MLKEM768:X25519 requires OpenSSL >= 3.5): SSL_CTX_set1_curves_list(...) failed` | the host's TLS library cannot negotiate the hybrid group; the node refuses to serve classical-only TLS and restored the previous decoy config | move the node to Debian 13+/Ubuntu 25.04+/Alpine 3.22+ (or build nginx against OpenSSL ≥ 3.5). There is no fallback to enable |
 | node reports cert failure, files unchanged | artifact read/validate failed | check the object path from the error; do not edit files by hand |
 | renewed cert never appears on the node | assignment changed or ETag stuck | re-check assignment; compare `nodes.cert_etag` (the node's adopted ETag) with the manifest ETag from `GET /api/node/certs` — equal means the node already has this version |
 

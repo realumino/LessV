@@ -43,7 +43,7 @@ Request:
 ```json
 {
   "protocol": 2,
-  "agent_version": "0.4.0",
+  "agent_version": "0.4.1",
   "xray_version": "26.10.21",
   "detected_ip": "203.0.113.7",
   "platform": "Linux-6.1-x86_64"
@@ -216,14 +216,11 @@ state has nothing to repeat yet. From lessv-node 0.3.0 the node never clears
 `cert_synced_at`: nginx state flips and cert failures repeat the last
 successful epoch.
 
-`nginx_error` is not only a failure channel: a report with `nginx_ok: true`
-and a non-empty `nginx_error` describes a *degradation* — the node is serving,
-but not with the full configuration it wanted (from lessv-node 0.4.0: the
-decoy's TLS library rejected the post-quantum group and nginx was
-re-rendered without it). The plane surfaces such a message as a sync
-warning and never as an error state, so a healthy node is not turned red by
-an informational note. A report with `nginx_ok: false` keeps the original
-meaning: the decoy is not serving.
+`nginx_error` carries the failure reason only: a node whose nginx is serving
+reports `nginx_ok: true` and `nginx_error: null`. There is no "healthy but
+degraded" state — in particular, the decoy always offers the post-quantum
+group, and a host whose TLS library cannot do so fails the decoy apply and
+reports `nginx_ok: false`.
 
 ### `POST /api/node/stats`
 

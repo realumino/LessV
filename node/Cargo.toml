@@ -1,6 +1,6 @@
 [package]
 name = "lessv-node"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 rust-version = "1.80"
 description = "LessV node reconciler: pulls Xray config and certificates from the control plane"

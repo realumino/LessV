@@ -89,8 +89,10 @@ npm --prefix frontend run dev    # Vite dev server，代理 API 到 :8787
 前提：VPS（Debian 13+/Ubuntu 25.04+/Alpine 3.22+，root SSH，443 空闲，可出站
 443 与 GitHub/Gitee）；一个 **DNS only**（proxied 关闭）的 A 记录指向服务器
 IP（REALITY 与 nginx 都必须直连）；面板已部署（上节）。发行版的要求来自 TLS
-1.3 + PQ：nginx 链接的 OpenSSL 必须 ≥ 3.5 才能协商 `X25519MLKEM768`；更老的
-发行版仍可运行，但 decoy 会退回 X25519 并在面板的 sync warnings 里说明。
+1.3 + PQ：nginx 链接的 OpenSSL 必须 ≥ 3.5，decoy 只提供
+`X25519MLKEM768:X25519`，**不回退到经典密钥交换**——不满足的宿主机
+`install.sh` 直接报错，已经装好的节点会 apply 失败（`nginx -t` 拒绝）并在面板
+显示错误，而不是悄悄降级。
 `install.sh` 负责 nginx、Xray、服务单元与 enroll，计时从第 1 条命令开始，
 到第 6 步的客户端探针成功结束。
 
@@ -111,7 +113,7 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
    GitHub 装 Xray、从发行版仓库装 nginx）：
    ```bash
    ssh root@<server-ip>
-   VERSION=0.4.0; BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
+   VERSION=0.4.1; BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
    case "$(uname -m)" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; esac
    curl -fsSLO $BASE/lessv-node-$VERSION-linux-$ARCH.tar.gz
    curl -fsSLO $BASE/SHA256SUMS
@@ -244,10 +246,10 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 
 ## 当前状态
 
-- 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.4.0`（Gitee
-  Release `node-v0.4.0`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
+- 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.4.1`（Gitee
+  Release `node-v0.4.1`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
   构建：`npm run release:node`）。
-- 测试矩阵：Worker 407 passed / 57 files；前端 41 passed；lessv-node 42 Rust 单元测试。
+- 测试矩阵：Worker 407 passed / 57 files；前端 41 passed；lessv-node 41 Rust 单元测试。
 - 未做（候选方向）：nginx 配置面板托管、B 拓扑（TLS/WS/xhttp）、Clash
   订阅、stats/quota、到期通知、多管理员。
 
@@ -265,9 +267,9 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
   内容（只有证书域名的 server_name 与路径来自清单）。decoy 同时监听
   `/dev/shm/lessv-decoy.sock`（默认，REALITY 的 dest）与 `127.0.0.1:8443`
   （兼容旧配置），不监听 443。
-- decoy 固定 `TLSv1.3` + `X25519MLKEM768:X25519`；链接的 OpenSSL < 3.5 时
-  节点会去掉 PQ 曲线重渲染并上报说明（`nginx_ok=1` + `nginx_error` 文本），
-  不会让证书同步失败。
+- decoy 固定 `TLSv1.3` + `X25519MLKEM768:X25519`，**没有非 PQ 回退**：链接的
+  OpenSSL < 3.5 时 `nginx -t` 失败，节点回滚到上一份 nginx 配置并上报
+  `nginx_ok=0` + 错误（`install.sh` 也会在安装时直接拒绝这种宿主机）。
 - `ADMIN_KEY` 等价 root：持有它即可调用全部 admin API。
 - `KEY_SECRET` 不可轮换——换掉它，历史节点密钥全部不可读。
 - REALITY preset 发出的黑洞 outbound tag 是大写 `BLOCK`。早期 preset

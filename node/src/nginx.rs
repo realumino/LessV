@@ -37,7 +37,9 @@ pub const LEGACY_LOOPBACK: &str = "127.0.0.1:8443";
 /// WHY this exact list: it is what OpenSSL 3.5+ and BoringSSL negotiate, and
 /// the trailing X25519 keeps older clients working. nginx passes the list to
 /// the linked TLS library verbatim, so a library without the group fails
-/// `nginx -t` — which is why the caller falls back (`render` takes `pq`).
+/// `nginx -t` — deliberately: post-quantum key exchange is a requirement,
+/// not an option, and a host that cannot do it must fail loudly instead of
+/// silently serving classical TLS.
 pub const PQ_CURVES: &str = "X25519MLKEM768:X25519";
 
 const HEADER: &str = "\
@@ -53,11 +55,11 @@ const HEADER: &str = "\
 /// like an ordinary site to a scanner. Sorting by domain keeps the file (and
 /// therefore reload behavior) stable.
 ///
-/// WHY `pq` is a parameter: the directive is only meaningful when the
-/// linked OpenSSL knows the group. The caller tries with it first and
-/// re-renders without it when `nginx -t` rejects it, so an older host keeps
-/// working with a reported warning instead of a failed certificate sync.
-pub fn render(cfg: &Config, certs: &[ServerCert], pq: bool) -> String {
+/// WHY the curve directive is unconditional: the decoy must always offer
+/// the hybrid group. A host whose TLS library is older than OpenSSL 3.5
+/// fails `nginx -t` on it, the apply rolls back, and the node reports the
+/// failure — there is no classical-only fallback.
+pub fn render(cfg: &Config, certs: &[ServerCert]) -> String {
     let certs: Vec<&ServerCert> = {
         let mut sorted: Vec<&ServerCert> = certs.iter().collect();
         sorted.sort_by(|a, b| a.domain.cmp(&b.domain));
@@ -71,11 +73,7 @@ pub fn render(cfg: &Config, certs: &[ServerCert], pq: bool) -> String {
             .join(&cert.path)
             .join("current");
         let default = if index == 0 { " default_server" } else { "" };
-        let curves = if pq {
-            format!("    ssl_ecdh_curve     {PQ_CURVES};\n")
-        } else {
-            String::new()
-        };
+        let curves = format!("    ssl_ecdh_curve     {PQ_CURVES};\n");
         out.push_str(&format!(
             "\nserver {{\n\
              \x20   listen unix:{socket} ssl{default};\n\
@@ -164,7 +162,6 @@ mod tests {
                     path: "wildcard.example.org".to_string(),
                 },
             ],
-            true,
         );
         assert!(body.contains("server_name *.example.org;"));
         assert!(body.contains("server_name b.example.org;"));
@@ -182,7 +179,7 @@ mod tests {
 
     #[test]
     fn listens_on_the_configured_socket_and_tls13_only() {
-        let body = render(&sample_cfg(), &[cert("a.example.org")], true);
+        let body = render(&sample_cfg(), &[cert("a.example.org")]);
         assert!(body.contains(
             "listen unix:/dev/shm/lessv-decoy.sock ssl default_server;"
         ));
@@ -196,19 +193,10 @@ mod tests {
     }
 
     #[test]
-    fn omits_pq_directive_when_the_host_cannot_do_it() {
-        let body = render(&sample_cfg(), &[cert("a.example.org")], false);
-        assert!(!body.contains("ssl_ecdh_curve"));
-        assert!(body.contains("ssl_protocols       TLSv1.3;"));
-        assert!(body.contains("listen unix:/dev/shm/lessv-decoy.sock ssl default_server;"));
-    }
-
-    #[test]
     fn every_block_serves_both_listeners() {
         let body = render(
             &sample_cfg(),
             &[cert("a.example.org"), cert("b.example.org")],
-            true,
         );
         assert_eq!(body.matches("listen 127.0.0.1:8443 ssl;").count(), 2);
         assert_eq!(
@@ -220,7 +208,7 @@ mod tests {
 
     #[test]
     fn empty_manifest_renders_only_the_header() {
-        let body = render(&sample_cfg(), &[], true);
+        let body = render(&sample_cfg(), &[]);
         assert!(!body.contains("server {"));
         assert!(body.starts_with("# Managed by lessv-node"));
     }

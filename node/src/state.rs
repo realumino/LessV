@@ -29,12 +29,6 @@ pub struct State {
     pub cert_synced_at: Option<i64>,
     #[serde(default)]
     pub last_nginx_ok: Option<bool>,
-    /// Informational nginx message that does not mean failure (today: the
-    /// decoy fell back to classical key exchange because the host's TLS
-    /// library lacks the post-quantum group). Repeated in every report so a
-    /// plane reading a later poll still sees the degradation.
-    #[serde(default)]
-    pub last_nginx_note: Option<String>,
     /// The certificate set the decoy config was rendered from.
     ///
     /// WHY remembered: the nginx file is generated from the manifest, and a
@@ -74,7 +68,6 @@ impl Default for State {
             cert_etag: String::new(),
             cert_synced_at: None,
             last_nginx_ok: None,
-            last_nginx_note: None,
             certs: None,
         }
     }

@@ -289,10 +289,7 @@ pub struct CertSyncer<'a> {
 
 impl CertSyncer<'_> {
     /// WHAT: the decoy renderer's output for the certificates state remembers.
-    ///
-    /// WHY both variants: a host without the post-quantum group is served the
-    /// classical file, and both are "current" for that host.
-    fn expected_decoy(&self, certs: &[StoredCert]) -> (String, String) {
+    fn expected_decoy(&self, certs: &[StoredCert]) -> String {
         let entries: Vec<ServerCert> = certs
             .iter()
             .map(|cert| ServerCert {
@@ -300,10 +297,7 @@ impl CertSyncer<'_> {
                 path: cert.path.clone(),
             })
             .collect();
-        (
-            nginx::render(self.cfg, &entries, true),
-            nginx::render(self.cfg, &entries, false),
-        )
+        nginx::render(self.cfg, &entries)
     }
 
     /// WHAT: true when the generated decoy file no longer matches the renderer.
@@ -322,9 +316,9 @@ impl CertSyncer<'_> {
         if certs.is_empty() {
             return false;
         }
-        let (pq, classic) = self.expected_decoy(certs);
+        let expected = self.expected_decoy(certs);
         match fs::read(&self.cfg.nginx_conf_path) {
-            Ok(bytes) => bytes != pq.as_bytes() && bytes != classic.as_bytes(),
+            Ok(bytes) => bytes != expected.as_bytes(),
             Err(_) => true,
         }
     }
@@ -424,19 +418,12 @@ impl CertSyncer<'_> {
             return;
         }
         st.last_nginx_ok = Some(active);
-        // The note describes a healthy nginx that fell back to classical key
-        // exchange; it is only meaningful while nginx is up.
-        let note = if active {
-            st.last_nginx_note.as_deref()
-        } else {
-            None
-        };
         let body = self.cert_report(
             active,
             None,
             active,
             if active {
-                note
+                None
             } else {
                 Some("nginx unit is not active")
             },
@@ -454,7 +441,6 @@ impl CertSyncer<'_> {
 
     fn report_failure(&self, st: &mut State, error: &str) {
         st.last_nginx_ok = Some(false);
-        st.last_nginx_note = None;
         let body = self.cert_report(
             false,
             Some(error),
@@ -505,7 +491,6 @@ impl CertSyncer<'_> {
             previous.push((dir, previous_target));
         }
 
-        let mut nginx_note: Option<String> = None;
         if self.cfg.manage_nginx && !manifest.certs.is_empty() {
             let entries: Vec<ServerCert> = manifest
                 .certs
@@ -515,9 +500,9 @@ impl CertSyncer<'_> {
                     path: cert.path.clone(),
                 })
                 .collect();
-            let pq_body = nginx::render(self.cfg, &entries, true);
+            let body = nginx::render(self.cfg, &entries);
             let previous_config =
-                match nginx::write_config(&self.cfg.nginx_conf_path, &pq_body) {
+                match nginx::write_config(&self.cfg.nginx_conf_path, &body) {
                     Ok(previous) => previous,
                     Err(error) => {
                         self.rollback(&previous);
@@ -525,46 +510,23 @@ impl CertSyncer<'_> {
                         return;
                     }
                 };
-            let (mut ok, mut output) = self.nginx.test();
-            if !ok {
-                // The hybrid group is resolved by the linked TLS library at
-                // config-test time, so an older host rejects the whole file.
-                // Retrying without the directive is the only way to keep the
-                // decoy serving; the degradation is reported, not hidden.
-                let classic = nginx::render(self.cfg, &entries, false);
-                if classic != pq_body {
-                    if let Err(error) =
-                        nginx::write_config(&self.cfg.nginx_conf_path, &classic)
-                    {
-                        self.rollback(&previous);
-                        nginx::restore_config(
-                            &self.cfg.nginx_conf_path,
-                            previous_config.as_deref(),
-                        );
-                        self.report_failure(
-                            st,
-                            &format!("nginx config write failed: {error}"),
-                        );
-                        return;
-                    }
-                    let (classic_ok, classic_output) = self.nginx.test();
-                    if classic_ok {
-                        ok = true;
-                        output = String::new();
-                        nginx_note = Some(format!(
-                            "nginx/OpenSSL does not support {}; serving X25519 only",
-                            nginx::PQ_CURVES
-                        ));
-                    } else {
-                        output = classic_output;
-                    }
-                }
-            }
+            // WHY no retry without the curve directive: post-quantum key
+            // exchange is a requirement. A TLS library older than OpenSSL 3.5
+            // rejects the hybrid group here, and the honest outcome is a
+            // failed apply (previous config restored, failure reported) — not
+            // a silent fall back to classical TLS.
+            let (ok, output) = self.nginx.test();
             if !ok {
                 self.rollback(&previous);
                 nginx::restore_config(&self.cfg.nginx_conf_path, previous_config.as_deref());
                 let _ = self.nginx.test();
-                self.report_failure(st, &format!("nginx -t failed: {output}"));
+                self.report_failure(
+                    st,
+                    &format!(
+                        "nginx -t rejected the decoy (post-quantum {} requires OpenSSL >= 3.5): {output}",
+                        nginx::PQ_CURVES
+                    ),
+                );
                 return;
             }
             match self.nginx.reload_or_start() {
@@ -585,12 +547,11 @@ impl CertSyncer<'_> {
         }
 
         let synced_at = self.now;
-        st.last_nginx_note = nginx_note.clone();
         let body = self.cert_report(
             true,
             None,
             true,
-            nginx_note.as_deref(),
+            None,
             Some(manifest.etag.as_str()),
             Some(synced_at),
         );
@@ -653,10 +614,10 @@ mod tests {
 
     struct FakeNginx {
         test_ok: bool,
-        /// WHAT: when set, the first `test()` rejects the PQ directive and
-        /// every later one passes — the shape of a host whose TLS library
-        /// does not know the hybrid group.
-        pq_rejected: bool,
+        /// WHAT: when set, every `test()` records whether the file it was
+        /// asked about carries the PQ directive.
+        conf_path: Option<PathBuf>,
+        tested_pq: RefCell<Vec<bool>>,
         active: std::cell::Cell<bool>,
         reload_ok: bool,
         /// WHAT: a successful start makes the fake report itself active.
@@ -669,7 +630,8 @@ mod tests {
         fn good() -> Self {
             FakeNginx {
                 test_ok: true,
-                pq_rejected: false,
+                conf_path: None,
+                tested_pq: RefCell::new(Vec::new()),
                 active: std::cell::Cell::new(true),
                 reload_ok: true,
                 heals: true,
@@ -682,14 +644,11 @@ mod tests {
     impl NginxOps for FakeNginx {
         fn test(&self) -> (bool, String) {
             *self.tests.borrow_mut() += 1;
-            if self.pq_rejected && *self.tests.borrow() == 1 {
-                return (
-                    false,
-                    format!(
-                        "SSL_CTX_set1_curves_list(\"{}\") failed",
-                        nginx::PQ_CURVES
-                    ),
-                );
+            if let Some(path) = &self.conf_path {
+                let body = fs::read_to_string(path).unwrap_or_default();
+                self.tested_pq
+                    .borrow_mut()
+                    .push(body.contains("ssl_ecdh_curve"));
             }
             (self.test_ok, if self.test_ok { String::new() } else { "boom".into() })
         }
@@ -777,16 +736,18 @@ mod tests {
         assert_eq!(reports[0]["ok"], json!(true));
         assert_eq!(reports[0]["nginx_error"], json!(null));
         assert!(conf.contains(&format!("ssl_ecdh_curve     {};", nginx::PQ_CURVES)));
-        assert_eq!(state.last_nginx_note, None);
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn pq_rejection_falls_back_to_classical_and_reports_it() {
+    fn a_host_without_pq_fails_the_apply_without_falling_back() {
         let dir = temp_dir();
         let config = cfg(&dir);
+        fs::write(&config.nginx_conf_path, "# previously accepted
+").unwrap();
         let nginx = FakeNginx {
-            pq_rejected: true,
+            test_ok: false,
+            conf_path: Some(config.nginx_conf_path.clone()),
             ..FakeNginx::good()
         };
         let fetched = manifest(&"d".repeat(64), vec![cert("example.org", 'd')]);
@@ -805,18 +766,24 @@ mod tests {
             now: 150,
         };
         syncer.run(&mut state);
-        assert_eq!(state.cert_etag, format!("\"{}\"", "d".repeat(64)));
-        assert_eq!(*nginx.tests.borrow(), 2);
-        let conf = fs::read_to_string(&config.nginx_conf_path).unwrap();
-        assert!(!conf.contains("ssl_ecdh_curve"));
-        assert!(conf.contains("ssl_protocols       TLSv1.3;"));
+        // The only candidate ever tested carried the PQ directive; the second
+        // `nginx -t` re-checks the restored previous file. No classical-only
+        // render was attempted.
+        assert_eq!(*nginx.tested_pq.borrow(), vec![true, false]);
+        assert_eq!(state.cert_etag, "");
+        assert_eq!(*nginx.reloads.borrow(), 0);
+        assert_eq!(
+            fs::read_to_string(&config.nginx_conf_path).unwrap(),
+            "# previously accepted
+"
+        );
         let reports = reports.into_inner();
         assert_eq!(reports.len(), 1);
-        assert_eq!(reports[0]["ok"], json!(true));
-        assert_eq!(reports[0]["nginx_ok"], json!(true));
-        let note = reports[0]["nginx_error"].as_str().unwrap();
-        assert!(note.contains("X25519 only"), "{note}");
-        assert_eq!(state.last_nginx_note.as_deref(), Some(note));
+        assert_eq!(reports[0]["ok"], json!(false));
+        assert_eq!(reports[0]["nginx_ok"], json!(false));
+        let error = reports[0]["error"].as_str().unwrap();
+        assert!(error.contains("post-quantum"), "{error}");
+        assert!(error.contains("boom"), "{error}");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -863,6 +830,7 @@ mod tests {
         assert_eq!(*seen.borrow(), vec![None]);
         let conf = fs::read_to_string(&config.nginx_conf_path).unwrap();
         assert!(conf.contains("listen unix:/dev/shm/lessv-decoy.sock ssl default_server;"));
+        assert!(conf.contains(&format!("ssl_ecdh_curve     {};", nginx::PQ_CURVES)));
         assert_eq!(*nginx.reloads.borrow(), 1);
         assert_eq!(state.cert_etag, format!("\"{fingerprint}\""));
         let _ = fs::remove_dir_all(&dir);
@@ -887,7 +855,7 @@ mod tests {
         }];
         fs::write(
             &config.nginx_conf_path,
-            nginx::render(&config, &entries, true),
+            nginx::render(&config, &entries),
         )
         .unwrap();
         let mut state = State {

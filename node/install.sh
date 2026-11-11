@@ -12,7 +12,7 @@
 # Usage:
 #   ./install.sh --cp <control-plane-url> --node <node-id>
 #   ./install.sh --cp <url> --node <id> --token-file <path>
-#   ./install.sh --version 0.4.0 --cp <url> --node <id>
+#   ./install.sh --version 0.4.1 --cp <url> --node <id>
 #
 # The token is read from a hidden prompt (or a 0600 file) and piped to the
 # binary on stdin; it never appears in argv, the environment, or a log.
@@ -182,23 +182,29 @@ install_base_packages() {
     fi
 }
 
-# WHAT: report whether the installed nginx can negotiate the post-quantum
-# hybrid group.
+# WHAT: classify the installed nginx's TLS library for post-quantum support.
 #
-# WHY a version hint and not the real probe: lessv-node tests the actual
-# directive against the live config and falls back with a reported note. At
-# install time the operator only needs to know whether this host will be
-# post-quantum capable, and `nginx -V` names the TLS library it links.
-nginx_pq_hint() {
+# WHY this is checked at install time and not only at apply time: lessv-node
+# refuses to apply a decoy that cannot offer the hybrid group — it fails the
+# decoy (`nginx -t` rejects `ssl_ecdh_curve`) rather than silently serving
+# classical TLS. Telling the operator now, before the first certificate
+# sync, turns a confusing failure into an actionable one.
+#
+# Prints `ok`, `old`, or `unknown` (LibreSSL/BoringSSL strings).
+nginx_pq_state() {
     line=$(nginx -V 2>&1 | grep -oE '(built|running) with OpenSSL [0-9]+\.[0-9]+' | tail -n 1)
-    [ -n "$line" ] || return 1
+    if [ -z "$line" ]; then
+        echo unknown
+        return 0
+    fi
     ver=${line##* }
     major=${ver%%.*}
     minor=${ver#*.}
-    if [ "$major" -gt 3 ]; then
-        return 0
+    if [ "$major" -gt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -ge 5 ]; }; then
+        echo ok
+    else
+        echo old
     fi
-    [ "$major" -eq 3 ] && [ "$minor" -ge 5 ]
 }
 
 install_nginx() {
@@ -237,11 +243,18 @@ install_nginx() {
     if ! nginx -t >/dev/null 2>&1; then
         echo "warning: nginx -t fails before the first certificate sync; lessv-node will write the decoy config and reload" >&2
     fi
-    if ! nginx_pq_hint; then
-        echo "warning: this nginx links an OpenSSL older than 3.5, so the decoy cannot negotiate" >&2
-        echo "         X25519MLKEM768 (post-quantum). It will serve X25519 and report the fallback." >&2
-        echo "         Debian 13+, Ubuntu 25.04+, and Alpine 3.22+ ship a capable OpenSSL." >&2
-    fi
+    case "$(nginx_pq_state)" in
+        ok) ;;
+        old)
+            die "nginx links an OpenSSL older than 3.5, so the decoy cannot negotiate
+X25519MLKEM768 (post-quantum). Post-quantum TLS is required — lessv-node will
+not fall back to classical key exchange. Use Debian 13+, Ubuntu 25.04+, or
+Alpine 3.22+ (or an nginx built against OpenSSL >= 3.5)."
+            ;;
+        *)
+            echo "warning: cannot determine the nginx TLS library; if it lacks X25519MLKEM768 the node will report a failed decoy apply" >&2
+            ;;
+    esac
     # The decoy listens on a Unix socket under /dev/shm and Xray relays
     # REALITY handshakes to it; both services run as root here.
     case "$INIT" in
