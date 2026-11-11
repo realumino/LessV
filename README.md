@@ -112,7 +112,7 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
    case "$(uname -m)" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; esac
    curl -fsSLO $BASE/lessv-node-$VERSION-linux-$ARCH.tar.gz
    curl -fsSLO $BASE/SHA256SUMS
-   sha256sum -c --ignore-missing SHA256SUMS
+   grep " lessv-node-$VERSION-linux-$ARCH.tar.gz\$" SHA256SUMS | sha256sum -c -
    tar -xzf lessv-node-$VERSION-linux-$ARCH.tar.gz
    cd lessv-node-$VERSION-linux-$ARCH
    read -rs -p 'Node token: ' TOKEN; printf '%s\n' "$TOKEN" | ./install.sh --cp $CP --node $NODE
@@ -127,7 +127,9 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
    默认 nginx site；写 `/etc/lessv/node.toml`（0600）并 enroll；enable +
    start。重复执行即原位升级：已有 node.toml 时复用 token，不要求重新粘贴。
    （维护者构建：`npm run release:node -- --targets amd64,arm64`，Linux 或
-   配好 musl 交叉工具链的主机；`--upload` 需要 `GITEE_TOKEN`。）
+   配好 musl 交叉工具链的主机；`GITEE_TOKEN=<私人令牌> npm run release:node
+   -- --targets amd64 --upload` 会创建/复用 tag `node-v<版本>` 的发行版并
+   上传 tarball、`install.sh`、`VERSION`、`SHA256SUMS`。）
 3. **写一份 REALITY 配置**：节点页用 **REALITY preset** 按钮生成自偷结构
    （`dest=127.0.0.1:8443`、`serverNames=[节点域名]`、随机 8 位 `shortId`、
    chrome fingerprint、vision flow；outbounds 恒为 `BLOCK` + `direct`），
