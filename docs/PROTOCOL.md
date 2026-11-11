@@ -81,6 +81,7 @@ Request (every field but `protocol` is optional; a missing field means
   "xray_running": true,
   "xray_pid": 4242,
   "agent_uptime": 3600,
+  "agent_version": "0.6.0",
   "xray_version": "26.11.9",
   "geodata_version": "20261110230135",
   "last_error": null
@@ -93,10 +94,11 @@ Response: `{ "desired_hash": <hex|null>, "actions": [...] }`.
   changes (it is the node's local truth), and never writes `health` or
   `last_error` from a heartbeat. ALWAYS send `applied_hash`: omitting it
   sends `null` and clears the column. The node always sends it.
-- `xray_version` and `geodata_version` are the facts the node currently
-  runs; a missing field means "nothing to report" and preserves the stored
-  value. The plane shows them in the fleet view and stores a successful
-  update's version without waiting for the next heartbeat.
+- `agent_version`, `xray_version`, and `geodata_version` are the facts the
+  node currently runs; a missing field means "nothing to report" and
+  preserves the stored value. The plane shows them in the fleet view and
+  stores a successful update's version without waiting for the next
+  heartbeat.
 - The request's `last_error` is accepted for forward compatibility but not
   stored; the plane keeps the error from the last report.
 - `actions` carries every maintenance request the admin confirmed that is

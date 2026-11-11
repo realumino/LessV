@@ -109,6 +109,18 @@ for (const target of targets) {
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
 
+/**
+ * WHAT: copy a shell/unit artifact with LF endings, whatever the build host.
+ *
+ * WHY: the tarball is assembled on Windows too, and an editor that saved the
+ * init script with CRLF turns its `#!` line into an unknown interpreter —
+ * OpenRC then answers "Failed executing '/etc/init.d/xray'". The release
+ * script is the last place that can guarantee a POSIX file.
+ */
+function copyPosixText(source, dest) {
+  writeFileSync(dest, readFileSync(source, "utf8").replaceAll("\r\n", "\n"));
+}
+
 const installScript = join(NODE_DIR, "install.sh");
 const bundled = [
   ["install.sh", installScript, 0o755],
@@ -142,7 +154,7 @@ for (const target of targets) {
   copyFileSync(binary, join(root, "lessv-node"));
   writeFileSync(join(root, "VERSION"), `${version}\n`);
   for (const [relative, source] of bundled) {
-    copyFileSync(source, join(root, relative));
+    copyPosixText(source, join(root, relative));
   }
   // The installer and the unit files must be executable/served as-is; the
   // tarball carries them at 0755/0644 exactly like the committed tree.
@@ -185,7 +197,7 @@ for (const target of targets) {
 // Standalone installer + version file, so a host can bootstrap without
 // knowing the release name: install.sh reads VERSION, then downloads the
 // matching tarball and verifies it against SHA256SUMS.
-copyFileSync(installScript, join(DIST, "install.sh"));
+copyPosixText(installScript, join(DIST, "install.sh"));
 writeFileSync(join(DIST, "VERSION"), `${version}\n`);
 const sums = [
   ...artifacts.map((artifact) => `${artifact.sha}  ${artifact.name}`),

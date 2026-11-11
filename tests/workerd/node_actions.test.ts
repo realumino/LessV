@@ -121,6 +121,24 @@ describe("node maintenance actions", () => {
     expect((await heartbeat()).actions).toEqual([]);
   });
 
+  it("adopts the versions a heartbeat reports", async () => {
+    await heartbeat({
+      agent_version: "0.6.0",
+      xray_version: "26.11.9",
+      geodata_version: "20261110230135",
+    });
+    const state = await sync();
+    expect(state.agent_version).toBe("0.6.0");
+    expect(state.xray_version).toBe("26.11.9");
+    expect(state.geodata_version).toBe("20261110230135");
+
+    // A missing field is "no report", not "forget it".
+    await heartbeat({ applied_hash: state.applied_hash });
+    const again = await sync();
+    expect(again.agent_version).toBe("0.6.0");
+    expect(again.geodata_version).toBe("20261110230135");
+  });
+
   it("runs the same lifecycle for a geodata refresh", async () => {
     const requested = await planeJson(
       "POST",

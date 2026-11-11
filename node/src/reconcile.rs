@@ -152,6 +152,7 @@ impl Runner<'_> {
             "xray_running": running,
             "xray_pid": pid,
             "agent_uptime": (now_unix() - start_time).max(0),
+            "agent_version": crate::http::VERSION,
             "xray_version": if xray_version.is_empty() { None } else { Some(xray_version) },
             "geodata_version": state.geodata_version,
             "last_error": state.last_error,

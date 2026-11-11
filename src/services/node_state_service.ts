@@ -64,7 +64,7 @@ export function heartbeatValues(
   return {
     last_seen: at,
     health: node.health,
-    agent_version: node.agent_version,
+    agent_version: payload.agent_version ?? node.agent_version,
     xray_version: payload.xray_version ?? node.xray_version,
     geodata_version: payload.geodata_version ?? node.geodata_version,
     last_error: node.last_error,

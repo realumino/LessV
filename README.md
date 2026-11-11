@@ -301,7 +301,7 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
   机器仍需单独下线。
 - `agent_version`/`xray_version`/`geodata_version` 由每次心跳上报，面板显示
   当前事实；`install.sh` 原位升级仍然复用 token、不重新 enroll，节点重启后
-  心跳会自动刷新 `xray_version`。
+  心跳会自动刷新这三个版本。
 - nginx 假站点配置由 lessv-node 按证书清单生成；面板不渲染、不托管它的
   内容（只有证书域名的 server_name 与路径来自清单）。decoy 只监听
   `/dev/shm/lessv-decoy.sock`（默认，REALITY 的 dest），80 端口只做 302，

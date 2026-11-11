@@ -392,6 +392,7 @@ export const HeartbeatIn = z.object({
   xray_running: z.boolean().default(false),
   xray_pid: z.int().nullable().default(null),
   agent_uptime: z.int().nullable().default(null),
+  agent_version: z.string().nullable().default(null),
   xray_version: z.string().nullable().default(null),
   geodata_version: z.string().nullable().default(null),
   last_error: z.string().nullable().default(null),
