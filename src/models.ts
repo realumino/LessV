@@ -392,6 +392,8 @@ export const HeartbeatIn = z.object({
   xray_running: z.boolean().default(false),
   xray_pid: z.int().nullable().default(null),
   agent_uptime: z.int().nullable().default(null),
+  xray_version: z.string().nullable().default(null),
+  geodata_version: z.string().nullable().default(null),
   last_error: z.string().nullable().default(null),
 });
 export type HeartbeatIn = z.infer<typeof HeartbeatIn>;
@@ -439,6 +441,77 @@ export const StatsIn = z.object({
     }),
 });
 export type StatsIn = z.infer<typeof StatsIn>;
+
+/** WHAT: request body for POST /api/node/action (PROTOCOL.md, protocol 3). */
+export const ActionReportIn = z.object({
+  protocol: z.int(),
+  action: z.enum(["update_xray", "update_geodata"]),
+  ok: z.boolean(),
+  version: z.string().nullable().default(null),
+  error: z.string().nullable().default(null),
+});
+export type ActionReportIn = z.infer<typeof ActionReportIn>;
+
+/**
+ * WHAT: request body for POST /api/admin/nodes/{node_id}/xray-update.
+ *
+ * WHY `latest` is a value and not "the plane resolves a version": the node
+ * downloads the archive, so it is the only party that can resolve the GitHub
+ * release tag and then verify the bytes it actually received.
+ */
+export const XrayUpdateIn = z.object({
+  version: z
+    .string()
+    .trim()
+    .refine((value) => value === "latest" || /^v?\d+\.\d+\.\d+$/.test(value), {
+      message: 'version must be "latest" or a release tag like v26.11.9',
+    })
+    .default("latest"),
+});
+export type XrayUpdateIn = z.infer<typeof XrayUpdateIn>;
+
+/** WHAT: one node maintenance action as the sync view returns it. */
+export const NodeActionOut = z.object({
+  action: z.enum(["update_xray", "update_geodata"]),
+  state: z.enum(["pending", "ok", "failed"]),
+  target: z.string().nullable(),
+  message: z.string().nullable(),
+  requested_at: z.int(),
+  finished_at: z.int().nullable(),
+});
+export type NodeActionOut = z.infer<typeof NodeActionOut>;
+
+/** WHAT: response for GET /api/admin/nodes/{node_id}/presets. */
+export const PresetFieldOut = z.object({
+  name: z.string(),
+  label: z.string(),
+  placeholder: z.string().default(""),
+  hint: z.string().default(""),
+});
+export type PresetFieldOut = z.infer<typeof PresetFieldOut>;
+
+export const PresetOut = z.object({
+  id: z.enum(["reality", "warp", "geo_block"]),
+  label: z.string(),
+  summary: z.string(),
+  fields: z.array(PresetFieldOut),
+  defaults: z.record(z.string(), z.string()),
+});
+export type PresetOut = z.infer<typeof PresetOut>;
+
+/**
+ * WHAT: request body for POST /api/admin/nodes/{node_id}/presets/{preset_id}.
+ *
+ * WHY the document travels in the request: a preset is a merge, not a
+ * save. The admin may be holding unsaved edits in the editor; the merged
+ * document comes back for review and is stored only by the ordinary config
+ * PUT the admin presses afterwards.
+ */
+export const PresetBuildIn = z.object({
+  config: z.record(z.string(), z.unknown()).nullable().default(null),
+  options: z.record(z.string(), z.string()).default(() => ({})),
+});
+export type PresetBuildIn = z.infer<typeof PresetBuildIn>;
 
 /**
  * WHAT: the error a router throws for a non-2xx `{detail}` response.
@@ -523,8 +596,10 @@ export const NodeSyncOut = z.object({
   health: z.string().nullable(),
   agent_version: z.string().nullable(),
   xray_version: z.string().nullable(),
+  geodata_version: z.string().nullable().default(null),
   last_error: z.string().nullable(),
   warnings: z.array(z.string()),
+  actions: z.array(NodeActionOut).default([]),
   // Agent-reported certificate/nginx status, NULL until reported.
   nginx_ok: z.int().nullable().default(null),
   nginx_error: z.string().nullable().default(null),

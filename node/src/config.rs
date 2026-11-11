@@ -19,6 +19,7 @@ pub const DEFAULT_CERT_DIR: &str = "/etc/lessv/certs";
 pub const DEFAULT_DECOY_ROOT: &str = "/var/www/lessv-decoy";
 pub const DEFAULT_NGINX_CONF: &str = "/etc/nginx/conf.d/lessv-decoy.conf";
 pub const DEFAULT_DECOY_SOCKET: &str = "/dev/shm/lessv-decoy.sock";
+pub const DEFAULT_GEODATA_DIR: &str = "/var/lib/lessv/assets";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
@@ -40,6 +41,9 @@ pub struct Config {
     pub nginx_root: PathBuf,
     /// Unix socket the decoy listens on; REALITY's `dest` points here.
     pub nginx_socket: PathBuf,
+    /// Directory Xray reads `geoip.dat`/`geosite.dat` from (the unit exports
+    /// `XRAY_LOCATION_ASSET` with this path).
+    pub geodata_dir: PathBuf,
     pub cert_group: String,
     pub state_path: PathBuf,
 }
@@ -63,6 +67,7 @@ impl Default for Config {
             nginx_conf_path: PathBuf::from(DEFAULT_NGINX_CONF),
             nginx_root: PathBuf::from(DEFAULT_DECOY_ROOT),
             nginx_socket: PathBuf::from(DEFAULT_DECOY_SOCKET),
+            geodata_dir: PathBuf::from(DEFAULT_GEODATA_DIR),
             cert_group: String::new(),
             state_path: PathBuf::from(DEFAULT_STATE_PATH),
         }
@@ -171,6 +176,7 @@ pub fn parse(text: &str, path: &Path) -> Result<Config, ConfigError> {
             "nginx_conf_path" => cfg.nginx_conf_path = PathBuf::from(as_string(value)?),
             "nginx_root" => cfg.nginx_root = PathBuf::from(as_string(value)?),
             "nginx_socket" => cfg.nginx_socket = PathBuf::from(as_string(value)?),
+            "geodata_dir" => cfg.geodata_dir = PathBuf::from(as_string(value)?),
             "cert_group" => cfg.cert_group = as_string(value)?,
             "state_path" => cfg.state_path = PathBuf::from(as_string(value)?),
             "manage_nginx" => {
@@ -255,6 +261,7 @@ pub fn validate(mut cfg: Config, path: &Path) -> Result<Config, ConfigError> {
         ("nginx_conf_path", &cfg.nginx_conf_path),
         ("nginx_root", &cfg.nginx_root),
         ("nginx_socket", &cfg.nginx_socket),
+        ("geodata_dir", &cfg.geodata_dir),
         ("state_path", &cfg.state_path),
     ] {
         if !path_value.is_absolute() {
@@ -308,6 +315,7 @@ pub fn to_toml(cfg: &Config) -> String {
         ("nginx_conf_path", &cfg.nginx_conf_path.to_string_lossy()),
         ("nginx_root", &cfg.nginx_root.to_string_lossy()),
         ("nginx_socket", &cfg.nginx_socket.to_string_lossy()),
+        ("geodata_dir", &cfg.geodata_dir.to_string_lossy()),
         ("cert_group", cfg.cert_group.as_str()),
         ("state_path", &cfg.state_path.to_string_lossy()),
     ] {
@@ -353,8 +361,10 @@ mod tests {
         cfg.cert_group = "www-data".to_string();
         cfg.manage_nginx = false;
         cfg.restart_mode = "openrc".to_string();
+        cfg.geodata_dir = PathBuf::from("/srv/lessv-assets");
         save(&path, &cfg).unwrap();
         let loaded = load(Some(&path)).unwrap();
+        assert_eq!(loaded.geodata_dir, PathBuf::from("/srv/lessv-assets"));
         assert_eq!(loaded.cert_group, "www-data");
         assert!(!loaded.manage_nginx);
         assert_eq!(loaded.restart_mode, "openrc");

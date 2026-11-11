@@ -12,6 +12,7 @@ import { Hono } from "hono";
 
 import * as db from "../db";
 import {
+  ActionReportIn,
   ApiError,
   EnrollIn,
   HeartbeatIn,
@@ -32,9 +33,11 @@ import * as certService from "../cert/service";
  * agent's zero-code-change guarantee against the plane depends on it not
  * drifting silently. Bumping it means editing this module, the agent, and
  * docs/PROTOCOL.md together. Protocol 2: the certificate endpoint,
- * the cert stage report, and the renamed node-identity header.
+ * the cert stage report, and the renamed node-identity header. Protocol 3:
+ * structured maintenance actions, version reporting on the heartbeat, and
+ * the action-result endpoint.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export const nodeApi = new Hono<{ Bindings: Env }>();
 
@@ -110,6 +113,7 @@ nodeApi.post("/api/node/enroll", async (c) => {
     health: node.health,
     agent_version: payload.agent_version || node.agent_version,
     xray_version: payload.xray_version || node.xray_version,
+    geodata_version: node.geodata_version,
     last_error: node.last_error,
     applied_hash: node.applied_hash,
   });
@@ -125,7 +129,8 @@ nodeApi.post("/api/node/enroll", async (c) => {
 });
 
 /**
- * WHAT: the 30s poll — compare hashes cheaply, write liveness rarely.
+ * WHAT: the 30s poll — compare hashes cheaply, write liveness rarely, and
+ * carry any maintenance action the admin requested.
  *
  * WHY the write is conditional: heartbeats are the hottest endpoint in the
  * system and almost always carry no news — persisting every one would be
@@ -141,7 +146,39 @@ nodeApi.post("/api/node/heartbeat", async (c) => {
   if (nodeStateService.shouldTouch(node, values, at)) {
     await nodeStateService.touchFromValues(c.env.DB, node.id, values);
   }
-  return c.json({ desired_hash: wanted, actions: [] });
+  const actions = nodeStateService.pendingActions(
+    await db.listNodeActions(c.env.DB, node.id),
+  );
+  return c.json({ desired_hash: wanted, actions });
+});
+
+/**
+ * WHAT: record the outcome of one maintenance action the plane requested.
+ *
+ * WHY its own endpoint and not a `report` stage: an action result carries no
+ * config hash and must never move `health`/`applied_hash` — it changes the
+ * installed versions and the action row only. Idempotent: a report for a row
+ * that no longer exists is accepted and changes nothing.
+ */
+nodeApi.post("/api/node/action", async (c) => {
+  const node = await requireNode(c.env, c.req.raw);
+  const payload = await parseJsonBody(c.req.raw, ActionReportIn);
+  assertProtocol(payload);
+  const at = nodeStateService.now();
+  await nodeStateService.touchFromValues(
+    c.env.DB,
+    node.id,
+    nodeStateService.actionReportValues(node, payload, at),
+  );
+  await db.finishNodeAction(
+    c.env.DB,
+    node.id,
+    payload.action,
+    payload.ok ? "ok" : "failed",
+    payload.ok ? null : payload.error,
+    at,
+  );
+  return c.json({});
 });
 
 /**

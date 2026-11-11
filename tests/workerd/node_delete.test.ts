@@ -145,6 +145,11 @@ describe("deleting a node", () => {
     expect(await scopedRows("node_inbounds", nodeId)).toBe(1);
     expect(await scopedRows("node_outbounds", nodeId)).toBe(2);
     expect(await scopedRows("node_cert_domains", nodeId)).toBe(1);
+    // A pending maintenance action is node state too.
+    expect(
+      (await planeJson("POST", `/api/admin/nodes/${nodeId}/geodata-update`)).status,
+    ).toBe(201);
+    expect(await scopedRows("node_actions", nodeId)).toBe(1);
 
     const deleted = await planeJson("DELETE", `/api/admin/nodes/${nodeId}`);
     expect(deleted.status, await deleted.clone().text()).toBe(204);
@@ -165,6 +170,7 @@ describe("deleting a node", () => {
       "node_inbounds",
       "node_outbounds",
       "node_cert_domains",
+      "node_actions",
     ]) {
       expect(await scopedRows(table, nodeId), table).toBe(0);
     }
@@ -183,7 +189,7 @@ describe("deleting a node", () => {
         Authorization: `Bearer ${token}`,
         "X-Lessv-Node": nodeId,
       },
-      body: JSON.stringify({ protocol: 2 }),
+      body: JSON.stringify({ protocol: 3 }),
     });
     expect(heartbeat.status).toBe(401);
 

@@ -6,6 +6,7 @@
 //! last apply means stop; anything else means fetch-and-apply. The plane
 //! being down costs staleness and nothing else.
 
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -15,10 +16,12 @@ use serde_json::json;
 use crate::apply;
 use crate::certs::{CertSyncer, SystemNginx};
 use crate::config::Config;
-use crate::http::{bound_error, HttpError, NodeClient};
+use crate::geodata;
+use crate::http::{bound_error, Action, HttpError, NodeClient};
 use crate::state::{self, State};
 use crate::stats;
 use crate::supervisor::Supervisor;
+use crate::update;
 use crate::util::{now_unix, random_bytes};
 use crate::xray;
 use crate::{log_error, log_info, log_warn};
@@ -59,6 +62,10 @@ pub struct Runner<'a> {
     pub supervisor: &'a Supervisor,
     pub state_path: PathBuf,
     pub stop: &'a AtomicBool,
+    /// The version of the binary this process runs, refreshed after an
+    /// update. A `RefCell` (the loop is single-threaded) keeps the reported
+    /// fact current without spawning `xray version` on every 30s poll.
+    pub xray_version: RefCell<String>,
 }
 
 impl Runner<'_> {
@@ -138,19 +145,30 @@ impl Runner<'_> {
             }
         }
         let (running, pid) = self.supervisor.status(self.service());
+        let xray_version = self.xray_version.borrow().clone();
         let heartbeat = json!({
             "applied_hash": state.applied_hash,
             "applied_at": state.applied_at,
             "xray_running": running,
             "xray_pid": pid,
             "agent_uptime": (now_unix() - start_time).max(0),
+            "xray_version": if xray_version.is_empty() { None } else { Some(xray_version) },
+            "geodata_version": state.geodata_version,
             "last_error": state.last_error,
         });
         let (desired, actions) = self.client.heartbeat(&heartbeat)?;
 
-        if actions.iter().any(|action| action == "restart_xray") {
-            self.handle_restart_action(state);
+        for action in actions {
+            match action {
+                Action::RestartXray => self.handle_restart_action(state),
+                Action::UpdateXray(version) => self.handle_xray_update(state, &version),
+                Action::UpdateGeodata => self.handle_geodata_update(state),
+                Action::Unknown(name) => {
+                    log_warn(&format!("plane asked for unknown action {name:?}; ignored"))
+                }
+            }
         }
+        self.auto_geodata(state);
 
         if needs_apply(state, desired.as_deref()) {
             let hash = desired.unwrap_or_default();
@@ -228,6 +246,154 @@ impl Runner<'_> {
             log_warn(&format!(
                 "report failed (will re-sync next heartbeat): {error}"
             ));
+        }
+    }
+
+    /// WHAT: ask the service for the live Xray version.
+    fn current_xray_version(&self) -> String {
+        xray::binary_path(&self.cfg.xray_binary)
+            .ok()
+            .and_then(|path| xray::version_number(&path))
+            .unwrap_or_default()
+    }
+
+    /// WHAT: report one action's outcome; a failed report is only a warning.
+    ///
+    /// WHY not retried here: the action stays pending on the plane, so the
+    /// next heartbeat re-advertises it. The node's own state (installed
+    /// version, geodata tag) makes that repetition a no-op when it already
+    /// succeeded.
+    fn report_action(
+        &self,
+        action: &str,
+        ok: bool,
+        version: Option<&str>,
+        error: Option<&str>,
+    ) {
+        let body = json!({
+            "action": action,
+            "ok": ok,
+            "version": version,
+            "error": error.map(bound_error),
+        });
+        if let Err(failure) = self.client.action_report(&body) {
+            log_warn(&format!(
+                "action {action} result not reported (will repeat next heartbeat): {failure}"
+            ));
+        }
+    }
+
+    /// WHAT: execute one admin-confirmed Xray binary update.
+    ///
+    /// WHY it re-reports instead of skipping when the binary already matches:
+    /// the plane only clears the action on a report, and comparing versions
+    /// first turns a repeated advertisement into a cheap round trip instead
+    /// of a fresh download.
+    fn handle_xray_update(&self, state: &mut State, requested: &str) {
+        let agent = update::download_agent();
+        let tag = match update::resolve_target(&agent, requested) {
+            Ok(tag) => tag,
+            Err(error) => {
+                log_error(&format!("xray update: {error}"));
+                self.report_action("update_xray", false, None, Some(&error));
+                return;
+            }
+        };
+        let current = self.current_xray_version();
+        if update::version_matches(&current, &tag) {
+            log_info(&format!("xray update: already on {current}"));
+            *self.xray_version.borrow_mut() = current.clone();
+            self.report_action("update_xray", true, Some(&current), None);
+            return;
+        }
+        let target = match xray::binary_path(&self.cfg.xray_binary) {
+            Ok(path) => path,
+            Err(error) => {
+                log_error(&format!("xray update: {error}"));
+                self.report_action("update_xray", false, None, Some(&error));
+                return;
+            }
+        };
+        let supervisor = self.supervisor;
+        let service = self.service().to_string();
+        let live = apply::live_path(self.cfg);
+        log_info(&format!(
+            "xray update: installing {} over {}",
+            update::version_number(&tag),
+            current
+        ));
+        let result = update::install_tag(
+            &agent,
+            &target,
+            &tag,
+            &live,
+            |binary, config| {
+                xray::test_config(&binary.to_string_lossy(), &config.to_string_lossy())
+            },
+            || supervisor.restart(&service),
+            || supervisor.status(&service).0,
+        );
+        match result {
+            Ok(version) => {
+                log_info(&format!("xray update: now running {version}"));
+                *self.xray_version.borrow_mut() = version.clone();
+                state.last_error = None;
+                self.report_action("update_xray", true, Some(&version), None);
+            }
+            Err(error) => {
+                log_error(&format!("xray update failed: {error}"));
+                state.last_error = Some(bound_error(&format!("xray update: {error}")));
+                self.report_action("update_xray", false, None, Some(&error));
+            }
+        }
+    }
+
+    /// WHAT: fetch and install the latest geodata release.
+    ///
+    /// WHY the caller reports: an admin-triggered action has a plane row to
+    /// finish; the weekly automatic refresh has none.
+    fn update_geodata(&self, state: &mut State) -> Result<String, String> {
+        let agent = update::download_agent();
+        let supervisor = self.supervisor;
+        let service = self.service().to_string();
+        let result = geodata::sync(
+            &agent,
+            self.cfg,
+            || supervisor.restart(&service),
+            || supervisor.status(&service).0,
+        );
+        match result {
+            Ok(tag) => {
+                log_info(&format!("geodata: installed release {tag}"));
+                state.geodata_version = Some(tag.clone());
+                state.geodata_synced_at = Some(now_unix());
+                state.geodata_retry_at = None;
+                Ok(tag)
+            }
+            Err(error) => {
+                log_error(&format!("geodata update failed: {error}"));
+                state.geodata_retry_at = Some(now_unix() + geodata::RETRY_SECS);
+                Err(error)
+            }
+        }
+    }
+
+    /// WHAT: honor an admin `update_geodata` request (always refetches).
+    fn handle_geodata_update(&self, state: &mut State) {
+        match self.update_geodata(state) {
+            Ok(tag) => self.report_action("update_geodata", true, Some(&tag), None),
+            Err(error) => self.report_action("update_geodata", false, None, Some(&error)),
+        }
+    }
+
+    /// WHAT: the weekly geodata refresh (and the one-time bootstrap).
+    fn auto_geodata(&self, state: &mut State) {
+        let uses = geodata::config_uses_geodata(&apply::live_path(self.cfg));
+        if !geodata::due(state, uses, now_unix()) {
+            return;
+        }
+        if let Err(error) = self.update_geodata(state) {
+            log_warn(&format!("automatic geodata refresh skipped: {error}"));
         }
     }
 
@@ -343,12 +509,17 @@ pub fn run(cfg: &Config, state_path: PathBuf, stop: &AtomicBool, verbose: bool) 
         supervisor.init.as_str()
     ));
     let client = NodeClient::new(cfg);
+    let xray_version = xray::binary_path(&cfg.xray_binary)
+        .ok()
+        .and_then(|path| xray::version_number(&path))
+        .unwrap_or_default();
     let runner = Runner {
         cfg,
         client: &client,
         supervisor: &supervisor,
         state_path,
         stop,
+        xray_version: RefCell::new(xray_version),
     };
     let mut state = state::load(&runner.state_path);
     runner.startup(&mut state);

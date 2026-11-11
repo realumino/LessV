@@ -10,8 +10,9 @@ and nodes that pull their certificates from the plane.
 ```
 Internet ── :443 ──► Xray (REALITY, stream proxy)
                         │ realitySettings.dest = /dev/shm/lessv-decoy.sock
+                        │ geoip:/geosite: ← /var/lib/lessv/assets/*.dat
                         ▼
-                     nginx (TLS, decoy site; also on 127.0.0.1:8443)
+                     nginx (TLS, decoy site; Unix socket only, :80 = 301)
                         │ ssl_certificate = /etc/lessv/certs/<path>/current/fullchain.pem
                         ▼
                      certificate files ← lessv-node sync ← GET /api/node/certs
@@ -19,30 +20,79 @@ Internet ── :443 ──► Xray (REALITY, stream proxy)
 
 - 443 belongs to Xray. Never configure nginx to listen on 443.
 - The stolen origin is local by construction: Xray and nginx share the host,
-  so the handshake relay never leaves the kernel. `127.0.0.1:8443` remains as
-  a compatibility listener for configs authored before the socket default;
-  new configs should point `dest` at the socket.
+  so the handshake relay never leaves the kernel. The decoy listens on the
+  socket only (no TCP listener) and :80 answers a 301.
 - Certificates belong to nginx (the self-stealed origin); Xray has none.
+- GeoIP/GeoSite data belongs to lessv-node (`geodata_dir`, default
+  `/var/lib/lessv/assets`; the Xray unit exports `XRAY_LOCATION_ASSET`).
 
-## What the REALITY preset generates
+## Presets and the base document (plane)
 
-The panel's REALITY preset button authors one inbound plus two outbounds:
+A preset is a fragment the plane merges into the document the admin holds;
+it never saves. `GET /api/admin/nodes/{id}/presets` returns the base skeleton
+and the catalog, `POST /api/admin/nodes/{id}/presets/{id}` with
+`{"config": <document|null>, "options": {...}}` returns the merged document
+for review, and the ordinary `PUT .../config` stores it when the admin
+presses Save config.
 
-- inbound `reality` (VLESS + REALITY, `dest=/dev/shm/lessv-decoy.sock`).
+- **Base config** — the skeleton a new node starts from:
+  `inbounds: []`, `outbounds: [{tag: "BLOCK", protocol: "blackhole"}]`,
+  `routing: {rules: []}`, `log: {loglevel: "warning"}`.
+- **REALITY inbound** — one VLESS + REALITY inbound on 443,
+  `dest=/dev/shm/lessv-decoy.sock`, `serverNames=[domain]`, a fresh
+  even-length-hex `shortId`, chrome fingerprint, vision flow.
   `privateKey` stays empty; the plane injects/stores keys per inbound at
   render time (`ensureKeys`), so the private key never appears in the
-  frontend. The socket path is the same contract as the generated decoy
-  config (`nginx_socket` in `/etc/lessv/node.toml`, default
-  `/dev/shm/lessv-decoy.sock`).
-- outbounds `BLOCK` (blackhole) first, then `direct` (freedom). The plane
-  guarantees `BLOCK` stays the first outbound and excludes it from routing
-  allocation — it is the default route, not an exit. Every other outbound
-  is rendered per node as `<node>-<tag>` (e.g. `tokyo01-direct`).
-- On the user authorization page select `direct` (and any exits the admin
-  added by editing the JSON). `BLOCK` is never offered: it is the fallback
-  route for unmatched traffic, and the plane now rejects an access payload
-  that names it (422). Every registered endpoint shows up on the node's
-  Links tab, where its name can be changed and extra link variants added.
+  frontend. Fields (tag, domain, socket, shortId, flow) default from the
+  node's configured domain and the decoy socket.
+- **WARP outbound** — the plane registers a free Cloudflare WARP device
+  (`POST https://api.cloudflareclient.com/v0a2158/reg`, the exchange wgcf
+  performs), derives the reserved bytes from the device's `client_id`, and
+  returns a `wireguard` outbound with `noKernelTun: true` (the built-in
+  stack needs no `/dev/net/tun`). Every build creates a new device.
+- **Geo block routing** — appends `geoip:<code>` and/or `geosite:<category>`
+  rules that send matches to `BLOCK` (or another chosen tag). Two rules,
+  because Xray ANDs matchers inside one rule. Needs the geodata files below.
+
+Merge rules: array items are keyed by `tag` (replace in place, append when
+new), arrays of scalars replace, arrays of objects without a tag append
+unless an identical element is already present, objects merge recursively.
+
+`BLOCK` is the first outbound: it is the default route for unmatched
+traffic, never assignable to a user, and excluded from routing allocation.
+Every other outbound is rendered per node as `<node>-<tag>` (e.g.
+`tokyo01-direct`). On the user authorization page select the exits the admin
+added; every registered endpoint shows up on the node's Links tab, where its
+name can be changed and extra link variants added.
+
+## Xray binary and geodata updates
+
+The admin confirms both on the node page (**Maintenance**); the plane records
+a `node_actions` row and the node executes it on its next heartbeat, then
+reports through `POST /api/node/action`. Neither action is automatic except
+the weekly geodata refresh.
+
+- **Xray binary**: the node resolves the requested tag (`latest` by default)
+  through the GitHub API, downloads `Xray-linux-*.zip` plus the vendor
+  `.dgst`, verifies the SHA-256, extracts the binary itself (no `unzip`
+  runtime dependency), runs `version` and a full `run -test` against the live
+  config, copies the current binary to `xray.lessv-backup`, swaps the new
+  one in, restarts the service and verifies it stays up. Any failure leaves
+  or restores the previous binary. A repeated request for the version it
+  already runs is answered without downloading anything.
+- **Geodata**: the node installs `geoip-full.dat` and `geosite.dat` from
+  `XTLS/Xray-rules-dat` (latest release, SHA-256 sidecars verified,
+  decompressed in-process) into `geodata_dir`, restarts Xray, and restores
+  the previous pair if it does not stay up. The full GeoIP edition carries
+  per-country sets; the lite edition would only know the regional
+  whitelists.
+  - First run: the node installs the data once regardless of its config.
+  - Then: every 7 days while the live config references `geoip:`/`geosite:`,
+    and on every admin request. A failed refresh is retried after 24 hours.
+
+Both actions are visible in `GET /api/admin/nodes/{id}/sync` under `actions`
+(`pending`/`ok`/`failed`, target, message, timestamps); a failure stays
+visible until the admin requests the action again.
 
 ## Certificate lifecycle (plane)
 
@@ -116,6 +166,9 @@ first place to look.
   retries.
 - The node also writes the decoy nginx configuration (next section) and
   restarts nginx when it is found stopped, on every poll.
+- GeoIP/GeoSite data lives in `/var/lib/lessv/assets/geoip.dat` and
+  `geosite.dat` (see the update section above); a stale `.prev` sibling is
+  the last rollback copy.
 
 ## nginx decoy configuration (generated by lessv-node)
 

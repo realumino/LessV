@@ -116,7 +116,7 @@ describe("the D1 data layer", () => {
     const nodeId = uid("n");
     await makeNode(nodeId);
 
-    await db.touchNode(conn, nodeId, 1700, "ok", "0.1.0", "25.1.1", null, "abc");
+    await db.touchNode(conn, nodeId, 1700, "ok", "0.1.0", "25.1.1", "20261110", null, "abc");
     await db.setTokenHash(conn, nodeId, "first");
     await db.setTokenHash(conn, nodeId, "second");
 
@@ -126,6 +126,7 @@ describe("the D1 data layer", () => {
       health: "ok",
       agent_version: "0.1.0",
       xray_version: "25.1.1",
+      geodata_version: "20261110",
       last_error: null,
       applied_hash: "abc",
       token_hash: "second",

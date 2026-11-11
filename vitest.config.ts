@@ -43,6 +43,20 @@ export default {
       }
       return Response.json({ success: false, errors: [{ message: "unexpected DNS API request" }] }, { status: 500 });
     }
+    if (url.origin === "https://api.cloudflareclient.com" && url.pathname.endsWith("/reg")) {
+      // The WARP preset registers a device; this canned device keeps the
+      // preset path hermetic while preserving the real response shape.
+      return Response.json({
+        config: {
+          client_id: "UVHc",
+          peers: [{
+            public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+            endpoint: { v4: "162.159.192.4:0", host: "engage.cloudflareclient.com:2408", ports: [2408] },
+          }],
+          interface: { addresses: { v4: "172.16.0.2", v6: "2606:4700:110:8a78:72d9:6e7f:da52:294f" } },
+        },
+      });
+    }
     if ((url.origin === "https://cloudflare-dns.com" && url.pathname === "/dns-query") ||
         (url.origin === "https://dns.google" && url.pathname === "/resolve")) {
       const name = url.searchParams.get("name");

@@ -9,12 +9,14 @@
 mod apply;
 mod certs;
 mod config;
+mod geodata;
 mod http;
 mod nginx;
 mod reconcile;
 mod state;
 mod stats;
 mod supervisor;
+mod update;
 mod util;
 mod xray;
 
@@ -56,7 +58,8 @@ fn usage() {
          enroll options: --config PATH, --poll-interval N, --xray-binary PATH,\n\
          \x20 --config-path PATH, --xray-service NAME, --restart-mode systemd|openrc|auto,\n\
          \x20 --no-manage-nginx, --cert-dir PATH, --nginx-service NAME,\n\
-         \x20 --nginx-conf-path PATH, --nginx-root PATH, --cert-group NAME, --state PATH\n\
+         \x20 --nginx-conf-path PATH, --nginx-root PATH, --cert-group NAME, --state PATH,\n\
+         \x20 --geodata-dir PATH\n\
          \n\
          The node token is read from stdin (hidden on a TTY); it is never an argument.",
         http::VERSION
@@ -225,6 +228,7 @@ fn cmd_enroll(args: &[String]) -> i32 {
         ("cert-dir", &mut cfg.cert_dir),
         ("nginx-conf-path", &mut cfg.nginx_conf_path),
         ("nginx-root", &mut cfg.nginx_root),
+        ("geodata-dir", &mut cfg.geodata_dir),
         ("state", &mut cfg.state_path),
     ] {
         if let Some(value) = flags.value(flag) {
@@ -252,7 +256,10 @@ fn cmd_enroll(args: &[String]) -> i32 {
     let client = NodeClient::new(&cfg);
     let info = json!({
         "agent_version": http::VERSION,
-        "xray_version": xray::version(&cfg.xray_binary),
+        "xray_version": xray::binary_path(&cfg.xray_binary)
+            .ok()
+            .and_then(|path| xray::version_number(&path))
+            .unwrap_or_else(|| "unknown".to_string()),
         "platform": xray::platform(),
         "detected_ip": xray::detected_ip(),
     });
@@ -299,6 +306,8 @@ fn cmd_run(args: &[String]) -> i32 {
         .unwrap_or_else(|| cfg.state_path.clone());
     install_signal_handlers();
     apply::cleanup_temp_files(&cfg);
+    update::cleanup_staged(&cfg);
+    geodata::cleanup_staged(&cfg);
     reconcile::run(&cfg, state_path, &STOP, flags.switch("verbose"))
 }
 

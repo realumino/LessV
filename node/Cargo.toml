@@ -1,6 +1,6 @@
 [package]
 name = "lessv-node"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.80"
 description = "LessV node reconciler: pulls Xray config and certificates from the control plane"
@@ -11,8 +11,10 @@ license = "MIT"
 # glibc and musl distributions alike.
 [dependencies]
 libc = "0.2"
+miniz_oxide = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [profile.release]

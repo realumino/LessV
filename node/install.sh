@@ -12,7 +12,7 @@
 # Usage:
 #   ./install.sh --cp <control-plane-url> --node <node-id>
 #   ./install.sh --cp <url> --node <id> --token-file <path>
-#   ./install.sh --version 0.5.0 --cp <url> --node <id>
+#   ./install.sh --version 0.6.0 --cp <url> --node <id>
 #
 # The token is read from a hidden prompt (or a 0600 file) and piped to the
 # binary on stdin; it never appears in argv, the environment, or a log.
@@ -301,7 +301,9 @@ install_xray() {
 # operator replaced it). The installer only guarantees the directory, so a
 # fresh node has its page as soon as the first certificate sync runs.
 install_layout() {
-    install -d -m 0755 /etc/lessv /etc/lessv/certs /var/lib/lessv /var/www/lessv-decoy
+    # /var/lib/lessv/assets is where lessv-node keeps geoip.dat/geosite.dat;
+    # the Xray unit exports XRAY_LOCATION_ASSET to it.
+    install -d -m 0755 /etc/lessv /etc/lessv/certs /var/lib/lessv /var/lib/lessv/assets /var/www/lessv-decoy
 }
 
 install_binary() {

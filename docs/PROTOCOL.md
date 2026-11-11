@@ -1,17 +1,18 @@
-# Cloud API — pull contract v2
+# Cloud API — pull contract v3
 
 The node ↔ plane contract. Protocol 1 was the original pull contract
-(`X-Lesserv-Node`); protocol 2 adds the certificate endpoint, the
-`stage: "cert"` report, and renames the node-identity header to
-`X-Lessv-Node`. There are no deployed protocol-1 nodes to stay compatible
-with; every node implementation in this repository has spoken protocol 2
-since the 0.2.1 line.
+(`X-Lesserv-Node`); protocol 2 added the certificate endpoint, the
+`stage: "cert"` report, and renamed the node-identity header to
+`X-Lessv-Node`; protocol 3 replaces the heartbeat's string actions with
+structured objects, adds version reporting on the heartbeat, and adds the
+action-result endpoint. Every node implementation in this repository speaks
+protocol 3 from the 0.6.0 line; a protocol-2 node is rejected with
+`400` and keeps serving its current config until it is upgraded.
 
 Changes are made in three places at once: this file, `src/routers/node.ts`
 (`PROTOCOL_VERSION`), and the node version in `node/Cargo.toml`. The wire
 field names `agent_version` and `agent_uptime` predate the rename of the
-node binary to `lessv-node`; protocol 2 freezes the wire shape, so the names
-stay.
+node binary to `lessv-node`; the names stay for the same reason.
 
 ## Transport and authentication
 
@@ -24,7 +25,7 @@ stay.
     missing header, unknown id, never-minted token, and wrong token all
     answer the same `401 {"detail":"invalid node credentials"}`; nothing
     about the attempt is logged.
-- Every write request body carries `"protocol": 2`; anything else answers
+- Every write request body carries `"protocol": 3`; anything else answers
   `400 {"detail":"unsupported protocol N"}`. The node's correct response is
   to keep serving its current config.
 - Every response is JSON. Failures (4xx/5xx) use the error envelope
@@ -42,11 +43,11 @@ Request:
 
 ```json
 {
-  "protocol": 2,
-  "agent_version": "0.5.0",
-  "xray_version": "26.10.21",
+  "protocol": 3,
+  "agent_version": "0.6.0",
+  "xray_version": "26.11.9",
   "detected_ip": "203.0.113.7",
-  "platform": "Linux-6.1-x86_64"
+  "platform": "linux/x86_64"
 }
 ```
 
@@ -74,26 +75,44 @@ Request (every field but `protocol` is optional; a missing field means
 
 ```json
 {
-  "protocol": 2,
+  "protocol": 3,
   "applied_hash": "<sha-256 hex>",
   "applied_at": 1792937643,
   "xray_running": true,
   "xray_pid": 4242,
   "agent_uptime": 3600,
+  "xray_version": "26.11.9",
+  "geodata_version": "20261110230135",
   "last_error": null
 }
 ```
 
-Response: `{ "desired_hash": <hex|null>, "actions": [] }`.
+Response: `{ "desired_hash": <hex|null>, "actions": [...] }`.
 
 - The plane persists `applied_hash` from the heartbeat at face value when it
   changes (it is the node's local truth), and never writes `health` or
   `last_error` from a heartbeat. ALWAYS send `applied_hash`: omitting it
   sends `null` and clears the column. The node always sends it.
+- `xray_version` and `geodata_version` are the facts the node currently
+  runs; a missing field means "nothing to report" and preserves the stored
+  value. The plane shows them in the fleet view and stores a successful
+  update's version without waiting for the next heartbeat.
 - The request's `last_error` is accepted for forward compatibility but not
   stored; the plane keeps the error from the last report.
-- The plane never emits actions today. The node still honors
-  `"restart_xray"` if one ever appears (restart Xray unchanged).
+- `actions` carries every maintenance request the admin confirmed that is
+  still `pending`. An action is an object:
+
+  ```json
+  {"action": "update_xray", "version": "latest"}
+  {"action": "update_geodata"}
+  {"action": "restart_xray"}
+  ```
+
+  A node must answer every action with `POST /api/node/action`, including
+  failures. The plane only stops advertising an action when its result
+  arrives; a result that never arrives leaves the action pending, so the
+  node must make a repeated advertisement cheap (it compares the installed
+  version before downloading again).
 - A heartbeat never clears `last_error`; only an apply report does.
 
 ### `GET /api/node/config?hash=<heartbeat's value>`
@@ -125,7 +144,7 @@ current certificate **in the node's own ACME environment** exists.
   Each cert domain has one current pointer per environment, so the same
   assignment serves production bytes to a production node and staging
   bytes to a staging node. The manifest shape is identical in both
-  environments, so protocol 2 covers both without a version bump.
+  environments, so one contract covers both.
 - A node never receives the other environment's certificate: a staging
   node whose domain has no current staging certificate gets an empty
   `certs` array, not the production one.
@@ -175,7 +194,7 @@ Request (`hash` and `ok` are required):
 
 ```json
 {
-  "protocol": 2,
+  "protocol": 3,
   "hash": "<sha-256 hex this report is about>",
   "ok": true,
   "stage": "applied",
@@ -222,12 +241,39 @@ degraded" state — in particular, the decoy always offers the post-quantum
 group, and a host whose TLS library cannot do so fails the decoy apply and
 reports `nginx_ok: false`.
 
+### `POST /api/node/action`
+
+The result of one maintenance action. Idempotent: a result for an action the
+plane no longer tracks is accepted and changes nothing.
+
+Request (`action` is `update_xray` or `update_geodata`):
+
+```json
+{
+  "protocol": 3,
+  "action": "update_xray",
+  "ok": true,
+  "version": "26.11.9",
+  "error": null
+}
+```
+
+- `ok: true` finishes the action as `ok` and stores `version` as the node's
+  `xray_version` (for `update_xray`) or `geodata_version` (for
+  `update_geodata`).
+- `ok: false` finishes it as `failed` with `error` as the message. The
+  installed versions do not move: the node rolls back (or never swaps), so
+  the previous value is still the truth.
+- The action row is visible in `GET /api/admin/nodes/{id}/sync` under
+  `actions`; a failed row stays visible until the admin requests the action
+  again.
+
 ### `POST /api/node/stats`
 
 Request:
 
 ```json
-{ "protocol": 2, "boot_id": "<string>", "counters": { "<name>": <int> } }
+{ "protocol": 3, "boot_id": "<string>", "counters": { "<name>": <int> } }
 ```
 
 Accepted and validated (absolute, non-negative counters + boot id);

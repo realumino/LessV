@@ -19,10 +19,18 @@ import {
   NodeUpdate,
   parseJsonBody,
   parseJsonObject,
+  PresetBuildIn,
+  XrayUpdateIn,
 } from "../models";
 import * as nodeService from "../services/node_service";
 import * as nodeStateService from "../services/node_state_service";
 import * as nodeTokenService from "../services/node_token_service";
+import {
+  BASE_CONFIG,
+  buildPreset,
+  presetDescriptors,
+  type PresetId,
+} from "../services/preset_service";
 import { loadRegistry, deleteInbound, deleteOutbound, updateInbound, updateOutbound } from "../services/registry_service";
 import * as renderService from "../services/render_service";
 
@@ -337,4 +345,82 @@ adminNodes.get("/api/admin/status", async (c) => {
     node_count: (await db.listNodes(c.env.DB)).length,
     user_count: (await db.listUsers(c.env.DB)).length,
   });
+});
+
+/**
+ * WHAT: ask one node to update its Xray binary (`latest` or a release tag).
+ *
+ * WHY the plane only records the request: the node downloads and verifies
+ * the archive from the vendor itself, then reports what it installed. The
+ * admin-confirmed act is *this* call; the node never updates on its own.
+ * Repeating the call is a retry.
+ */
+adminNodes.post("/api/admin/nodes/:node_id/xray-update", async (c) => {
+  const node = await nodeOr404(c.env, c.req.param("node_id"));
+  const payload = await parseJsonBody(c.req.raw, XrayUpdateIn);
+  const at = nodeStateService.now();
+  await db.requestNodeAction(c.env.DB, node.id, "update_xray", payload.version, at);
+  return c.json(await nodeStateService.listActions(c.env.DB, node.id), 201);
+});
+
+/**
+ * WHAT: ask one node to refresh its Geodata files now.
+ *
+ * WHY no body: there is nothing to choose — the node always installs the
+ * latest XTLS/Xray-rules-dat release. Nodes also refresh on their own when
+ * a config references `geoip:`/`geosite:` and the files are a week old.
+ */
+adminNodes.post("/api/admin/nodes/:node_id/geodata-update", async (c) => {
+  const node = await nodeOr404(c.env, c.req.param("node_id"));
+  const at = nodeStateService.now();
+  await db.requestNodeAction(c.env.DB, node.id, "update_geodata", null, at);
+  return c.json(await nodeStateService.listActions(c.env.DB, node.id), 201);
+});
+
+/**
+ * WHAT: the preset catalog for one node, with its base skeleton and the
+ * defaults the dialog starts from.
+ *
+ * WHY per node: the REALITY domain defaults to the node's configured
+ * address, and a shortId must be fresh per dialog.
+ */
+adminNodes.get("/api/admin/nodes/:node_id/presets", async (c) => {
+  const node = await nodeOr404(c.env, c.req.param("node_id"));
+  return c.json({
+    base: BASE_CONFIG,
+    presets: presetDescriptors(node.address),
+  });
+});
+
+const PRESET_IDS: readonly PresetId[] = ["reality", "warp", "geo_block"];
+
+/**
+ * WHAT: merge one preset into a document and return the result unsigned.
+ *
+ * WHY the document travels in the body: it may be the editor's unsaved
+ * draft, and a preset is a merge rather than a save. The ordinary config PUT
+ * remains the only write path.
+ */
+adminNodes.post("/api/admin/nodes/:node_id/presets/:preset_id", async (c) => {
+  await nodeOr404(c.env, c.req.param("node_id"));
+  const presetId = c.req.param("preset_id") as PresetId;
+  if (!PRESET_IDS.includes(presetId)) {
+    throw new ApiError(404, "preset not found");
+  }
+  const payload = await parseJsonBody(c.req.raw, PresetBuildIn);
+  try {
+    const [config, warnings] = await buildPreset(
+      presetId,
+      payload.config,
+      payload.options,
+      fetch,
+      new Date(),
+    );
+    return c.json({ config, warnings });
+  } catch (error) {
+    throw new ApiError(
+      502,
+      error instanceof Error ? error.message : "preset build failed",
+    );
+  }
 });

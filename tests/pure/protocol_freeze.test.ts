@@ -1,5 +1,5 @@
 /**
- * The pull contract version is frozen at protocol 2 (certificate
+ * The pull contract version is frozen at protocol 3 (certificate
  * endpoint, cert-stage reports, X-Lessv-Node header).
  *
  * Why a pin and not a docstring: both repos implement this number, and the
@@ -12,6 +12,6 @@ import { expect, it } from "vitest";
 
 import { PROTOCOL_VERSION } from "../../src/routers/node";
 
-it("serves protocol version 2", () => {
-  expect(PROTOCOL_VERSION).toBe(2);
+it("serves protocol version 3", () => {
+  expect(PROTOCOL_VERSION).toBe(3);
 });

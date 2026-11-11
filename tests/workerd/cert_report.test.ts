@@ -36,7 +36,7 @@ describe("POST /api/node/report", () => {
       "POST",
       "/api/node/report",
       {
-        protocol: 2,
+        protocol: 3,
         hash: "abc",
         ok: false,
         stage: "cert",
@@ -67,7 +67,7 @@ describe("POST /api/node/report", () => {
       "POST",
       "/api/node/report",
       {
-        protocol: 2,
+        protocol: 3,
         hash: "good",
         ok: true,
         stage: "applied",
@@ -108,7 +108,7 @@ describe("POST /api/node/report", () => {
     const response = await planeJson(
       "POST",
       "/api/node/report",
-      { protocol: 2, hash: "", ok: true, stage: "cert" },
+      { protocol: 3, hash: "", ok: true, stage: "cert" },
       auth(nodeId, token),
     );
     expect(response.status).toBe(200);

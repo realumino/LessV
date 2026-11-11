@@ -6,6 +6,7 @@
 //! config is touched. Missing binaries are failures to report, never panics.
 
 use std::net::UdpSocket;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::supervisor::Supervisor;
@@ -44,20 +45,58 @@ pub fn test_config(binary: &str, path: &str) -> (bool, i32, String) {
     (false, result.code, output)
 }
 
-/// WHAT: first line of `xray version`, or "unknown".
-pub fn version(binary: &str) -> String {
-    let result = run_command(binary, &["version"], Duration::from_secs(10));
-    if result.code != 0 || result.output.trim().is_empty() {
-        return "unknown".to_string();
+/// WHAT: resolve the configured binary name to a path.
+///
+/// WHY PATH search: `xray_binary` may be a bare `xray` (the default) or an
+/// absolute path. A replacement must target the same file the unit runs, so
+/// a bare name is looked up once, here, instead of trusting the caller's
+/// working directory.
+pub fn binary_path(configured: &str) -> Result<PathBuf, String> {
+    let path = Path::new(configured);
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
     }
-    let first = result
-        .output
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    first.chars().take(120).collect()
+    let search = std::env::var_os("PATH").unwrap_or_default();
+    for dir in std::env::split_paths(&search) {
+        let candidate = dir.join(configured);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err(format!(
+        "xray binary {configured:?} not found on PATH"
+    ))
+}
+
+/// WHAT: the version number of one binary (`26.11.9`), or None.
+///
+/// WHY the bare number: the plane compares it against a release tag to decide
+/// whether an update is still needed, and shows it in the fleet view.
+pub fn version_number(binary: &Path) -> Option<String> {
+    let result = run_command(
+        &binary.to_string_lossy(),
+        &["version"],
+        Duration::from_secs(10),
+    );
+    if result.code != 0 {
+        return None;
+    }
+    first_version_token(&result.output)
+}
+
+/// WHAT: the version-shaped token of `xray version` output.
+pub fn first_version_token(output: &str) -> Option<String> {
+    let line = output.lines().next()?.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let token = line
+        .split_whitespace()
+        .find(|token| {
+            token.contains('.') && token.chars().all(|ch| ch.is_ascii_digit() || ch == '.')
+        })
+        .unwrap_or(line);
+    Some(token.to_string())
 }
 
 /// WHAT: `linux/<arch>` as reported at enroll.
@@ -107,6 +146,19 @@ mod tests {
         assert!(!ok);
         assert_eq!(code, 127);
         assert!(output.contains("command not found"));
-        assert_eq!(version("lessv-node-no-xray"), "unknown");
+        assert_eq!(version_number(Path::new("/nonexistent/lessv-node-no-xray")), None);
+    }
+
+    #[test]
+    fn extracts_the_version_number_from_xray_output() {
+        assert_eq!(
+            first_version_token("Xray 26.11.9 (Xray, Penetrates Everything.) 676eaf6 (go1.27.3)"),
+            Some("26.11.9".to_string())
+        );
+        assert_eq!(first_version_token(""), None);
+        assert_eq!(
+            first_version_token("custom build"),
+            Some("custom build".to_string())
+        );
     }
 }

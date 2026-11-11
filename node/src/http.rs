@@ -14,7 +14,7 @@ use serde_json::Value;
 use crate::config::Config;
 use crate::util::{head, tail};
 
-pub const PROTOCOL_VERSION: u64 = 2;
+pub const PROTOCOL_VERSION: u64 = 3;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const TIMEOUT_SECS: u64 = 10;
 
@@ -197,7 +197,7 @@ impl NodeClient {
     }
 
     /// WHAT: the 30s poll — desired hash plus any actions.
-    pub fn heartbeat(&self, heartbeat: &Value) -> Result<(Option<String>, Vec<String>), HttpError> {
+    pub fn heartbeat(&self, heartbeat: &Value) -> Result<(Option<String>, Vec<Action>), HttpError> {
         let mut body = heartbeat.clone();
         if let Value::Object(map) = &mut body {
             map.insert("protocol".to_string(), Value::from(PROTOCOL_VERSION));
@@ -214,13 +214,7 @@ impl NodeClient {
                 ))
             }
         };
-        let actions = require_field(map, "actions", "/api/node/heartbeat")?;
-        let actions = actions
-            .as_array()
-            .ok_or_else(|| HttpError::transport("heartbeat actions must be a list"))?
-            .iter()
-            .filter_map(|action| action.as_str().map(str::to_string))
-            .collect();
+        let actions = parse_actions(require_field(map, "actions", "/api/node/heartbeat")?)?;
         Ok((desired, actions))
     }
 
@@ -269,6 +263,16 @@ impl NodeClient {
         Ok(())
     }
 
+    /// WHAT: report the outcome of one maintenance action (never retried).
+    pub fn action_report(&self, report: &Value) -> Result<(), HttpError> {
+        let mut body = report.clone();
+        if let Value::Object(map) = &mut body {
+            map.insert("protocol".to_string(), Value::from(PROTOCOL_VERSION));
+        }
+        self.request("POST", "/api/node/action", None, Some(&body), &[])?;
+        Ok(())
+    }
+
     /// WHAT: send absolute counters with a boot id.
     pub fn stats(&self, stats: &Value) -> Result<(), HttpError> {
         let mut body = stats.clone();
@@ -278,6 +282,55 @@ impl NodeClient {
         self.request("POST", "/api/node/stats", None, Some(&body), &[])?;
         Ok(())
     }
+}
+
+/// WHAT: one maintenance command the plane puts on a heartbeat.
+///
+/// WHY an enum: each variant carries exactly the data its executor needs,
+/// and an unknown action is data (logged and ignored) rather than a parse
+/// failure that would stop the whole heartbeat.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Action {
+    RestartXray,
+    UpdateXray(String),
+    UpdateGeodata,
+    Unknown(String),
+}
+
+/// WHAT: parse the heartbeat's `actions` array.
+///
+/// WHY bare strings are still accepted: protocol 2 phrased actions as
+/// strings, and a node that survives a plane rollback costs three lines.
+pub fn parse_actions(value: &Value) -> Result<Vec<Action>, HttpError> {
+    let items = value
+        .as_array()
+        .ok_or_else(|| HttpError::transport("heartbeat actions must be a list"))?;
+    let mut actions = Vec::new();
+    for item in items {
+        let named = match item {
+            Value::String(name) => Some((name.as_str(), None)),
+            Value::Object(map) => {
+                let name = map.get("action").and_then(Value::as_str).unwrap_or("");
+                let version = map.get("version").and_then(Value::as_str);
+                Some((name, version))
+            }
+            _ => None,
+        };
+        let Some((name, version)) = named else {
+            return Err(HttpError::transport(
+                "heartbeat actions must be strings or objects",
+            ));
+        };
+        actions.push(match name {
+            "restart_xray" => Action::RestartXray,
+            "update_xray" => Action::UpdateXray(
+                version.unwrap_or("latest").to_string(),
+            ),
+            "update_geodata" => Action::UpdateGeodata,
+            other => Action::Unknown(other.to_string()),
+        });
+    }
+    Ok(actions)
 }
 
 /// WHAT: truncate an error string to the 500-char protocol bound.
@@ -300,6 +353,30 @@ mod tests {
         assert!(err.auth_failed);
         let err = decode("/x", 200, b"not json").unwrap_err();
         assert!(err.message.contains("malformed JSON"));
+    }
+
+    #[test]
+    fn parses_action_objects_and_legacy_strings() {
+        let actions = parse_actions(&serde_json::json!([
+            {"action": "update_xray", "version": "v26.11.9"},
+            {"action": "update_geodata"},
+            {"action": "restart_xray"},
+            "restart_xray",
+            {"action": "something_new"}
+        ]))
+        .unwrap();
+        assert_eq!(
+            actions,
+            vec![
+                Action::UpdateXray("v26.11.9".to_string()),
+                Action::UpdateGeodata,
+                Action::RestartXray,
+                Action::RestartXray,
+                Action::Unknown("something_new".to_string()),
+            ]
+        );
+        assert!(parse_actions(&serde_json::json!({})).is_err());
+        assert!(parse_actions(&serde_json::json!([42])).is_err());
     }
 
     #[test]

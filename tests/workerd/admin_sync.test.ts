@@ -120,13 +120,13 @@ describe("minting and the drift view", () => {
     const headers = auth(token);
     const wanted = (
       await body<{ desired_hash: string }>(
-        await planeJson("POST", "/api/node/heartbeat", { protocol: 2 }, headers),
+        await planeJson("POST", "/api/node/heartbeat", { protocol: 3 }, headers),
       )
     ).desired_hash;
     await planeJson(
       "POST",
       "/api/node/report",
-      { protocol: 2, hash: wanted, ok: true, stage: "applied" },
+      { protocol: 3, hash: wanted, ok: true, stage: "applied" },
       headers,
     );
 
@@ -145,13 +145,13 @@ describe("minting and the drift view", () => {
     const headers = auth(token);
     const wanted = (
       await body<{ desired_hash: string }>(
-        await planeJson("POST", "/api/node/heartbeat", { protocol: 2 }, headers),
+        await planeJson("POST", "/api/node/heartbeat", { protocol: 3 }, headers),
       )
     ).desired_hash;
     await planeJson(
       "POST",
       "/api/node/report",
-      { protocol: 2, hash: "bad", ok: false, stage: "started", error: "boom" },
+      { protocol: 3, hash: "bad", ok: false, stage: "started", error: "boom" },
       headers,
     );
 

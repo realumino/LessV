@@ -12,6 +12,8 @@ Type=simple
 # root instead of the upstream `nobody` user, which could not read it.
 User=root
 Group=root
+# GeoIP/GeoSite data managed by lessv-node (routing rules name geoip:/geosite:).
+Environment=XRAY_LOCATION_ASSET=/var/lib/lessv/assets
 ExecStart=/usr/local/bin/xray run -config /var/lib/lessv/config.json
 Restart=on-failure
 RestartSec=5

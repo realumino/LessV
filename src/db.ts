@@ -39,6 +39,8 @@ export type NodeRow = {
   health: string | null;
   agent_version: string | null;
   xray_version: string | null;
+  /** The Xray-rules-dat release the node last installed, NULL until known. */
+  geodata_version: string | null;
   last_error: string | null;
   /** Agent-reported nginx health: NULL unknown, 0 failed, 1 ok. */
   nginx_ok: number | null;
@@ -91,6 +93,21 @@ export type NodeInboundRow = {
 
 /** WHAT: one registered outbound: plane identity plus its current config tag. */
 export type NodeOutboundRow = NodeInboundRow;
+
+/** WHAT: the two maintenance actions a node can be asked to perform. */
+export const NODE_ACTIONS = ["update_xray", "update_geodata"] as const;
+export type NodeAction = (typeof NODE_ACTIONS)[number];
+
+/** WHAT: one node maintenance action row, as stored. */
+export type NodeActionRow = {
+  node_id: string;
+  action: NodeAction;
+  target: string | null;
+  state: "pending" | "ok" | "failed";
+  message: string | null;
+  requested_at: number;
+  finished_at: number | null;
+};
 
 /** WHAT: one link variant row with its overrides decoded. */
 export type InboundLinkRow = {
@@ -268,6 +285,7 @@ export async function deleteNode(db: D1Database, nodeId: string): Promise<void> 
     "DELETE FROM node_inbounds WHERE node_id = ?",
     "DELETE FROM node_outbounds WHERE node_id = ?",
     "DELETE FROM node_cert_domains WHERE node_id = ?",
+    "DELETE FROM node_actions WHERE node_id = ?",
     "DELETE FROM nodes WHERE id = ?",
   ].map((sql) => db.prepare(sql).bind(nodeId));
   await db.batch(statements);
@@ -343,6 +361,7 @@ export async function touchNode(
   health: string | null,
   agentVersion: string | null,
   xrayVersion: string | null,
+  geodataVersion: string | null,
   lastError: string | null,
   appliedHash: string | null,
 ): Promise<void> {
@@ -351,10 +370,82 @@ export async function touchNode(
     `
         UPDATE nodes
         SET last_seen = ?, health = ?, agent_version = ?,
-            xray_version = ?, last_error = ?, applied_hash = ?
+            xray_version = ?, geodata_version = ?, last_error = ?,
+            applied_hash = ?
         WHERE id = ?
         `,
-    [lastSeen, health, agentVersion, xrayVersion, lastError, appliedHash, nodeId],
+    [
+      lastSeen,
+      health,
+      agentVersion,
+      xrayVersion,
+      geodataVersion,
+      lastError,
+      appliedHash,
+      nodeId,
+    ],
+  );
+}
+
+/** WHAT: return one node's maintenance actions, action-name ordered. */
+export async function listNodeActions(
+  db: D1Database,
+  nodeId: string,
+): Promise<NodeActionRow[]> {
+  const rows = await selectRows(
+    db,
+    "SELECT * FROM node_actions WHERE node_id = ? ORDER BY action",
+    [nodeId],
+  );
+  return rows as unknown as NodeActionRow[];
+}
+
+/**
+ * WHAT: record (or replace) one pending action request for a node.
+ *
+ * WHY replace: asking twice for the same action means "do it again" — the
+ * previous outcome, success or failure, is superseded rather than stacked.
+ */
+export async function requestNodeAction(
+  db: D1Database,
+  nodeId: string,
+  action: NodeAction,
+  target: string | null,
+  requestedAt: number,
+): Promise<void> {
+  await executeWrite(
+    db,
+    `
+        INSERT INTO node_actions (node_id, action, target, state, message, requested_at, finished_at)
+        VALUES (?, ?, ?, 'pending', NULL, ?, NULL)
+        ON CONFLICT(node_id, action) DO UPDATE SET
+            target = excluded.target,
+            state = 'pending',
+            message = NULL,
+            requested_at = excluded.requested_at,
+            finished_at = NULL
+        `,
+    [nodeId, action, target, requestedAt],
+  );
+}
+
+/** WHAT: finish one action with its outcome; a missing row is a no-op. */
+export async function finishNodeAction(
+  db: D1Database,
+  nodeId: string,
+  action: NodeAction,
+  state: "ok" | "failed",
+  message: string | null,
+  finishedAt: number,
+): Promise<void> {
+  await executeWrite(
+    db,
+    `
+        UPDATE node_actions
+        SET state = ?, message = ?, finished_at = ?
+        WHERE node_id = ? AND action = ?
+        `,
+    [state, message, finishedAt, nodeId, action],
   );
 }
 

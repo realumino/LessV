@@ -60,6 +60,7 @@ describe("toOut", () => {
       health: null,
       agent_version: null,
       xray_version: null,
+      geodata_version: null,
       last_error: null,
       nginx_ok: null,
       nginx_error: null,

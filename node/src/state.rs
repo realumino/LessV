@@ -29,6 +29,17 @@ pub struct State {
     pub cert_synced_at: Option<i64>,
     #[serde(default)]
     pub last_nginx_ok: Option<bool>,
+    /// The XTLS/Xray-rules-dat release the geodata files came from, and when
+    /// they were installed. `None` version means the node has never fetched
+    /// them, which triggers a one-time bootstrap on the next cycle.
+    #[serde(default)]
+    pub geodata_version: Option<String>,
+    #[serde(default)]
+    pub geodata_synced_at: Option<i64>,
+    /// When a failed geodata refresh may be retried; keeps a broken download
+    /// from being re-attempted every poll.
+    #[serde(default)]
+    pub geodata_retry_at: Option<i64>,
     /// The certificate set the decoy config was rendered from.
     ///
     /// WHY remembered: the nginx file is generated from the manifest, and a
@@ -68,6 +79,9 @@ impl Default for State {
             cert_etag: String::new(),
             cert_synced_at: None,
             last_nginx_ok: None,
+            geodata_version: None,
+            geodata_synced_at: None,
+            geodata_retry_at: None,
             certs: None,
         }
     }

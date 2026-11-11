@@ -10,7 +10,7 @@
  */
 
 import * as db from "../db";
-import type { HeartbeatIn, NodeSyncOut, ReportIn } from "../models";
+import type { ActionReportIn, HeartbeatIn, NodeActionOut, NodeSyncOut, ReportIn } from "../models";
 import { configHash, desiredConfig } from "./render_service";
 import { certLintWarnings, type LintCert } from "../cert/lint";
 import { listNodeAssignedDomains } from "../cert/store/d1";
@@ -25,6 +25,7 @@ export type LivenessValues = {
   health: string | null;
   agent_version: string | null;
   xray_version: string | null;
+  geodata_version: string | null;
   last_error: string | null;
   applied_hash: string | null;
 };
@@ -36,6 +37,7 @@ type LivenessRow = Pick<
   | "health"
   | "agent_version"
   | "xray_version"
+  | "geodata_version"
   | "last_error"
   | "applied_hash"
 >;
@@ -48,10 +50,11 @@ export function now(): number {
 /**
  * WHAT: compute the liveness columns one heartbeat wants stored.
  *
- * WHY applied_hash is adopted but versions/health/last_error are preserved:
- * the dashboard shows "as last reported", and the heartbeat is the freshest
- * claim of what runs — but versions arrive on enroll (the heartbeat carries
- * none) and health is a diagnosis that only a report may set or clear.
+ * WHY applied_hash and versions are adopted but health/last_error are
+ * preserved: the dashboard shows "as last reported", and the heartbeat is
+ * the freshest claim of what runs — health is a diagnosis only a report may
+ * set or clear. A version is adopted only when the heartbeat carries one:
+ * a missing field means "nothing to report", never "forget it".
  */
 export function heartbeatValues(
   node: LivenessRow,
@@ -62,7 +65,8 @@ export function heartbeatValues(
     last_seen: at,
     health: node.health,
     agent_version: node.agent_version,
-    xray_version: node.xray_version,
+    xray_version: payload.xray_version ?? node.xray_version,
+    geodata_version: payload.geodata_version ?? node.geodata_version,
     last_error: node.last_error,
     applied_hash: payload.applied_hash,
   };
@@ -91,6 +95,7 @@ export function shouldTouch(
     "health",
     "agent_version",
     "xray_version",
+    "geodata_version",
     "last_error",
     "applied_hash",
   ] as const;
@@ -126,6 +131,7 @@ export function reportValues(
     health: node.health,
     agent_version: node.agent_version,
     xray_version: node.xray_version,
+    geodata_version: node.geodata_version,
     last_error: node.last_error,
     applied_hash: node.applied_hash,
   };
@@ -158,9 +164,82 @@ export async function touchFromValues(
     values.health,
     values.agent_version,
     values.xray_version,
+    values.geodata_version,
     values.last_error,
     values.applied_hash,
   );
+}
+
+/**
+ * WHAT: the superseded action rows to advertise on this heartbeat.
+ *
+ * WHY pending only: a finished action is history the admin reads in the
+ * sync view, not a command. An action whose report never arrived stays
+ * pending and is re-advertised — the node remembers the last outcome, so a
+ * repeated advertisement does not mean a repeated download.
+ */
+export function pendingActions(
+  rows: db.NodeActionRow[],
+): Array<{ action: db.NodeAction; version?: string }> {
+  const actions: Array<{ action: db.NodeAction; version?: string }> = [];
+  for (const row of rows) {
+    if (row.state !== "pending") {
+      continue;
+    }
+    if (row.action === "update_xray") {
+      actions.push({ action: row.action, version: row.target ?? "latest" });
+    } else {
+      actions.push({ action: row.action });
+    }
+  }
+  return actions;
+}
+
+/**
+ * WHAT: apply one action result to the liveness columns.
+ *
+ * WHY a successful update adopts the reported version here: the node just
+ * proved what it installed, and waiting for the next heartbeat to repeat it
+ * would leave a window where the panel shows the version the machine no
+ * longer runs. Failures change no version — the node rolled back (or never
+ * swapped), so the old value is still the truth.
+ */
+export function actionReportValues(
+  node: LivenessRow,
+  payload: ActionReportIn,
+  at: number,
+): LivenessValues {
+  const version = payload.ok ? payload.version : null;
+  return {
+    last_seen: at,
+    health: node.health,
+    agent_version: node.agent_version,
+    xray_version:
+      version !== null && payload.action === "update_xray"
+        ? version
+        : node.xray_version,
+    geodata_version:
+      version !== null && payload.action === "update_geodata"
+        ? version
+        : node.geodata_version,
+    last_error: node.last_error,
+    applied_hash: node.applied_hash,
+  };
+}
+
+/** WHAT: return the actions of one node in the sync-view shape. */
+export async function listActions(
+  conn: D1Database,
+  nodeId: string,
+): Promise<NodeActionOut[]> {
+  return (await db.listNodeActions(conn, nodeId)).map((row) => ({
+    action: row.action,
+    state: row.state,
+    target: row.target,
+    message: row.message,
+    requested_at: row.requested_at,
+    finished_at: row.finished_at,
+  }));
 }
 
 /**
@@ -220,8 +299,10 @@ export async function syncState(
     health: node.health,
     agent_version: node.agent_version,
     xray_version: node.xray_version,
+    geodata_version: node.geodata_version,
     last_error: node.last_error,
     warnings: [...warnings, ...lintWarnings],
+    actions: await listActions(env.DB, nodeId),
     nginx_ok: node.nginx_ok,
     nginx_error: node.nginx_error,
     cert_synced_at: node.cert_synced_at,
