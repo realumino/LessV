@@ -105,13 +105,6 @@ pub fn asset_paths(cfg: &Config) -> [PathBuf; 2] {
     ]
 }
 
-/// WHAT: true when both asset files exist and are non-empty.
-pub fn assets_present(cfg: &Config) -> bool {
-    asset_paths(cfg)
-        .iter()
-        .all(|path| path.metadata().map(|meta| meta.len() > 0).unwrap_or(false))
-}
-
 /// WHAT: download, verify, and inflate one release asset.
 pub fn fetch_asset(
     agent: &ureq::Agent,
@@ -134,11 +127,6 @@ pub fn fetch_asset(
     gunzip(&compressed, INFLATE_LIMIT)
 }
 
-/// WHAT: test the new Xray binary against the live config (production seam).
-pub fn test_config(binary: &Path, config: &Path) -> (bool, i32, String) {
-    crate::xray::test_config(&binary.to_string_lossy(), &config.to_string_lossy())
-}
-
 /// WHAT: write both assets, restart Xray, and roll back on a dead process.
 ///
 /// WHY stage-then-rename: Xray may be starting concurrently (a restart from
@@ -157,10 +145,10 @@ pub fn install(
     let paths = asset_paths(cfg);
     let payloads: [&[u8]; 2] = [geoip, geosite];
     let mut staged: Vec<PathBuf> = Vec::new();
-    for (index, path) in paths.iter().enumerate() {
+    for (index, (asset, _)) in ASSETS.iter().enumerate() {
         let temp = cfg
             .geodata_dir
-            .join(format!(".{}.next.{}", ASSETS[index].1, random_hex(6)));
+            .join(format!(".{asset}.next.{}", random_hex(6)));
         let written = fs::write(&temp, payloads[index])
             .and_then(|_| fs::set_permissions(&temp, fs::Permissions::from_mode(0o644)));
         if let Err(error) = written {
@@ -380,17 +368,5 @@ mod tests {
         assert!(!config_uses_geodata(&path));
         assert!(!config_uses_geodata(&dir.join("missing.json")));
         let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn assets_present_requires_both_files() {
-        let cfg = temp_cfg();
-        assert!(!assets_present(&cfg));
-        let paths = asset_paths(&cfg);
-        fs::write(&paths[0], b"a").unwrap();
-        assert!(!assets_present(&cfg));
-        fs::write(&paths[1], b"b").unwrap();
-        assert!(assets_present(&cfg));
-        let _ = fs::remove_dir_all(&cfg.geodata_dir);
     }
 }
