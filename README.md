@@ -231,9 +231,12 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 - `PUT /api/admin/users` 无法把 `expire` 改回 `null`（null 表示“不变”），
   需要时用一个远期 epoch 替代。
 - 没有节点删除 API：节点行保留作历史。
-- nginx 假站点片段手工管理（面板托管未做）。
+- nginx 假站点配置由 lessv-node 按证书清单生成；面板不渲染、不托管它的
+  内容（只有证书域名的 server_name 与路径来自清单）。
 - `ADMIN_KEY` 等价 root：持有它即可调用全部 admin API。
 - `KEY_SECRET` 不可轮换——换掉它，历史节点密钥全部不可读。
-- REALITY preset 发出的黑洞 outbound tag 是大写 `BLOCK`。0.2.x 早期 preset
+- REALITY preset 发出的黑洞 outbound tag 是大写 `BLOCK`。早期 preset
   生成过小写 `block`，它会被当成可路由出口（渲染成 `<node>-block`，并多出
   一个黑洞选项）——受影响的旧节点用 preset 重新生成并保存一次配置即可。
+- staging 证书不续期，7 天后由清扫任务删除；长期测试节点需要重新 Test
+  issue。
