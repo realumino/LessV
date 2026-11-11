@@ -114,6 +114,24 @@ export async function updateNode(
   return toOut((await db.getNode(conn, nodeId)) as db.NodeRow);
 }
 
+/**
+ * WHAT: delete one node and everything scoped to it; false when it is gone.
+ *
+ * WHY the existence check comes first: the caller maps "nothing deleted" to
+ * a 404, and a 404 must not touch anything else. Deleting the row revokes
+ * the node's bearer token with it — there is no separate revocation step.
+ */
+export async function deleteNode(
+  conn: D1Database,
+  nodeId: string,
+): Promise<boolean> {
+  if ((await db.getNode(conn, nodeId)) === null) {
+    return false;
+  }
+  await db.deleteNode(conn, nodeId);
+  return true;
+}
+
 /** WHAT: NodeOut-shaped object, or null when missing. */
 export async function getNodeOut(
   conn: D1Database,

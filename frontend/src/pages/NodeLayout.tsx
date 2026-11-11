@@ -12,9 +12,9 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { NavLink, Outlet, useParams } from "react-router";
+import { NavLink, Outlet, useNavigate, useParams } from "react-router";
 
-import { getNode, getNodeSync, mintNodeToken, updateNode } from "../api";
+import { deleteNode, getNode, getNodeSync, mintNodeToken, updateNode } from "../api";
 import Badge from "../components/Badge";
 import ConfirmButton from "../components/ConfirmButton";
 import ErrorNote from "../components/ErrorNote";
@@ -35,6 +35,7 @@ export interface NodeOutletContext {
 
 export default function NodeLayout() {
   const { nodeId = "" } = useParams();
+  const navigate = useNavigate();
   const [node, setNode] = useState<NodeOut | null>(null);
   const [sync, setSync] = useState<NodeSyncOut | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +61,15 @@ export default function NodeLayout() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  const remove = async () => {
+    const result = await deleteNode(nodeId);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    navigate("/nodes");
+  };
 
   const mint = async () => {
     setMinting(true);
@@ -89,6 +99,7 @@ export default function NodeLayout() {
         sync={sync}
         busy={minting}
         onMint={() => void mint()}
+        onDelete={() => void remove()}
         onRefresh={() => void reload()}
       />
       <nav className="flex gap-2">
@@ -136,12 +147,14 @@ function NodeHeader({
   sync,
   busy,
   onMint,
+  onDelete,
   onRefresh,
 }: {
   node: NodeOut;
   sync: NodeSyncOut | null;
   busy: boolean;
   onMint: () => void;
+  onDelete: () => void;
   onRefresh: () => void;
 }) {
   return (
@@ -165,6 +178,13 @@ function NodeHeader({
             onConfirm={onMint}
           >
             Re-generate token
+          </ConfirmButton>
+          <ConfirmButton
+            className={dangerButton}
+            message={`Delete node ${node.id}? This removes its token, config, user access, endpoint registry, REALITY keys, and certificate assignment. The machine keeps running its last applied config until you decommission it.`}
+            onConfirm={onDelete}
+          >
+            Delete node
           </ConfirmButton>
         </span>
       </div>

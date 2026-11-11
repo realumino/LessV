@@ -99,6 +99,22 @@ adminNodes.put("/api/admin/nodes/:node_id", async (c) => {
 });
 
 /**
+ * WHAT: delete one node and every row scoped to it; 404 when it is gone.
+ *
+ * WHY no "keep as history" option: the fleet view is an inventory of live
+ * machines, and a deleted node's evidence (certificates, issue runs) lives in
+ * domain-scoped tables that are not touched. The removed node keeps running
+ * its last applied config on disk — deletion is a plane-side act, not a
+ * remote wipe — so the operator decommissions the machine separately.
+ */
+adminNodes.delete("/api/admin/nodes/:node_id", async (c) => {
+  if (!(await nodeService.deleteNode(c.env.DB, c.req.param("node_id")))) {
+    throw new ApiError(404, "node not found");
+  }
+  return c.body(null, 204);
+});
+
+/**
  * WHAT: mint (or rotate) one node's bearer token; plaintext shown once.
  *
  * WHY re-POST rotates with immediate invalidation: the new hash replaces

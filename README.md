@@ -262,7 +262,10 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
   `status=disabled` 才会从 Xray 配置移除。
 - `PUT /api/admin/users` 无法把 `expire` 改回 `null`（null 表示“不变”），
   需要时用一个远期 epoch 替代。
-- 没有节点删除 API：节点行保留作历史。
+- 删除节点（节点页 **Delete node**，`DELETE /api/admin/nodes/<id>`）会一次删掉该节点的
+  token、配置、用户授权行、端点注册表、REALITY 密钥与证书分配；证书域名与签发历史
+  属于域级资源，不受影响。机器上最后应用的配置不会被远程清除——删除是面板侧动作，
+  机器仍需单独下线。
 - 面板显示的 `agent_version`/`xray_version` 是 **enroll 时**上报的事实；
   `install.sh` 原位升级复用 token、不重新 enroll，所以要刷新显示需要复用
   同一 token 重跑一次 `lessv-node enroll`（同一个 node id 与参数）。

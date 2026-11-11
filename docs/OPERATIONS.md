@@ -303,8 +303,10 @@ nginx -t && systemctl reload nginx      # rc-service nginx reload on Alpine
 When a VPS is no longer needed: `node scripts/linode_provision.mjs delete
 --token-file <token-file> --label <label> [--tag <tag>]` (same tag as
 create; pass the same `--out` to strike the instance from the inventory).
-The plane has no
-node-delete API; leave the node row as history, or clean it with a
-deliberate D1 statement (and `node_cert_domains`) if you accept losing
-that evidence. The plane keeps domain/cert records; soft-deleted cert
+Delete the node itself with `DELETE /api/admin/nodes/<id>` (or the node
+page's **Delete node**): one batch removes the row plus its token, config,
+user access, endpoint registry, REALITY keys, and certificate assignments.
+Domain-scoped evidence (cert domains, certificates, issue runs) is untouched,
+and the machine keeps running its last applied config — decommission it
+separately. The plane keeps domain/cert records; soft-deleted cert
 domains disappear from the UI but their history stays in the database.

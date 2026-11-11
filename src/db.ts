@@ -249,6 +249,31 @@ export async function replaceNode(
 }
 
 /**
+ * WHAT: delete one node and every row scoped to it, atomically.
+ *
+ * WHY one batch: D1 has no interactive transactions here, and a half-deleted
+ * node (children gone, row left, or the reverse) would either look alive
+ * while being unusable or leave orphan rows nothing can reach. `batch` runs
+ * the statements as one unit.
+ *
+ * WHY children first: the row goes last, so a failure before it leaves a node
+ * whose scoped state is already gone and can simply be deleted again — never
+ * a live node pointing at missing access or keys.
+ */
+export async function deleteNode(db: D1Database, nodeId: string): Promise<void> {
+  const statements = [
+    "DELETE FROM user_node_access WHERE node_id = ?",
+    "DELETE FROM reality_keys WHERE node_id = ?",
+    "DELETE FROM inbound_links WHERE node_id = ?",
+    "DELETE FROM node_inbounds WHERE node_id = ?",
+    "DELETE FROM node_outbounds WHERE node_id = ?",
+    "DELETE FROM node_cert_domains WHERE node_id = ?",
+    "DELETE FROM nodes WHERE id = ?",
+  ].map((sql) => db.prepare(sql).bind(nodeId));
+  await db.batch(statements);
+}
+
+/**
  * WHAT: store (or clear, with null) one node's opaque authored config.
  *
  * WHY JSON text: the config is an object the plane never interprets; it is

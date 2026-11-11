@@ -188,6 +188,17 @@ export const updateNode = (
     body: JSON.stringify(body),
   });
 
+/**
+ * WHAT: delete one node and everything scoped to it.
+ *
+ * WHY no options: the server removes the token, config, access rows, endpoint
+ * registry, REALITY keys, and certificate assignment in one batch. The
+ * machine itself keeps running its last applied config until it is
+ * decommissioned; nothing is pushed to it.
+ */
+export const deleteNode = (nodeId: string) =>
+  request<null>(`/nodes/${encodeURIComponent(nodeId)}`, { method: "DELETE" });
+
 export const mintNodeToken = (nodeId: string) =>
   request<{ node_id: string; token: string; created_at: number }>(
     `/nodes/${encodeURIComponent(nodeId)}/token`,
