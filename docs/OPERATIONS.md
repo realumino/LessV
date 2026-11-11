@@ -241,7 +241,9 @@ nginx -t && systemctl reload nginx      # rc-service nginx reload on Alpine
    `tail -n 100 /var/log/lessv-node.log`); `ls -l /etc/lessv/certs/<path>/`;
    `readlink -f .../current`. The node's state file
    (`/var/lib/lessv/state.json`) carries `cert_etag`, `cert_synced_at`,
-   and `last_nginx_ok`.
+   `last_nginx_ok`, `last_nginx_note` (the PQ fallback text, if any), and
+   `certs` (the certificate set the decoy config was rendered from; used to
+   notice that a renderer upgrade made the generated file stale).
 4. **nginx**: `nginx -t`; `systemctl status nginx` (`rc-service nginx status` on
    Alpine); `journalctl -u nginx -n 50` (`tail -n 50 /var/log/nginx/error.log`).
 5. **HTTP checks**: `curl -v https://<domain>` (must validate without

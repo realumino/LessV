@@ -247,7 +247,7 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 - 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.4.0`（Gitee
   Release `node-v0.4.0`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
   构建：`npm run release:node`）。
-- 测试矩阵：Worker 407 passed / 58 files；前端 41 passed；lessv-node 40 Rust 单元测试。
+- 测试矩阵：Worker 407 passed / 57 files；前端 41 passed；lessv-node 42 Rust 单元测试。
 - 未做（候选方向）：nginx 配置面板托管、B 拓扑（TLS/WS/xhttp）、Clash
   订阅、stats/quota、到期通知、多管理员。
 
@@ -258,6 +258,9 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 - `PUT /api/admin/users` 无法把 `expire` 改回 `null`（null 表示“不变”），
   需要时用一个远期 epoch 替代。
 - 没有节点删除 API：节点行保留作历史。
+- 面板显示的 `agent_version`/`xray_version` 是 **enroll 时**上报的事实；
+  `install.sh` 原位升级复用 token、不重新 enroll，所以要刷新显示需要复用
+  同一 token 重跑一次 `lessv-node enroll`（同一个 node id 与参数）。
 - nginx 假站点配置由 lessv-node 按证书清单生成；面板不渲染、不托管它的
   内容（只有证书域名的 server_name 与路径来自清单）。decoy 同时监听
   `/dev/shm/lessv-decoy.sock`（默认，REALITY 的 dest）与 `127.0.0.1:8443`

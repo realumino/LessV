@@ -175,6 +175,19 @@ describe("the endpoint registry", () => {
       },
     });
     expect(created.status, await created.clone().text()).toBe(201);
+    const variant = await planeJson(
+      "POST",
+      `/api/admin/nodes/${node}/inbound-links`,
+      {
+        id: "cdn",
+        inbound_id: "reality",
+        label: "CDN",
+        overrides: { address: "cdn.example.com" },
+      },
+    );
+    expect(variant.status, await variant.clone().text()).toBe(201);
+    const keyBefore = await privateKeyOf(node);
+    expect(keyBefore).not.toBe("");
 
     // The operator renames the tag in the authoured document. The old row is
     // orphaned; the new tag gets a fresh, unreferenced row.
@@ -225,7 +238,35 @@ describe("the endpoint registry", () => {
     expect(configBody.warnings).toEqual([]);
     expect(configBody.config.inbounds[0]!.tag).toBe(`reality2-${node}`);
     expect(configBody.config.inbounds[0]!.settings.clients).toHaveLength(1);
+    // The panel-owned REALITY key follows the id, so rebinding must not
+    // rotate it (that would lock out every existing client).
+    expect(await privateKeyOf(node)).toBe(keyBefore);
+    // The variant follows the id too and now renders under the new tag.
+    const links = await body<{
+      links: { profile: string | null; inbound: string }[];
+    }>(await planeJson("GET", `/api/admin/users/${user}/links`));
+    expect(links.links.map((link) => [link.profile, link.inbound])).toEqual([
+      [null, `reality2-${node}`],
+      ["cdn", `reality2-${node}`],
+    ]);
   });
+
+  /** WHAT: the rendered REALITY private key (the panel-owned fact). */
+  async function privateKeyOf(node: string): Promise<string> {
+    const runtime = await planeJson(
+      "GET",
+      `/api/admin/nodes/${node}/config/runtime`,
+    );
+    const configBody = await body<{
+      config: {
+        inbounds: {
+          streamSettings: { realitySettings: { privateKey: string } };
+        }[];
+      };
+    }>(runtime);
+    return configBody.config.inbounds[0]!.streamSettings.realitySettings
+      .privateKey;
+  }
 
   it("refuses to steal a tag another referenced row still owns", async () => {
     const second = {
