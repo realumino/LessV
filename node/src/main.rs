@@ -304,6 +304,12 @@ fn cmd_run(args: &[String]) -> i32 {
         .value("state")
         .map(PathBuf::from)
         .unwrap_or_else(|| cfg.state_path.clone());
+    // The Xray unit exports XRAY_LOCATION_ASSET for the service itself; this
+    // daemon also runs `xray run -test` and `xray version` as child
+    // processes, and a child inherits only our environment. Without this a
+    // config naming `geoip:`/`geosite:` fails its test even though the data
+    // is installed.
+    std::env::set_var("XRAY_LOCATION_ASSET", &cfg.geodata_dir);
     install_signal_handlers();
     apply::cleanup_temp_files(&cfg);
     update::cleanup_staged(&cfg);
