@@ -1,12 +1,12 @@
 # LessV
 
-LessV is a self-hosted traffic-forwarding management plane on Cloudflare Workers. This file is the operator manual in Simplified Chinese, English, Persian, Russian, and 조선어.
+LessV is a self-hosted traffic-forwarding management plane on Cloudflare Workers. This file is the operator manual in Simplified Chinese, English, Persian, Russian, 조선어, and Türkmençe.
 
 LessV 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare Workers 上，管理端是挂在 `/admin` 的 React SPA，节点端是静态单二进制 `lessv-node`。节点只从面板拉取配置与证书，面板不主动连接节点。
 
-本文件是面向部署与运维的**使用手册**，包含简体中文、English、فارسی、Русский、조선어 五个版本。开发者文档在 [`docs/dev/`](docs/dev/README.md)：架构、开发、测试、发布。
+本文件是面向部署与运维的**使用手册**，包含简体中文、English、فارسی、Русский、조선어、Türkmençe 六个版本。开发者文档在 [`docs/dev/`](docs/dev/README.md)：架构、开发、测试、发布。
 
-[简体中文](#zh) · [English](#en) · [فارسی](#fa) · [Русский](#ru) · [조선어](#ko)
+[简体中文](#zh) · [English](#en) · [فارسی](#fa) · [Русский](#ru) · [조선어](#ko) · [Türkmençe](#tk)
 
 ---
 
@@ -2865,3 +2865,632 @@ point-in-time restore), R2 증명서 bucket을 복사하십시오. `KEY_SECRET`�
 - 마디 ↔ 관리평면 프로토콜: [`docs/PROTOCOL.md`](docs/PROTOCOL.md)
 - 증명서, nginx, 고장수리: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - 구조, 개발, 시험, 발표: [`docs/dev/`](docs/dev/README.md)
+
+---
+
+<a id="tk"></a>
+## Türkmençe
+
+### 1. LessV näme?
+
+LessV — Cloudflare Workers-de işleýän, özüňiz dolandyrýan trafik geçiriji
+dolandyryş tekizligi. Dolandyryş tekizligi Cloudflare Workers-de işleýär;
+dolandyryş SPA-si `/admin` astynda berilýär; her düwünde `lessv-node` atly
+statik ýeke-täk binary işleýär. Düwünler islenýän konfigurasiýasyny we
+şahadatnamalaryny panelden çekýärler. Panel düwüne hiç wagt özi birikmeýär.
+
+```
+Brauzer ── /admin ─────────────► Worker (Hono + statik SPA)
+                                   │  /api/admin/*  ← ADMIN_KEY
+                                   │  /api/node/*   ← düwün tokeni
+                                   │  /sub/{token}  ← abuna tokeni
+                                   ▼
+                                  D1 (maglumat) · R2 (şahadatnamalar) · Workflow (ACME)
+
+Ulanyjy ── /sub/{token} ──► abuna ──► baglanyşyklar (D1-den döredilýär)
+
+Düwün ── trafik geçiriji ýadro (REALITY :443) ──► lessv-node (Rust, systemd/OpenRC)
+        ▲ nginx ýasama saýt (Unix socket) │
+        └── şahadatnama faýllary ◄── GET /api/node/certs ◄── ACME (DNS-01)
+```
+
+Diňe bir düwün topologiýasy goldanýar: trafik geçiriji ýadro REALITY bilen
+443-nji portda diňleýär, `dest` ýerli Unix socket
+`/dev/shm/lessv-decoy.sock`-a görkezýär; nginx diňe şol socketde ýasama
+saýty berýär we 80-nji porty HTTPS-e ugrukdyrýar. Şahadatnamalar nginx-e
+degişli; ýadroda şahadatnama ýok. 443-nji port hemişe ýadroň; nginx-i 443-de
+diňletmäň.
+
+### 2. Talaplar
+
+| Zat | Talap |
+|---|---|
+| Cloudflare | Hasaba birikdirilen zona; R2 açyk; Workers, D1, Workflows elýeterli |
+| Ýerli maşyn | Node.js 22 LTS+ we npm |
+| Panel domeni | Mysal üçin `cp.example.com`, Cloudflare Custom Domain arkaly |
+| Düwün domeni | Mysal üçin `node1.example.com`, **diňe DNS** (çar şemal), düwün IP-sine |
+| Düwün serweri | Debian 13+ / Ubuntu 25.10+ / Alpine 3.22+, root, 80/443 boş |
+| Çykyş | Düwün 80/443-e ýetýär: distributiw ammarlary, Gitee, GitHub, panel HTTPS |
+| Ätiýaçlyk | `KEY_SECRET`, `.env.production`, D1 ätiýaçlygy, düwün tokenleri |
+
+Düwün serweri TLS 1.3 we kwantdan soňky gibrid topary goldamaly: nginx
+OpenSSL >= 3.5 bilen baglanmaly. Ýasama saýt diňe
+`X25519MLKEM768:X25519`-i hödürleýär we **klassik açar çalşygyna yza
+gaýtmaýar**. Bu şerti ýerine ýetirmeýän serweri `install.sh` ret edýär;
+eýýäm gurlan düwün apply tapgyrynda şowsuz bolýar we ýalňyşlygy panelde
+görkezýär, ümsüm ýagdaýda peseltmeýär.
+
+Maslahat berilýän tertip: ilki Worker-i ýerleşdiriň, soň isleseňiz
+Cloudflare Access-i açyň, iň soňunda düwün goşuň.
+
+### 3. Cloudflare Worker-i ýerleşdirmek
+
+#### 3.1 Kody almak we baglylyklary gurmak
+
+```bash
+git clone https://gitee.com/realumino/lessv.git
+cd lessv
+npm install
+npm --prefix frontend install
+```
+
+#### 3.2 Ýerli wrangler konfigurasiýasyny döretmek
+
+```bash
+cp wrangler.example.jsonc wrangler.jsonc
+```
+
+`wrangler.jsonc` faýlynda `routes` bölümini öz panel domeniňize üýtgediň:
+
+```jsonc
+"routes": [{ "pattern": "cp.example.com", "custom_domain": true }],
+```
+
+Şablon D1, R2, Workflow, gündelik cron we SPA faýllaryny eýýäm baglaýar.
+`workers_dev: false` we `preview_urls: false` bolmaly: paneliň diňe bir
+açyk domeni bolmaly, ýogsa Cloudflare Access-i aýlanyp geçip bolýar.
+`wrangler.jsonc` hakyky domeni we ilkinji ýerleşdirmeden soň ýazylýan D1
+ID-sini saklaýar, şonuň üçin gitignore-da.
+
+#### 3.3 Üç gizlin açar döretmek
+
+```bash
+node -e "console.log('ADMIN_KEY=' + require('node:crypto').randomBytes(32).toString('base64url'))"
+node -e "console.log('KEY_SECRET=' + require('node:crypto').randomBytes(32).toString('base64'))"
+```
+
+Olary `.env.production` faýlyna ýazyň (hiç wagt commit etmäň):
+
+```dotenv
+ADMIN_KEY=<base64url-of-32-random-bytes>
+KEY_SECRET=<base64-of-32-random-bytes>
+CF_DNS_API_TOKEN=<cloudflare-dns-token>
+```
+
+```bash
+chmod 600 .env.production
+```
+
+- `ADMIN_KEY` — ähli `/api/admin/*` haýyşlary we SPA girişi üçin Bearer
+  açar. Ol root bilen deňdir: syrsa, paneli ýitirýärsiňiz.
+- `KEY_SECRET` — saklanýan REALITY açaralaryny, şahadatnama açaralaryny we
+  ACME hasap açaralaryny möhürleýän AES-256-GCM açary. **Ony çalşyp
+  bolmaýar**: çalşyrsaňyz, ähli saklanýan açaralar okalmaz bolýar. Bir gezek
+  dörediň we oflaýn ätiýaçlyk nusgasyny saklaň.
+- Ýerli iş üçin `.dev.vars`, önümçilik üçin `.env.production` ulanyň; bir
+  bahany iki gezek ulanmaň.
+
+#### 3.4 DNS API tokenini döretmek
+
+Cloudflare paneli → My Profile → API Tokens → Create Token → Custom token:
+
+- Permissions: `Zone → DNS → Edit`, `Zone → Zone → Read`
+- Zone Resources: Include → Specific zone → şahadatnama domenleri boljak zona
+
+Bahany `.env.production` faýlyndaky `CF_DNS_API_TOKEN`-a goýuň. Bu tokeni
+Worker `_acme-challenge` TXT ýazgylaryny döretmek/öçürmek we zona sanawyny
+okamak üçin ulanýar; ol `wrangler login` maglumaty däl.
+
+#### 3.5 Şahadatnama buketini döretmek
+
+```bash
+npx wrangler login
+npx wrangler r2 bucket create lessv-certs
+```
+
+Eýýäm bar bolsa, geçiň; täzeden döretmek 10004 koduny berýär, bu zyýansyz.
+
+#### 3.6 Ýerleşdirmek
+
+```bash
+npm run deploy -- --secrets-file .env.production
+```
+
+`npm run deploy` tertibi: SPA gurýar → `wrangler deploy` (ilkinji gezek D1-i
+döredýär, ID-sini ýazýar we Custom Domain-i baglaýar) → uzak D1
+migrasiýalaryny ulanýar → `https://<panel-domeni>/api/health` 200 bolmaly.
+Ilkinji ýerleşdirmede gizlinleri diňe `--secrets-file` arkaly bermek
+bolýar, sebäbi `wrangler secret put` entek döredilmedik Worker-e ýüzlenip
+bilmeýär.
+
+#### 3.7 Barlamak
+
+```bash
+curl -fsS https://cp.example.com/api/health
+# {"status":"ok"}
+
+npx wrangler deployments list
+npx wrangler workflows list
+```
+
+`https://cp.example.com/admin` saýtyny açyň we `ADMIN_KEY`-i goýuň. Saýtyň
+açylmagy diňe SPA-nyň işleýändigini aňladýar; düwünleriň sanawy D1 we
+dolandyryş API-siniň işleýändigini aňladýar.
+
+#### 3.8 Täzelemek, yzyna gaýtarmak we gizlinleri üýtgetmek
+
+```bash
+git pull
+npm install
+npm --prefix frontend install
+npm run deploy -- --secrets-file .env.production
+```
+
+- Kody yzyna gaýtarmak: `npx wrangler rollback`. Ol D1-i yzyna gaýtarmaýar;
+  migrasiýalar öňki wersiýa bilen gabat gelmeli.
+- Soňraky gizlin üýtgetmesi: `npx wrangler secret put <NAME>`.
+- `KEY_SECRET` çalşylmaýar. `ADMIN_KEY`-i çalşyp bolýar; soň ähli brauzerler
+  we skriptler täzelenmeli.
+- Ýerli gurnama barlagy: `npm run deploy -- --dry-run` (bulutsuz).
+
+### 4. Cloudflare Access (maslahat berilýär)
+
+Cloudflare Access Cloudflare gyrasynda goşmaça şahsyýet gatlagyny goşýar.
+Ol `ADMIN_KEY`-i **çalyşmaýar**: Worker henizem Bearer açar talap edýär;
+Access diňe tassyklanmadyk haýyşlary Worker-e ýetirmez ýaly edýär. Ilki
+Worker-i ýerleşdiriň, soň Access-i açyň, sebäbi ýerleşdirme skripti we
+cloud-init ikisi hem `/api/health`-e mätäç.
+
+#### 4.1 Nämüni goramaly, nämüni goramaly däl
+
+| Ýol | Access-yň arkasynda? | Näme üçin |
+|---|---|---|
+| `/admin*` | **Hawa** | Dolandyryş SPA we statik faýllar; diňe adamlar girýär |
+| `/api/admin*` | **Hawa** | Dolandyryş API; brauzer Access sessiýasyny, skriptler hyzmat tokenini ulanýar |
+| `/api/node/*` | **Ýok** | `lessv-node` diňe Bearer token iberýär we Access-i bilmeýär; gorasaňyz, ähli düwünler aýrylýar |
+| `/sub/*` | **Ýok** | Abuna klientleri (v2rayN, Clash, Shadowrocket we başgalar) Access-den geçip bilmeýär; gorasaňyz, ähli abunalar bozulýar |
+| `/api/health` | **Ýok** | Ýerleşdirme skripti we cloud-init onuň bilen elýeterliligi barlaýar; jogap hemişe birmeňzeş |
+| Düwün domeni `:443` | **Degişli däl** | Düwüniň A ýazgysy diňe DNS; trafik Cloudflare-den geçmeýär. Düwüniň gorag diwary diňe 80/443-i açýar |
+
+Eger Access `/api/health`-i ýaparsa, `npm run deploy`-yň soňky barlagy we
+cloud-init-iň garaşmak sikli ikisi hem şowsuz bolýar; ony açyk saklaň.
+
+Aşakdaky usul ähli hosty gurşap alýan bir programmany dolandyryş ýüzi üçin
+we üç açyk ýol üçin Bypass programmalaryny ulanýar; ýokardaky tablisada
+netijäni görkezýär.
+
+Düzgün: **diňe dolandyryş ýüzüni goramaly**. Düwün, abuna we saglyk
+ýüzleri açyk galýar; hersiniň öz kepili bar (düwün tokeni, abuna tokeni
+ýa-da hiç zat).
+
+#### 4.2 Ähli hosty gurşap alýan bir Access programmasyny döretmek
+
+`/admin` we `/api/admin` üçin aýratyn Access programmalaryny döretmäň: iki
+programma iki sany programma tokeni berýär we SPA-nyň API haýyşlary täzeden
+tassyklama talap edip biler. Ähli hosty gurşap alýan bir programma dörediň,
+şonda ikisi bir Access sessiýasyny ulanýar.
+
+Zero Trust → Access controls → Applications → Create new application →
+**Self-hosted and private** → Add public hostname:
+
+- Domain: `cp.example.com`
+- Path: **boş** (ähli hosty goraýar; programma URL-si
+  `https://cp.example.com`)
+- Session Duration: mysal üçin 24 sagat
+- Identity providers: One-time PIN (deslapky) ýa-da öz SSO-yňyz
+- Policy: Action `Allow`, Include `Emails` → öz salgyňyz
+
+4.4-nji ädimde dörediljek Service Auth syýasatyny şu programma goşuň.
+
+#### 4.3 Açyk ýollar üçin Bypass programmalaryny döretmek
+
+Açyk galmaly her ýol üçin şol bir Domain, aşakdaky Path we Action `Bypass`,
+Include `Everyone` syýasaty bilen ýene bir Self-hosted and private
+programma dörediň.
+
+| Path | Programma URL-si |
+|---|---|
+| `sub/*` | `https://cp.example.com/sub/*` |
+| `api/node/*` | `https://cp.example.com/api/node/*` |
+| `api/health` | `https://cp.example.com/api/health` |
+
+Has takyk ýollar ähli hosty gurşap alýan programmadan öň gelýär; `Bypass`
+bu ýoluň giriş talap etmeýändigini aňladýar. Bypass programmalaryna `Allow`
+syýasatyny goşmaň we `/admin` ýa `/api/admin` üçin Bypass döretmäň. Eger
+`/api/health` üçin Bypass ýok bolsa, ýerleşdirme barlagy we cloud-init ikisi
+hem şowsuz bolýar.
+
+#### 4.4 Skriptler üçin hyzmat tokenini döretmek
+
+Zero Trust → Access controls → Service credentials → Service tokens → Create:
+
+1. At beriň (mysal üçin `lessv-ops`) we **Client ID** bilen **Client
+   Secret**-i göçüriň (secret diňe bir gezek görkezilýär).
+2. **Ähli hosty gurşap alýan programma** gaýdyp geliň (Bypass programa
+   däl) we syýasat goşuň: Action `Service Auth`, Include `Service Token` →
+   ýaňy döredilen token.
+3. Skriptler Access ýazgylaryny we Worker Bearer-yny bilelikde iberýärler:
+
+```bash
+export CF_ACCESS_CLIENT_ID='<client-id>'
+export CF_ACCESS_CLIENT_SECRET='<client-secret>'
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+
+curl -sS \
+  -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+  -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  https://cp.example.com/api/admin/nodes
+```
+
+Brauzer bu ýazgylary elde goşmaýar; Access cookie özi goşýar. Hyzmat tokeni
+uzak ýaşaýan kepil: ony parol dolandyrijynda ýa-da 0600 faýlda saklaň,
+ammarda, shell taryhynda ýa žurnallarda saklamaň. Syrsa, Access-de derrew
+çalşyň.
+
+#### 4.5 Access çägini barlamak
+
+```bash
+# 200 bolmaly, Access girişine geçmeli däl
+curl -i https://cp.example.com/api/health
+
+# Abuna mazmuny (ýa boş 200) bolmaly, Access bolmaly däl
+curl -i https://cp.example.com/sub/<token>
+
+# Worker-iň 401 JSON-y bolmaly, Access giriş sahypasy däl
+curl -i -X POST https://cp.example.com/api/node/enroll
+
+# Dolandyryş API: diňe ADMIN_KEY Access tarapyndan saklanýar; ikisi bilelikde 200
+curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/nodes
+```
+
+Bellikler:
+
+- Access diňe Cloudflare gyrasynda işleýär; `npm run dev`-iň ýerli 8787
+  porty goragly däl.
+- `workers.dev`, preview URL ýa-da başga route bar bolsa, Access-i aýlanyp
+  geçip bolýar. Şablon olary öçüripdir; açmaň.
+- Access `ADMIN_KEY`-i çalyşmaýar; olar iki sany garaşsyz derweze.
+- `Bypass`-y diňe üç açyk ýol üçin ulanyň (`/sub/*`, `/api/node/*`,
+  `/api/health`); `/admin` ýa `/api/admin` üçin hiç wagt Bypass goşmaň,
+  ýogsa dolandyryş ýüzi açylýar.
+- Düwün serweri Cloudflare-den geçmeýär, şonuň üçin Access ony
+  gorap bilmeýär. Düwüniň howpsuzlygy 80/443 gorag diwary, parolsyz SSH we
+  öz wagtynda ýapylýan howpsuzlyk täzelenmeleridir.
+
+### 5. Düwün goşmak
+
+#### 5.1 Düwün ýazgysyny we tokenini döretmek
+
+Panel: **Nodes → Add node**. ID diňe kiçi harplar we sanlardan bolmaly,
+1–32 belgi (mysal üçin `node1`); Label islendik tekst. Döredensoň düwüniň
+**Domain**-ini `node1.example.com` edip üýtgediň we saklaň—bu domen REALITY
+`serverNames`-ine we ähli paýlaşyk baglanyşyklaryna girýär.
+
+Düwün sahypasynda **Re-generate token** (ilkinji token üçin hem şol) →
+tassykla → açylan penjireden tokeni göçür. Panel diňe hashi saklaýar we
+açyk teksti bir gezek görkezýär. Penjire ýapylsa, token ýitýär; täzesini
+dörediň (köne token derrew işlemeýär).
+
+API bilen deňi:
+
+```bash
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+CP=https://cp.example.com
+
+curl -sS -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
+  -d '{"id":"node1","label":"First node","address":"node1.example.com"}' \
+  $CP/api/admin/nodes
+
+curl -sS -X POST -H "Authorization: Bearer $ADMIN_KEY" \
+  $CP/api/admin/nodes/node1/token
+```
+
+Ilki DNS dörediň: `node1.example.com` üçin A ýazgysy düwüniň IP-sine,
+**diňe DNS** (çar şemal). REALITY we nginx ikisi hem göni 443 talap edýär;
+Cloudflare-den geçýän ýazgy tuneli bozýar.
+
+#### 5.2 A usuly: SSH bilen elde gurmak
+
+Root SSH bar bolan islendik VPS üçin: Debian 13+ / Ubuntu 25.10+ / Alpine
+3.22+. Serwerde `curl` we `tar` bolmaly; ýok bolsa, ilki bilen paket
+dolandyrijysy bilen guruň.
+
+```bash
+ssh root@203.0.113.10
+
+VERSION=0.6.0
+BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
+case "$(uname -m)" in
+  x86_64) ARCH=amd64 ;;
+  aarch64) ARCH=arm64 ;;
+  *) echo "unsupported arch"; exit 1 ;;
+esac
+NAME=lessv-node-$VERSION-linux-$ARCH
+
+curl -fsSLO $BASE/$NAME.tar.gz
+curl -fsSLO $BASE/SHA256SUMS
+grep " $NAME.tar.gz\$" SHA256SUMS | sha256sum -c -
+tar -xzf $NAME.tar.gz
+cd $NAME
+
+./install.sh --cp https://cp.example.com --node node1
+```
+
+`VERSION`-y Gitee Releases-daky häzirki wersiýa bilen çalyşyň. `install.sh`
+düwün tokenini gizlin giriş bilen soraýar, soň:
+
+- `ca-certificates`, `curl`, `tar`, `unzip`, nginx we trafik geçiriji
+  ýadro gurýar (resmi çykarylyş, `.dgst` barlanýar);
+- `lessv-node`-y `/usr/local/bin/lessv-node`-a gurýar;
+- `/etc/lessv`, `/etc/lessv/certs`, `/var/lib/lessv`,
+  `/var/lib/lessv/assets`, `/var/www/lessv-decoy` döredýär;
+- systemd ýa-da OpenRC unitini ýazýar (ýadro nginx-den soň başlaýar);
+- `/etc/lessv/node.toml` (0600) ýazýar, enroll edýär, açýar we başlaýar.
+
+Iň soňky setir `lessv-node installed and started`. Žurnallar:
+
+```bash
+journalctl -u lessv-node -n 50          # systemd
+tail -n 50 /var/log/lessv-node.log      # OpenRC
+```
+
+Täzelemek: täze tarball-y ýükläp, şol buýruklary gaýtalaň. `node.toml` bar
+bolsa, `install.sh` tokeni gaýtadan ulanýar we enroll etmeýär. Ýadro we
+geodata paneliň **Maintenance** bölüminden aýratyn hem täzelenip bilner
+(birinji setir ýadro wersiýasy, ikinji setir Geodata).
+
+#### 5.3 B usuly: cloud-init
+
+Ammar [`scripts/alpine_cloud_init.yaml`](scripts/alpine_cloud_init.yaml)
+faýlyny saklaýar — cloud-init işleýän Alpine 3.22+ / OpenRC obrazlary üçin
+bir gezeklik cloud-config. Ol BBR we fd çäklerini ýokarlandyrýar, nftables
+(diňe 80/443) gurýar, sshd-ni öçürýär we aýyrýar, çykarylyşy ýükläp,
+`SHA256SUMS`-y barlaýar, `install.sh`-y işledýär we enroll edýär. Ilkinji
+açylyşdan soň düwünde SSH ýok; dolandyryş panelden bolýar. Bozulan düwüni
+üýtgedip bejermäň: ýok ediň we täzeden dörediň.
+
+Ädimler:
+
+1. 5.1-e görä düwüni, Domain-i, DNS-i we tokeni dörediň.
+2. Şablony ammaryň daşyndaky wagtlaýyn faýla göçüriň (mysal üçin
+   `/tmp/node1.yaml`). Diňe `write_files`-iň ýokarsyndaky
+   `/root/lessv.env` bölümini üýtgediň:
+
+   ```yaml
+   NODE_ID="node1"
+   CP_URL="https://cp.example.com"
+   TOKEN="<paste node token>"
+   VERSION="0.6.0"
+   ```
+
+   `CP_URL`-iň soňunda slaş bolmaly däl; `VERSION` häzirki çykarylyş.
+   Galan zady üýtgetmäň.
+3. VPS üpjün edijisinde Alpine 3.22+ instansyny dörediň we faýly
+   **user-data** hökmünde beriň. Gorag diwarynda giriş TCP 80/443 açyň (22
+   gerek däl; şablon sshd-ni öçürýär).
+4. Ilkinji açylyşa garaşyň. Üstünlik: panelde `Health: healthy` we
+   `Applied`-yň `Desired`-a ýetmegi. Şowsuz bolsa, üpjün edijiniň
+   konsolyndan `/var/log/cloud-init-output.log`-y okaň.
+5. Şowsuz ilkinji açylyşy şol ýerde bejermäň: instansy ýok ediň we täze
+   düwün ID-si we tokeni bilen täzeden dörediň. cloud-init bir gezek işleýär.
+
+Howpsuzlyk belligi: token user-data-da bolýar we üpjün edijiniň
+metamaglumatlary ony saklaýar. Şablon serwerdäki `/root/lessv.env` we
+bootstrap faýllaryny pozýar, ýöne üpjün edijiniň ýazgysyny pozup bilmeýär.
+Diňe ynamdar üpjün edijide ulanyň; ýatyrmak panelde düwün ýazgysyny
+öçürmekdir (token derrew işlemeýär). Işlenen user-data-ny ammara commit
+etmäň.
+
+Şablon Alpine/OpenRC üçin niýetlenen. Debian/Ubuntu üçin 5.2-ni ulanyň;
+OpenRC skriptlerini systemd serwerine goýmaň.
+
+#### 5.4 Ilkinji konfigurasiýany ýazmak
+
+Düwün sahypasy → **Configuration**:
+
+1. **Base config** → tassykla. Redaktorda skelet peýda bolýar:
+   `inbounds: []`, bir `BLOCK` blackhole outbound, boş routing.
+2. **Presets → REALITY inbound → Apply**. Deslapky bahalar düwüniň
+   Domain-inden we ýasama socketden alynýar:
+   - 443-de diňlemek;
+   - `dest=/dev/shm/lessv-decoy.sock`;
+   - `serverNames=[node1.example.com]`;
+   - tötänleýin 8 belgili hex `shortId`;
+   - vision akym dolandyryşy;
+   - `privateKey` boş; panel ony döredip goşýar, şonuň üçin hususy açar
+     öň tarapda görünmeýär.
+3. Birleşdirilen JSON-y barlaň we **Save config**-a basyň. Preset özi
+   saklanmaýar. Sanawda WARP outbound we `geoip:`/`geosite:` blokirleme
+   düzgünleri hem bar; olar hem diňe redaktora birleşdirilýär we elde
+   saklamagy talap edýär.
+
+Takmynan 60 sekuntdan `GET /api/admin/nodes/node1/sync` (ýa düwün
+sahypasy) `applied_hash == desired_hash` we `health=ok` görkezmeli. Nädogry
+konfigurasiýa öňki işleýän konfigurasiýany saklaýar we ýalňyşlygy
+`last_error`-a ýazýar; panel ony görkezýär.
+
+Goşmaça çykyşlar üçin konfigurasiýa outbound goşuň (`freedom` göni; WARP
+preseti wireguard döredýär; beýlekiler ýokary akym çykyşy hasaplanýar), soň
+ulanyjylara belläň. `BLOCK` gabat gelmeýän trafigiň deslapky ýoludyr we
+hiç wagt ulanyja berilmeýär. Konfigurasiýany saklamak her inbound/outbound-y
+endpoint registrine ýazýar; tag üýtgese-de ulanyjy hukuklary, REALITY
+açarlary we baglanyşyk görnüşleri saklanýar.
+
+Düwündäki `/var/lib/lessv/config.json` faýlyny elde üýtgetmäň. Panel ýeke-täk
+hakykat çeşmesi; indiki çekiliş faýly üstünden ýazar.
+
+#### 5.5 Şahadatnama çykarmak we bellemek
+
+Düwün domeni `serverNames`-de bolmaly we şahadatnama düwüne bellenmeli,
+şonda nginx ony berip bilýär.
+
+1. Panel **Certificates → Add domain**: zonany saýlaň (adaty ýagdaýda
+   awtomatik), `node1.example.com` ýazyň; gerek bolsa include wildcard-y
+   açyň. Create.
+2. **Test issue**: ACME/DNS-01 akymyny doly işledýär, ýöne diňe staging
+   current görkezijisini üýtgedýär, önümçilige degmeýär. DNS we CAA
+   elýeterliligini önümçilik çägi sarp etmezden barlamak üçin.
+3. Üstünlikden soň **Issue** we tassyklama penjiresinde takyk domeni
+   ýazyň. Let's Encrypt önümçilikde hepdede bir domen üçin 5 şahadatnama
+   berýär; şowsuzylykda aýlawly gaýtalamanyň.
+4. Düwün sahypasynyň **Certificates** bölümi: `node1.example.com`-y belläň,
+   **Production** (deslapky) saýlaň we **Save assignment**-a basyň.
+5. Çekilişe garaşyň: panel `cert_synced_at` we `nginx_ok=1` görkezýär. Düwün
+   şahadatnamany `/etc/lessv/certs/<domain path>/current/`-a ýazýar, nginx
+   ýasama konfigurasiýasyny döredýär, `nginx -t` we reload edýär. Ýadro
+   täzeden başlamaýar.
+
+Barlag:
+
+```bash
+curl -I http://node1.example.com     # https-e 301
+curl -I https://node1.example.com    # 200, dogry şahadatnama (-k gerek däl)
+```
+
+Staging bilen synag klienti Let's Encrypt staging köküne ynam etmeli;
+staging şahadatnamalary täzelenmeýär we 7 günden soň pozulýar. Önümçilik
+şahadatnamalary her gün 03:17 UTC cron bilen awtomatik täzelenýär we düwün
+täze bellemäsiz yzarlaýar.
+
+#### 5.6 Ulanyjy döretmek, abuna çykarmak, klienti barlamak
+
+1. **Users → Add user**: ulanyjy ady, ýagdaýy, islege görä möhleti; **Access
+   by node** bölüminde düwüni saýlaň we rugsat berlen inbound/outbound-lary
+   belläň; **Create user**. `BLOCK` çykyş sanawynda görünmeýär.
+2. `applied_hash == desired_hash` bolýança garaşyň (indiki heartbeat we
+   apply).
+3. Ulanyjylar sanawynda **Share** → **Subscription → Generate**:
+
+   ```
+   https://cp.example.com/sub/<token>
+   ```
+
+   Bu URL bearer kepil: kimiňde bar bolsa, abuna alýar. Syrsa, şol kartda
+   **Rotate**-a basyň; köne URL derrew işlemeýär.
+4. Kliente giriziň:
+   - v2rayN / NekoBox / Shadowrocket / Hiddify: URL-i giriziň we base64
+     VLESS sanawyny alyň;
+   - Clash Verge / FlClash / mihomo: user-agent-de
+     `clash`/`mihomo`/`stash` bar bolsa, mihomo profili berilýär;
+     `?target=clash` ony mejbur edýär;
+   - `?target=uri` VLESS sanawyny mejbur edýär.
+5. Klient tarapdan synag:
+
+   ```bash
+   curl https://api.ipify.org        # düwüniň çykyş IP-sini bermeli
+   curl https://node1.example.com/   # 200 we dogry şahadatnama bolmaly
+   ```
+
+   Tuneliň içinde we daşynda birmeňzeş `tlsserver` şahadatnamasy görünýär:
+   REALITY REALITY däl trafigi nginx ýasama saýtyna geçirýär. Brauzerde
+   ýaşyl "Your Connection is secure" kartasy we gelýäniň çykyş IP-si
+   görünmeli.
+
+### 6. Işletmek we ýalňyşlyklary düzetmek
+
+| Alamaty | Ilki barlaň | Düzediş |
+|---|---|---|
+| Düwün hiç görünmeýär | DNS diňe DNS-mi; giriş 80/443; çykyş 80/443; token doly göçürildimi; serwer sagadymy | Tora düzediş ediň ýa täze token dörediň; `journalctl -u lessv-node -n 50` |
+| Düwün bar, `health` nädogry | `last_error`, `applied_hash` bilen `desired_hash` | Düwüniň žurnalyny okaň; düwün apply-dan öň konfigurasiýany barlaýar |
+| Konfigurasiýa saklandy, ýöne işlemeýär | JSON dogrumy; REALITY `privateKey` boşmy; `serverNames` domeni öz içine alýarmy | Düzediň we Save; düwün öňki işleýän konfigurasiýany saklaýar |
+| `nginx_ok=0` | `nginx_error`; serwerde OpenSSL >= 3.5 | Debian 13+/Ubuntu 25.10+/Alpine 3.22+ geçiň; klassik yza gaýtma ýok |
+| Şahadatnama çykarylmaýar | `issue_runs` phase/error; DNS tokeniniň zona çägi; CAA; LE çägi | Ilki Test issue; önümçilik şowsuzylygyny aýlawda gaýtalamanyň |
+| Düwün şahadatnama almaýar | Belleniş barlanýarmy; gurşaw dogrumy; `cert_etag` düşüp galdymy | Assignment-y täzeden saklaň; manifest ETag bilen deňeşdiriň |
+| Abuna boş | Ulanyjy disabled/möhleti geçen; inbound/outbound hukugy ýok; düwünde address ýok | Hukugy ýa ýagdaýy düzediň; boş jogap 200, 404 däl |
+| Clash birikýär, brauzer saýty açmaýar | Klient REALITY + `support-x25519mlkem768` goldaýarmy; chrome barmak yzy | Döredilen mihomo profilini ulanyň; URI-i elde üýtgetmäň |
+| WARP preseti 502 | Cloudflare WARP registrasiýa API-si elýeterlimi | Täzeden synanyşyň; panel ýarym konfigurasiýa ýazmaýar |
+
+Düwüniň tehniki hyzmaty:
+
+- **Ýadro täzelesi**: deslapky `latest` ýa-da kesgitli tag. Düwün `.dgst`-i
+  barlaýar, häzirki konfigurasiýany synaýar, köne binary-ny ätiýaçlaýar,
+  çalyşýar, täzeden başlaýar we şowsuzylykda köne binary-ny yzyna gaýtarýar.
+- **Refresh Geodata**: `geoip.dat`/`geosite.dat`-yň full wersiýasyny
+  ýokary akym rules-dat çykarylyşyndan ýükläp, barlaýar we ýadrony täzeden
+  başlaýar. Ilkinji gezek şertsiz gurýar, soň konfigurasiýada
+  `geoip:`/`geosite:` bar bolsa her 7 günde täzeläýär.
+- Iki hereketiň ýagdaýy düwüniň ýokarsynda we
+  `GET /api/admin/nodes/<id>/sync` jogabynyň `actions` bölüminde görünýär.
+
+Düwüni öçürmek: **Delete** düwüniň tokenini, konfigurasiýasyny, ulanyjy
+hukuklaryny, endpoint registrini, REALITY açarlaryny we şahadatnama
+bellenişini öçürýär. Şahadatnama domenleri we çykarylyş taryhy domen derejesinde
+bolup, täsir etmeýär. Maşyn soňky konfigurasiýasyny işledip durýar; ony
+aýratyn ýok ediň. Tokeni täzeden döretmek köne tokeni derrew ýatyryýar; bar
+bolan düwün `node.toml`-y täzeläp bilýär.
+
+Ätiýaçlyk: iň bolmanda `KEY_SECRET`, `.env.production`, D1 (Cloudflare
+panelinde export ýa point-in-time restore) we R2 şahadatnama buketi.
+`KEY_SECRET` bolmasa, REALITY/şahadatnama/ACME hususy açarlaryny açyp
+bolmaýar. R2-däki şahadatnamalary täzeden çykaryp bolýar; hususy açarlary
+bolmaýar.
+
+### 7. Howpsuzlyk çäkleri we belli çäklendirmeler
+
+- `ADMIN_KEY` root bilen deňdir; Cloudflare Access goşmaça derweze, onuň
+  ýerini tutmaýar.
+- `KEY_SECRET` çalşylmaýar. Çalşyrsaňyz, saklanýan ähli düwün açarlary,
+  şahadatnama açarlary we ACME hasaby okalmaz bolýar.
+- Düwün tokenleri diňe hash görnüşinde saklanýar we bir gezek görkezilýär;
+  `/etc/lessv/node.toml` 0600 bolmaly.
+- Abuna URL-si kepil: syrsa, şol ulanyjynyň abunasyny başga birine
+  berýärsiňiz. Derrew Rotate ediň.
+- cloud-init tokeni user-data-a we üpjün edijiniň metamaglumatlaryna
+  goýýar; ynamdar bolmadyk üpjün edijide ulanmaň.
+- `expire` diňe abuna hukugyna täsir edýär (möhleti geçen ulanyjy boş
+  abuna alýar); `status=disabled` ulanyjyny ýadro konfigurasiýasyndan
+  aýyrýar.
+- Clash abunasynda diňe `proxies`, bir `SELECT` topary we `MATCH` düzgüni
+  bar. Ýerleşýiş ýoly boýunça bölüşdirmäni klientde goşuň.
+- REALITY hususy açaryndan açyk açar alyp bolmasa (mysal üçin konfigurasiýada
+  ýer tutaryjy galan bolsa), baglanyşykda `pbk` ýok we REALITY el gysmasy
+  gutarmýar.
+- Düwüni öçürmek maşyndaky işledilen konfigurasiýany pozmaýar; serweri
+  aýratyn işden çykaryň.
+- nginx ýasama konfigurasiýasy we `index.html` düwün tarapyndan döredilýär
+  we dolandyrylýar. `index.html`-däki belgini aýyrsaňyz, sahypa öz
+  sahypaňyz bolýar, ýöne täzeleme üýtgedilmedik sahypalary täzeläýär.
+- Ýasama saýt TLS 1.3 + `X25519MLKEM768:X25519`, PQ däl yza gaýtma ýok;
+  OpenSSL < 3.5 serwer gurmakda ýa apply-da şowsuz bolýar.
+- `BLOCK` uly harplar bilen ýazylmaly; kiçi `block` ýol berilýän çykyş
+  hasaplanýar.
+- WARP registrasiýasy Cloudflare app API-sini ulanýar; şowsuzylykda 502
+  gaýtarýar we ýarym konfigurasiýa ýazmaýar. Her preset synagda täze enjam
+  hasaba alýar; panel enjam kepillerini saklamaýar.
+- GeoIP rules-dat full wersiýasyny ulanýar; lite wersiýa islendik sebitiň
+  `geoip:` düzgüni üçin ýeterlik däl.
+- Staging şahadatnamalary täzelenmeýär we 7 günden soň pozulýar; uzak
+  möhletli synag düwüni üçin Test issue-ny täzeden işlediň.
+- Bu gollanma `lessv-node 0.6.0` we protokol 3-i beýan edýär; häzirki
+  wersiýany [Gitee Releases](https://gitee.com/realumino/lessv/releases)-dan
+  görüň.
+
+### 8. Goşmaça okamak
+
+- Düwün ↔ panel protokoly: [`docs/PROTOCOL.md`](docs/PROTOCOL.md)
+- Şahadatnamalar, nginx we ýalňyşlyklary düzetmek:
+  [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+- Arhitektura, işläp düzmek, synaglar, çykarylyşlar:
+  [`docs/dev/`](docs/dev/README.md)
+
+### 9. Biraz ýumors
+
+- Türkmençede “düwün” hem “node”, hem “knot” manylaryny berýär; DNS
+  ýalňyş bolsa, ikinji many dogry bolýar.
+- Düwün `healthy` diýýär, ýöne DNS ýazgysy ýok. Bu tehniki ýagdaý däl,
+  optimizm.
+- Düwün işlemeýär diýip, ilki kabeli barlaň; kabel sag bolsa, özüňizi barlaň.
+- `last_error` boş bolsa gowy; doly bolsa, düwün size hat ýazýar.
+- Gorag diwary 80/443-i açýar, 22-ni ýapýar; düwün özüni howpsuz duýýar,
+  siz hem 22-ni barlaň.
