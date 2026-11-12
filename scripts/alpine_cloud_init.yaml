@@ -206,6 +206,31 @@ write_files:
       NAME="lessv-node-${VERSION}-linux-${ARCH}"
       WORK=$(mktemp -d)
 
+      # Gitee is this bootstrap's only mainland-China dependency: the bundle
+      # and SHA256SUMS both come from it, and the release URL redirects to a
+      # separate file host. An address that is filtered on that path never
+      # completes the TCP connect, and the retry loop below would hide the
+      # cause behind minutes of silence; probe the exact URL once so the
+      # console shows why. HTTP status is checked separately: a 404 is a
+      # wrong VERSION, not an unreachable host.
+      if probe=$(curl -sS -L --max-time 15 -o /dev/null -w '%{http_code}' \
+          "$BASE/SHA256SUMS" 2>&1); then
+          probe_status=0
+      else
+          probe_status=$?
+      fi
+      if [ "$probe_status" -ne 0 ]; then
+          echo "release host unreachable: $BASE/SHA256SUMS" >&2
+          echo "curl (exit ${probe_status}): ${probe}" >&2
+          echo "the release is hosted in mainland China; an address filtered on that path cannot install it" >&2
+          exit 1
+      fi
+      if [ "$probe" != "200" ]; then
+          echo "release host answered HTTP ${probe} for $BASE/SHA256SUMS" >&2
+          echo "check that VERSION=${VERSION} exists on Gitee releases and ships SHA256SUMS" >&2
+          exit 1
+      fi
+
       attempt=0
       while :; do
           if curl -fsSL --max-time 120 -o "$WORK/bundle.tar.gz" "$BASE/$NAME.tar.gz" \

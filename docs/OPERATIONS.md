@@ -190,8 +190,12 @@ First boot sets:
   scripts, `LimitNOFILE` in the systemd units), not in cloud-init, so nodes
   installed by `install.sh` alone get it too.
 - Release install: Gitee tarball plus `SHA256SUMS`, then `install.sh`
-  (nginx, Xray, units, enroll). cloud-init is one-shot and does not run
-  `apk upgrade`; a node's package set is its image plus these installs.
+  (nginx, Xray, units, enroll). Before the download loop the bootstrap
+  requests `SHA256SUMS` once: an address that cannot reach Gitee fails with
+  the curl cause instead of five silent 120-second attempts, and a wrong
+  `VERSION` surfaces as an HTTP status rather than a timeout. cloud-init is
+  one-shot and does not run `apk upgrade`; a node's package set is its image
+  plus these installs.
 
 Failure policy: a node that does not enroll is destroyed and rebuilt with a
 new node id; user data is not retained for an in-place rebuild. Read
