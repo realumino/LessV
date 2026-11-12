@@ -1,12 +1,12 @@
 # LessV
 
-LessV is a self-hosted traffic-forwarding management plane on Cloudflare Workers. This file is the operator manual in Simplified Chinese, English, Persian, Russian, and Korean.
+LessV is a self-hosted traffic-forwarding management plane on Cloudflare Workers. This file is the operator manual in Simplified Chinese, English, Persian, Russian, and 조선어.
 
 LessV 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare Workers 上，管理端是挂在 `/admin` 的 React SPA，节点端是静态单二进制 `lessv-node`。节点只从面板拉取配置与证书，面板不主动连接节点。
 
-本文件是面向部署与运维的**使用手册**，包含简体中文、English、فارسی、Русский、Korean 五个版本。开发者文档在 [`docs/dev/`](docs/dev/README.md)：架构、开发、测试、发布。
+本文件是面向部署与运维的**使用手册**，包含简体中文、English、فارسی、Русский、조선어 五个版本。开发者文档在 [`docs/dev/`](docs/dev/README.md)：架构、开发、测试、发布。
 
-[简体中文](#zh) · [English](#en) · [فارسی](#fa) · [Русский](#ru) · [Korean](#ko)
+[简体中文](#zh) · [English](#en) · [فارسی](#fa) · [Русский](#ru) · [조선어](#ko)
 
 ---
 
@@ -2271,7 +2271,7 @@ point-in-time restore в панели Cloudflare) и бакет сертифик
 ---
 
 <a id="ko"></a>
-## Korean
+## 조선어
 
 ### 1. LessV란 무엇인가
 
