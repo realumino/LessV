@@ -168,9 +168,11 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
    curl -sS -X POST -H "Authorization: Bearer $ADMIN_KEY" \
      $CP/api/admin/users/<user>/sub-token   # 201，只显示一次
    curl -sS $CP/sub/<sub-token> -o /tmp/sub.txt
+   curl -sS "$CP/sub/<sub-token>?target=clash" -o /tmp/clash.yaml
    ```
    等 fleet 的 applied = desired（心跳 30s + apply，首次 60–90s）；导入
-   v2rayN / NekoBox / Shadowrocket / Hiddify，更新订阅后连接，打开
+   v2rayN / NekoBox / Shadowrocket / Hiddify，或 Clash Verge / FlClash
+   （mihomo），更新订阅后连接，打开
    `https://api.ipify.org` 确认出口 IP 是节点地址；浏览器打开
    `https://<域名>/` 应看到假站点且证书有效（无需 `-k`）。使用 staging
    证书时，浏览器/curl 需要信任 Let's Encrypt staging 根
@@ -270,10 +272,22 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 - 用户页新建用户，按节点勾选 inbound 与出口——`BLOCK` 不出现，它只是黑洞
   默认路由。授权按注册表 id 存储，会渲染成该节点的路由规则，fleet
   applied = desired 后生效。
-- mint 订阅 token 后，订阅地址是 `https://<cp-host>/sub/<token>`：base64
-  的 VLESS 链接列表，与用户页 Links 显示完全一致。链接携带
-  `security=reality`、`sni=<节点域名>`、`flow=xtls-rprx-vision`、`pbk`、
-  `sid`、`spx`、`encryption=none`、`type=tcp`。
+- mint 订阅 token 后，订阅地址是 `https://<cp-host>/sub/<token>`，一个 URL
+  同时服务两类客户端：
+  - 默认（浏览器、curl、v2rayN 等）：base64 的 VLESS 链接列表，与用户页
+    Links 显示完全一致。链接携带 `security=reality`、`sni=<节点域名>`、
+    `flow=xtls-rprx-vision`、`pbk`、`sid`、`spx`、`encryption=none`、`type=tcp`、
+    `fp=chrome`、`support-x25519mlkem768=true`。
+  - Clash 系（User-Agent 含 `clash`/`mihomo`/`stash`，如 Clash Verge、
+    ClashX、FlClash）或显式 `?target=clash`：mihomo 配置——每条链接一个
+    `vless` 代理（名字就是链接的 label），一个 `select` 组 `LESSV` 收全部
+    代理，`rules` 只有 `MATCH,LESSV`。`?target=uri` 强制回到 base64 列表。
+  - REALITY 代理固定写 `client-fingerprint: chrome` 与
+    `reality-opts.support-x25519mlkem768: true`。后者在 mihomo 里没有默认值：
+    缺省（false）会把 X25519MLKEM768 从 ClientHello 中删掉，而 Xray 26.9.8+
+    的 REALITY 服务端会把这种连接当普通访问转给假站点（表现为网站能打开、
+    隧道连不上，客户端报未知证书）。指纹沿用链接的 `fp`（面板固定 chrome），
+    因为只有携带该组的 uTLS profile 才能完成握手。
 - 探针：`curl https://api.ipify.org` 应返回节点 IP；`curl
   https://<域名>/` 应 200 且证书有效——隧道内外看到的是同一张 `tlsserver`
   证书（REALITY 把非 REALITY 流量转给 nginx 假站点）。
@@ -292,14 +306,20 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 - 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.6.0`（Gitee
   Release `node-v0.6.0`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
   构建：`npm run release:node`）。协议 3。
-- 测试矩阵：Worker 448 passed / 62 files；前端 36 passed；lessv-node 64 Rust 单元测试。
-- 未做（候选方向）：nginx 配置面板托管、B 拓扑（TLS/WS/xhttp）、Clash
-  订阅、stats/quota、到期通知、多管理员。
+- 测试矩阵：Worker 466 passed / 63 files；前端 36 passed；lessv-node 64 Rust 单元测试。
+- 未做（候选方向）：nginx 配置面板托管、B 拓扑（TLS/WS/xhttp）、
+  stats/quota、到期通知、多管理员。
 
 ## 已知限制
 
 - `expire` 只影响订阅资格（过期用户订阅为空，但配置仍保留）；
   `status=disabled` 才会从 Xray 配置移除。
+- Clash 订阅只生成 `proxies`、一个 `select` 组（`LESSV`）和 `MATCH` 规则：
+  面板知道用户能用哪些 inbound/出口，但不知道用户按目的地分流的偏好，所以
+  不预置 GEOIP/GEOSITE 规则；要继续分流就在客户端自己加。
+- REALITY inbound 的私钥若派生不出公钥（例如配置里留了占位符），链接就没有
+  `pbk`，该链接在 Clash 订阅里会被跳过——这种链接本来也无法完成 REALITY
+  握手（客户端会看到假站点的证书）。
 - `PUT /api/admin/users` 无法把 `expire` 改回 `null`（null 表示“不变”），
   需要时用一个远期 epoch 替代。
 - 删除节点（节点页 **Delete node**，`DELETE /api/admin/nodes/<id>`）会一次删掉该节点的

@@ -10,12 +10,20 @@
 
 import { Hono } from "hono";
 
-import { subscriptionBody } from "../services/subscription_service";
+import {
+  subscriptionBody,
+  subscriptionFormat,
+} from "../services/subscription_service";
 
 export const subRouter = new Hono<{ Bindings: Env }>();
 
 /**
- * WHAT: serve one user's subscription as base64 text.
+ * WHAT: serve one user's subscription as base64 text or a Clash profile.
+ *
+ * WHY the format comes from the request: one capability URL must keep
+ * working for both kinds of client. `?target=clash` (or `uri`) pins the
+ * shape explicitly; otherwise the user agent decides, so a Clash app gets
+ * YAML from the plain URL and everything else keeps the URI list.
  *
  * WHY text/plain and no-store: clients expect raw body bytes, and a
  * capability URL must never sit in a shared cache or a browser back-forward
@@ -23,9 +31,17 @@ export const subRouter = new Hono<{ Bindings: Env }>();
  * expired tokens — see `subscriptionBody`.
  */
 subRouter.get("/sub/:token", async (c) => {
-  const body = await subscriptionBody(c.env, c.req.param("token"));
+  const format = subscriptionFormat(
+    c.req.query("target"),
+    c.req.header("user-agent"),
+  );
+  const body = await subscriptionBody(c.env, c.req.param("token"), format);
+  const yaml = format === "clash";
+  const contentType = yaml
+    ? "text/yaml; charset=utf-8"
+    : "text/plain; charset=utf-8";
   return c.body(body, 200, {
-    "Content-Type": "text/plain; charset=utf-8",
+    "Content-Type": contentType,
     "Cache-Control": "no-store",
   });
 });

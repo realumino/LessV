@@ -31,7 +31,9 @@ function config(exitTag: string): Record<string, unknown> {
           security: "reality",
           realitySettings: {
             serverNames: ["apple.com"],
-            privateKey: "operator-key",
+            // RFC 7748 test vector: a REALITY link without a derivable
+            // public key cannot be represented as a working proxy.
+            privateKey: "sMS4KcvOCag9dZsYPa3sFfVLSn3IGNEI34B7ENhGBFE",
             shortIds: ["1234"],
           },
         },
@@ -369,5 +371,87 @@ describe("the subscription endpoint", () => {
     expect(aUris[0]).not.toContain(bUuid);
     expect(bUris[0]).toContain(bUuid);
     expect(bUris[0]).not.toContain(aUuid);
+  });
+
+  describe("the Clash profile", () => {
+    /** WHAT: fetch the subscription as a named client would. */
+    function clashGet(
+      token: string,
+      userAgent: string | null,
+      target?: string,
+    ): Promise<Response> {
+      const path = target ? `/sub/${token}?target=${target}` : `/sub/${token}`;
+      return planeFetch(
+        path,
+        userAgent === null ? undefined : { headers: { "User-Agent": userAgent } },
+      );
+    }
+
+    it("serves one REALITY proxy per link to Clash clients", async () => {
+      const node = uid("n");
+      const user = uid("alice");
+      await makeNode(node, "funky.example.com", "alpha");
+      const created = await makeUser(user, accessFor(node));
+      const token = created.sub_token!;
+
+      const response = await clashGet(token, "clash-verge/v2.4.2");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe(
+        "text/yaml; charset=utf-8",
+      );
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const yaml = await response.text();
+
+      const links = await adminLinks(user);
+      expect(links).toHaveLength(1);
+      // The proxy name is the link's readable label, so the profile and
+      // the admin's link list name the same thing.
+      expect(yaml).toContain(`  - name: "${links[0].label}"`);
+      expect(yaml).toContain('    type: "vless"');
+      expect(yaml).toContain('    server: "funky.example.com"');
+      expect(yaml).toContain('    client-fingerprint: "chrome"');
+      expect(yaml).toContain("    reality-opts:");
+      expect(yaml).toContain("      support-x25519mlkem768: true");
+      expect(yaml).toContain('  - "MATCH,LESSV"');
+    });
+
+    it("keeps the URI list unless a client asks for a profile", async () => {
+      const node = uid("n");
+      const user = uid("alice");
+      await makeNode(node, "funky.example.com", "alpha");
+      const created = await makeUser(user, accessFor(node));
+      const token = created.sub_token!;
+      const links = await adminLinks(user);
+
+      // No user agent (curl, a browser): the portable list.
+      const plain = await clashGet(token, null);
+      expect(plain.headers.get("content-type")).toContain("text/plain");
+      expect(decode(await plain.text())).toEqual(links.map((link) => link.uri));
+
+      // An explicit target beats a Clash user agent.
+      const uri = await clashGet(token, "clash-verge/v2.4.2", "uri");
+      expect(uri.headers.get("content-type")).toContain("text/plain");
+      expect(decode(await uri.text())).toEqual(links.map((link) => link.uri));
+
+      // And a plain agent can ask for the profile explicitly.
+      const forced = await clashGet(token, "curl/8.7.1", "clash");
+      expect(forced.headers.get("content-type")).toBe(
+        "text/yaml; charset=utf-8",
+      );
+      expect(await forced.text()).toContain("proxy-groups:");
+    });
+
+    it("answers an unentitled user with an empty profile", async () => {
+      const node = uid("n");
+      const user = uid("alice");
+      await makeNode(node, "funky.example.com", "alpha");
+      const created = await makeUser(user, accessFor(node), {
+        status: "disabled",
+      });
+
+      const response = await clashGet(created.sub_token!, "mihomo/1.19.30");
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("");
+    });
   });
 });
