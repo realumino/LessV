@@ -52,7 +52,22 @@ presses Save config.
   stack needs no `/dev/net/tun`). Every build creates a new device.
 - **Geo block routing** — appends `geoip:<code>` and/or `geosite:<category>`
   rules that send matches to `BLOCK` (or another chosen tag). Two rules,
-  because Xray ANDs matchers inside one rule. Needs the geodata files below.
+  because Xray ANDs the matchers inside one rule (`ip` + `domain` in one rule
+  matches only destinations that satisfy both). When an `ip` rule is added,
+  the preset sets `routing.domainStrategy: IPOnDemand` if the document has
+  none: the plane appends a per-user rule that matches every connection, and
+  Xray's `IPIfNonMatch` only resolves a hostname when **no** rule matched —
+  the later per-user rule wins first, so an ip rule under `IPIfNonMatch`
+  never sees a hostname destination. `IPOnDemand` resolves when the ip rule
+  is evaluated. A document that already sets another strategy keeps it and
+  the build warns. Needs the geodata files below.
+- **Geo rules and real-world DNS** — `geoip:` is IP geolocation, and CDNs
+  answer with regional edges: from an EU node `www.baidu.com` resolves to
+  Baidu's Hong Kong range (103.235.46.0/24), not to a mainland IP, so an
+  ip-only rule does not catch it even under `IPOnDemand`. Add the matching
+  domain set (`categories: cn`, or `category-ru`) so the site is blocked by
+  name. Both matchers are evaluated for the traffic a user sends as a
+  hostname, which is the normal case through VLESS.
 
 Merge rules: array items are keyed by `tag` (replace in place, append when
 new), arrays of scalars replace, arrays of objects without a tag append

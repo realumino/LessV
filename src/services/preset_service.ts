@@ -26,6 +26,20 @@ type Dict = Record<string, unknown>;
 /** WHAT: the decoy socket a self-steal REALITY inbound targets. */
 export const DECOY_SOCKET = "/dev/shm/lessv-decoy.sock";
 
+/**
+ * WHAT: the routing strategy an ip-matching fragment needs.
+ *
+ * WHY IPOnDemand and not IPIfNonMatch: the plane always appends a per-user
+ * rule (`user: regexp:.*@<node>-<exit>`) after the operator's rules, and that
+ * rule matches every connection. Xray's IPIfNonMatch resolves a domain only
+ * when NO rule matched, so the later catch-all wins before any resolution
+ * happens and the ip rule never sees a domain destination. IPOnDemand
+ * resolves as soon as the ip rule is evaluated, which is what makes the
+ * fragment effective (verified on a live node: an IP literal was blocked,
+ * the same address behind a hostname was not, under IPIfNonMatch).
+ */
+export const GEO_DOMAIN_STRATEGY = "IPOnDemand";
+
 /** WHAT: the empty skeleton every new document starts from. */
 export const BASE_CONFIG: Dict = {
   log: { loglevel: "warning" },
@@ -142,8 +156,9 @@ export function presetDescriptors(nodeAddress: string): PresetDescriptor[] {
       label: "Block destinations by geodata",
       summary:
         "Appends routing rules that send matching destinations to the chosen " +
-        "outbound (BLOCK by default). Needs geoip.dat/geosite.dat, which " +
-        "lessv-node installs and refreshes.",
+        "outbound (BLOCK by default) and sets routing.domainStrategy to " +
+        "IPOnDemand so ip rules also see hostname destinations. Needs " +
+        "geoip.dat/geosite.dat, which lessv-node installs and refreshes.",
       fields: [
         {
           name: "countries",
@@ -376,6 +391,19 @@ export async function buildPreset(
   }
   const [rules, warnings] = geoBlockRules(options);
   const merged = mergeFragment(document, { routing: { rules } });
+  const routing = (merged["routing"] ?? {}) as Dict;
+  if (rules.some((rule) => Array.isArray(rule["ip"]))) {
+    const strategy = routing["domainStrategy"];
+    if (strategy === undefined) {
+      routing["domainStrategy"] = GEO_DOMAIN_STRATEGY;
+    } else if (strategy !== GEO_DOMAIN_STRATEGY) {
+      warnings.push(
+        `routing.domainStrategy is '${String(strategy)}'; the panel appends ` +
+          `per-user rules, so ip rules only see hostname destinations under ` +
+          `'${GEO_DOMAIN_STRATEGY}'`,
+      );
+    }
+  }
   const target = option(options, "target", "BLOCK");
   const tags = outboundTags(merged);
   if (!tags.includes(target)) {

@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BASE_CONFIG,
+  GEO_DOMAIN_STRATEGY,
   buildPreset,
   geoBlockRules,
   mergeArrays,
@@ -166,6 +167,50 @@ describe("the geo-block routing preset", () => {
     const [rules, warnings] = geoBlockRules({ countries: "!!", categories: "" });
     expect(rules).toEqual([]);
     expect(warnings).toContain("no valid countries or categories given; nothing was added");
+  });
+
+  it("sets IPOnDemand when it adds an ip rule", async () => {
+    const [merged, warnings] = await buildPreset(
+      "geo_block",
+      document(),
+      { countries: "cn, ru", target: "BLOCK" },
+      fetch,
+      new Date(),
+    );
+    expect(GEO_DOMAIN_STRATEGY).toBe("IPOnDemand");
+    expect((merged["routing"] as Record<string, unknown>)["domainStrategy"]).toBe(
+      "IPOnDemand",
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  it("leaves a category-only fragment without a strategy", async () => {
+    const [merged] = await buildPreset(
+      "geo_block",
+      { inbounds: [], outbounds: [{ tag: "BLOCK", protocol: "blackhole" }] },
+      { categories: "category-ads-all" },
+      fetch,
+      new Date(),
+    );
+    expect((merged["routing"] as Record<string, unknown>)["domainStrategy"]).toBe(
+      undefined,
+    );
+  });
+
+  it("keeps a different strategy and explains why it will not work", async () => {
+    const doc = document();
+    (doc["routing"] as Record<string, unknown>)["domainStrategy"] = "IPIfNonMatch";
+    const [merged, warnings] = await buildPreset(
+      "geo_block",
+      doc,
+      { countries: "cn" },
+      fetch,
+      new Date(),
+    );
+    expect((merged["routing"] as Record<string, unknown>)["domainStrategy"]).toBe(
+      "IPIfNonMatch",
+    );
+    expect(warnings.join(" ")).toContain("routing.domainStrategy is 'IPIfNonMatch'");
   });
 
   it("warns when the target outbound is not declared", async () => {

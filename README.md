@@ -240,7 +240,14 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
   `client_id`，`noKernelTun: true` 用内建栈，不需要 `/dev/net/tun`）。
   每次预览都会注册一个新设备。
 - **Block destinations by geodata**：把 `geoip:<国家码>` / `geosite:<分类>`
-  的流量路由到指定 outbound（默认 `BLOCK`），依赖节点上的 geodata。
+  的流量路由到指定 outbound（默认 `BLOCK`），依赖节点上的 geodata。加入 ip
+  规则时预设会把 `routing.domainStrategy` 设为 `IPOnDemand`（文档里已有别的值
+  则保留并警告）——面板总会追加按用户的 catch-all 规则，`IPIfNonMatch` 在“已有
+  规则先命中”时根本不会解析域名，ip 规则就看不到域名目的地。注意 `geoip:` 是 IP
+  地理定位：CDN 会按地区返回边缘节点（例如从欧洲解析 `www.baidu.com` 得到的是
+  百度香港的 103.235.46.0/24），所以想按站点封禁还要加对应的 domain 集合
+  （`categories: cn` / `category-ru`）。同一条规则里的 `ip` 与 `domain` 是 AND
+  关系，必须分成两条规则。
 
 节点页 header 的 **Maintenance** 由管理员确认后下发：
 
@@ -285,7 +292,7 @@ ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 - 发布物：平面 `v0.1.0`（本地 tag），节点 `lessv-node` `0.6.0`（Gitee
   Release `node-v0.6.0`，静态 musl 二进制 + `install.sh` + `SHA256SUMS`；
   构建：`npm run release:node`）。协议 3。
-- 测试矩阵：Worker 445 passed / 62 files；前端 36 passed；lessv-node 64 Rust 单元测试。
+- 测试矩阵：Worker 448 passed / 62 files；前端 36 passed；lessv-node 64 Rust 单元测试。
 - 未做（候选方向）：nginx 配置面板托管、B 拓扑（TLS/WS/xhttp）、Clash
   订阅、stats/quota、到期通知、多管理员。
 
