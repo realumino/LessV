@@ -273,6 +273,11 @@ function securityParams(
     if (spiderX) {
       params["spx"] = spiderX;
     }
+    // mihomo strips X25519MLKEM768 from the ClientHello unless the link
+    // carries this flag, and an Xray 26.9.8+ REALITY server quietly sends
+    // any hello without the hybrid group to the decoy site. Clients that
+    // do not know the parameter ignore it.
+    params["support-x25519mlkem768"] = "true";
   } else if (security === "tls") {
     const tls = (stream["tlsSettings"] ?? {}) as Dict;
     const sni = tls["serverName"] || first(tls["serverNames"] ?? []);

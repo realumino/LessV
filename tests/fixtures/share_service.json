@@ -95,7 +95,7 @@
           "email": "alice@JAPAN",
           "profile": null,
           "label": null,
-          "uri": "vless://11111111-1111-1111-1111-111111111111@example.com:443?encryption=none&type=tcp&security=reality&sni=apple.com&fp=chrome&pbk=w_OZ1uUriCcd12KatYIFBJulAFDGNp9V1wL_XiQBt08&sid=1234&flow=xtls-rprx-vision#alice%40JAPAN%20%28REALITY_IN%29"
+          "uri": "vless://11111111-1111-1111-1111-111111111111@example.com:443?encryption=none&type=tcp&security=reality&sni=apple.com&fp=chrome&pbk=w_OZ1uUriCcd12KatYIFBJulAFDGNp9V1wL_XiQBt08&sid=1234&support-x25519mlkem768=true&flow=xtls-rprx-vision#alice%40JAPAN%20%28REALITY_IN%29"
         }
       ],
       "warnings": []
@@ -129,7 +129,7 @@
           "email": "alice@JAPAN",
           "profile": null,
           "label": null,
-          "uri": "vless://11111111-1111-1111-1111-111111111111@example.com:443?encryption=none&type=tcp&security=reality&sni=apple.com&fp=chrome&pbk=hSDwCYkwp1R0i33ctD73Wg2_Og0mOBr066SpjqqbTmo&sid=1234&flow=xtls-rprx-vision#alice%40JAPAN%20%28REALITY_IN%29"
+          "uri": "vless://11111111-1111-1111-1111-111111111111@example.com:443?encryption=none&type=tcp&security=reality&sni=apple.com&fp=chrome&pbk=hSDwCYkwp1R0i33ctD73Wg2_Og0mOBr066SpjqqbTmo&sid=1234&support-x25519mlkem768=true&flow=xtls-rprx-vision#alice%40JAPAN%20%28REALITY_IN%29"
         }
       ],
       "warnings": []
@@ -295,7 +295,7 @@
           "email": "alice@JAPAN",
           "profile": "cdn",
           "label": null,
-          "uri": "vless://11111111-1111-1111-1111-111111111111@cdn.example.com:443?encryption=none&type=tcp&security=reality&sni=apple.com&fp=chrome&pbk=w_OZ1uUriCcd12KatYIFBJulAFDGNp9V1wL_XiQBt08&sid=1234&flow=xtls-rprx-vision#alice%40JAPAN%20%28REALITY_IN%29"
+          "uri": "vless://11111111-1111-1111-1111-111111111111@cdn.example.com:443?encryption=none&type=tcp&security=reality&sni=apple.com&fp=chrome&pbk=w_OZ1uUriCcd12KatYIFBJulAFDGNp9V1wL_XiQBt08&sid=1234&support-x25519mlkem768=true&flow=xtls-rprx-vision#alice%40JAPAN%20%28REALITY_IN%29"
         }
       ],
       "warnings": [
@@ -398,7 +398,7 @@
           "email": "alice@JAPAN",
           "profile": null,
           "label": null,
-          "uri": "vless://11111111-1111-1111-1111-111111111111@example.com:443?encryption=none&type=tcp&security=reality&sni=apple.com&fp=chrome&pbk=w_OZ1uUriCcd12KatYIFBJulAFDGNp9V1wL_XiQBt08&sid=1234&flow=xtls-rprx-vision#alice%40JAPAN%20%28REALITY_IN%29"
+          "uri": "vless://11111111-1111-1111-1111-111111111111@example.com:443?encryption=none&type=tcp&security=reality&sni=apple.com&fp=chrome&pbk=w_OZ1uUriCcd12KatYIFBJulAFDGNp9V1wL_XiQBt08&sid=1234&support-x25519mlkem768=true&flow=xtls-rprx-vision#alice%40JAPAN%20%28REALITY_IN%29"
         }
       ],
       "warnings": [
@@ -435,7 +435,7 @@
           "email": "alice@JAPAN",
           "profile": null,
           "label": null,
-          "uri": "vless://11111111-1111-1111-1111-111111111111@example.com:443?encryption=none&type=tcp&security=reality&sni=apple.com&fp=chrome&pbk=w_OZ1uUriCcd12KatYIFBJulAFDGNp9V1wL_XiQBt08&sid=1234&flow=xtls-rprx-vision#alice%40JAPAN%20%28REALITY_IN%29"
+          "uri": "vless://11111111-1111-1111-1111-111111111111@example.com:443?encryption=none&type=tcp&security=reality&sni=apple.com&fp=chrome&pbk=w_OZ1uUriCcd12KatYIFBJulAFDGNp9V1wL_XiQBt08&sid=1234&support-x25519mlkem768=true&flow=xtls-rprx-vision#alice%40JAPAN%20%28REALITY_IN%29"
         }
       ],
       "warnings": [
