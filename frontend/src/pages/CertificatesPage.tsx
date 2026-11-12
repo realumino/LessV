@@ -21,15 +21,13 @@ import {
 import Badge from "../components/Badge";
 import ConfirmButton from "../components/ConfirmButton";
 import DownloadButton from "../components/DownloadButton";
+import Drawer from "../components/Drawer";
 import EmptyState from "../components/EmptyState";
 import ErrorNote from "../components/ErrorNote";
 import Field from "../components/Field";
+import Icon from "../components/icons";
 import Modal from "../components/Modal";
-import {
-  inputClass,
-  primaryButton,
-  secondaryButton,
-} from "../components/styles";
+import { inputClass, selectClass } from "../components/styles";
 import type { CertDomainOut, CertRunOut, ZoneOut } from "../types";
 import { certTone, daysUntilIso, expiryText } from "../lib/cert";
 
@@ -38,6 +36,7 @@ export default function CertificatesPage() {
   const [zones, setZones] = useState<ZoneOut[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [runView, setRunView] = useState<{ domainId: string; runs: CertRunOut[] } | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
     const [domainResult, zoneResult] = await Promise.all([
@@ -68,19 +67,51 @@ export default function CertificatesPage() {
   }, []);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold">Certificates</h1>
-        <button type="button" className={secondaryButton} onClick={() => void load()}>
-          Refresh
-        </button>
-      </div>
+    <div className="cf-page">
+      <header className="cf-pagehead">
+        <div className="cf-pagehead__text">
+          <h1 className="cf-pagehead__title">Certificates</h1>
+          <p className="cf-pagehead__desc">
+            ACME domains issued by this plane, with both environments and the
+            last recorded error.
+          </p>
+        </div>
+        <div className="cf-pagehead__actions">
+          <button
+            type="button"
+            className="cf-btn cf-btn--secondary"
+            onClick={() => void load()}
+          >
+            <Icon name="refresh-cw" />
+            Refresh
+          </button>
+          <button
+            type="button"
+            className="cf-btn cf-btn--primary"
+            onClick={() => setAdding(true)}
+          >
+            <Icon name="plus" />
+            Add domain
+          </button>
+        </div>
+      </header>
+
       {error && <ErrorNote>{error}</ErrorNote>}
-      <CreateDomainForm zones={zones} onCreated={() => void load()} />
+
+      <div className="cf-toolbar">
+        <div className="cf-toolbar__left">
+          <span className="cf-toolbar__meta">
+            {domains === null
+              ? "Loading…"
+              : `${domains.length} domain${domains.length === 1 ? "" : "s"}`}
+          </span>
+        </div>
+      </div>
+
       {domains === null ? (
         <EmptyState>Loading cert domains…</EmptyState>
       ) : domains.length === 0 ? (
-        <EmptyState>No cert domains yet — create one above.</EmptyState>
+        <EmptyState>No cert domains yet — add the first one.</EmptyState>
       ) : (
         <DomainTable
           domains={domains}
@@ -88,10 +119,23 @@ export default function CertificatesPage() {
           onOpenRuns={openRuns}
         />
       )}
+
+      {adding && (
+        <CreateDomainDialog
+          zones={zones}
+          onClose={() => setAdding(false)}
+          onCreated={() => {
+            setAdding(false);
+            void load();
+          }}
+        />
+      )}
+
       {runView && (
-        <RunsDialog
+        <RunsDrawer
           domainId={runView.domainId}
           runs={runView.runs}
+          onRefresh={() => void openRuns(runView.domainId)}
           onClose={() => setRunView(null)}
         />
       )}
@@ -100,11 +144,13 @@ export default function CertificatesPage() {
 }
 
 /** Create a cert domain; the zone picker is optional (the server resolves). */
-function CreateDomainForm({
+function CreateDomainDialog({
   zones,
+  onClose,
   onCreated,
 }: {
   zones: ZoneOut[];
+  onClose: () => void;
   onCreated: () => void;
 }) {
   const [name, setName] = useState("");
@@ -123,40 +169,53 @@ function CreateDomainForm({
       name: name.trim(),
       ...(zoneId ? { zone_id: zoneId } : {}),
       include_wildcard: wildcard,
-      renew_before_days: parsedDays !== null && Number.isFinite(parsedDays) ? parsedDays : null,
+      renew_before_days:
+        parsedDays !== null && Number.isFinite(parsedDays) ? parsedDays : null,
     });
     setBusy(false);
     if (result.error) {
       setError(result.error);
       return;
     }
-    setName("");
-    setWildcard(false);
     onCreated();
   };
 
   return (
-    <form
-      onSubmit={submit}
-      className="space-y-3 rounded-2xl border border-apple-border bg-apple-card p-4 shadow-sm"
+    <Modal
+      title="Add cert domain"
+      description="The plane resolves the zone from the DNS token unless one is picked."
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="cf-btn cf-btn--secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="add-domain-form"
+            className="cf-btn cf-btn--primary"
+            disabled={busy || !name.trim()}
+          >
+            {busy ? "Creating…" : "Create domain"}
+          </button>
+        </>
+      }
     >
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-apple-muted">
-        Add cert domain
-      </h2>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <div className="flex flex-wrap items-end gap-3">
+      <form id="add-domain-form" className="cf-section" onSubmit={submit}>
+        {error && <ErrorNote>{error}</ErrorNote>}
         <Field label="Domain" hint="example.com or *.example.com">
           <input
             className={inputClass}
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="tokyo01.example.com"
+            aria-label="Domain"
           />
         </Field>
         {zones.length > 0 && (
-          <Field label="Zone (optional)">
+          <Field label="Zone" hint="Optional — auto-detect is the default.">
             <select
-              className={inputClass}
+              className={selectClass}
               value={zoneId}
               onChange={(event) => setZoneId(event.target.value)}
             >
@@ -169,7 +228,7 @@ function CreateDomainForm({
             </select>
           </Field>
         )}
-        <Field label="Renew days" hint="empty = 1/3 of lifetime">
+        <Field label="Renew days" hint="Empty = one third of the lifetime.">
           <input
             className={inputClass}
             value={renewDays}
@@ -178,23 +237,16 @@ function CreateDomainForm({
             placeholder="auto"
           />
         </Field>
-        <label className="flex items-center gap-2 pb-2 text-sm">
+        <label className="cf-check">
           <input
             type="checkbox"
             checked={wildcard}
             onChange={(event) => setWildcard(event.target.checked)}
           />
-          include wildcard SAN
+          Include wildcard SAN
         </label>
-        <button
-          type="submit"
-          className={primaryButton}
-          disabled={busy || !name.trim()}
-        >
-          {busy ? "Creating…" : "Create"}
-        </button>
-      </div>
-    </form>
+      </form>
+    </Modal>
   );
 }
 
@@ -234,80 +286,84 @@ function DomainTable({
   };
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-apple-border bg-apple-card shadow-sm">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-apple-border bg-apple-gray-surface text-left text-xs uppercase tracking-wide text-apple-muted">
-            <Th>Domain</Th>
-            <Th>Production</Th>
-            <Th>Test (staging)</Th>
-            <Th>Status</Th>
-            <Th>Last error</Th>
-            <Th>Actions</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {domains.map((domain) => (
-            <tr key={domain.id} className="border-b border-apple-border last:border-b-0">
-              <Td>
-                <span className="font-semibold">{domain.name}</span>
-              </Td>
-              <Td>
-                <ExpiryCell summary={domain.production_certificate} />
-              </Td>
-              <Td>
-                <ExpiryCell summary={domain.staging_certificate} />
-              </Td>
-              <Td>
-                <Badge
-                  tone={domain.status === "active" ? "ok" : "idle"}
-                >
-                  {domain.status}
-                </Badge>
-              </Td>
-              <Td
-                className="max-w-56 truncate text-apple-red"
-                title={domain.last_error ?? ""}
-              >
-                {domain.last_error || "—"}
-              </Td>
-              <Td>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className={secondaryButton}
-                    onClick={() => setConfirming(domain)}
-                  >
-                    Issue
-                  </button>
-                  <button
-                    type="button"
-                    className={secondaryButton}
-                    onClick={() => void act("test-issue", domain)}
-                  >
-                    Test issue
-                  </button>
-                  <button
-                    type="button"
-                    className={secondaryButton}
-                    onClick={() => onOpenRuns(domain.id)}
-                  >
-                    Runs
-                  </button>
-                  <ConfirmButton
-                    className={secondaryButton}
-                    message={`Delete cert domain ${domain.name}? Nodes lose access on their next sync.`}
-                    onConfirm={() => void act("delete", domain)}
-                  >
-                    Delete
-                  </ConfirmButton>
-                </div>
-              </Td>
+    <section className="cf-card">
+      <div className="cf-tablewrap">
+        <table className="cf-table">
+          <thead>
+            <tr>
+              <th className="cf-table__first">Domain</th>
+              <th>Production</th>
+              <th>Staging</th>
+              <th>Status</th>
+              <th>Last error</th>
+              <th className="cf-cell--actions">Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {domains.map((domain) => (
+              <tr key={domain.id}>
+                <td className="cf-table__first">{domain.name}</td>
+                <td>
+                  <ExpiryCell summary={domain.production_certificate} />
+                </td>
+                <td>
+                  <ExpiryCell summary={domain.staging_certificate} />
+                </td>
+                <td>
+                  <Badge tone={domain.status === "active" ? "ok" : "idle"}>
+                    {domain.status}
+                  </Badge>
+                </td>
+                <td className="max-w-56 truncate" title={domain.last_error ?? ""}>
+                  {domain.last_error ? (
+                    <span className="cf-error">{domain.last_error}</span>
+                  ) : (
+                    <span className="cf-meta">—</span>
+                  )}
+                </td>
+                <td className="cf-cell--actions">
+                  <span className="cf-inline">
+                    <button
+                      type="button"
+                      className="cf-btn cf-btn--secondary cf-btn--sm"
+                      onClick={() => setConfirming(domain)}
+                    >
+                      Issue
+                    </button>
+                    <button
+                      type="button"
+                      className="cf-btn cf-btn--ghost cf-btn--sm"
+                      onClick={() => void act("test-issue", domain)}
+                    >
+                      Test issue
+                    </button>
+                    <button
+                      type="button"
+                      className="cf-btn cf-btn--ghost cf-btn--sm"
+                      onClick={() => onOpenRuns(domain.id)}
+                    >
+                      Runs
+                    </button>
+                    <ConfirmButton
+                      className="cf-iconbtn"
+                      ariaLabel={`Delete ${domain.name}`}
+                      message={`Delete cert domain ${domain.name}? Nodes lose access on their next sync.`}
+                      onConfirm={() => void act("delete", domain)}
+                    >
+                      <Icon name="trash-2" />
+                    </ConfirmButton>
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {error && <ErrorNote>{error}</ErrorNote>}
+      <p className="cf-card__note">
+        Production issuance asks you to type the domain name to confirm; staging
+        certificates are never renewed.
+      </p>
       {confirming && (
         <IssueConfirmDialog
           domain={confirming}
@@ -318,7 +374,7 @@ function DomainTable({
           onClose={() => setConfirming(null)}
         />
       )}
-    </div>
+    </section>
   );
 }
 
@@ -329,20 +385,18 @@ function ExpiryCell({
   summary: CertDomainOut["production_certificate"];
 }) {
   if (!summary) {
-    return <span className="text-apple-muted">—</span>;
+    return <span className="cf-meta">—</span>;
   }
   const days = daysUntilIso(summary.not_after);
   return (
-    <span className="flex flex-col gap-1">
-      <span className="flex items-center gap-2">
+    <span className="cf-stack">
+      <span className="cf-inline">
         <Badge tone={certTone(days)}>{expiryText(days)}</Badge>
         {summary.environment === "staging" && (
-          <span className="text-[10px] font-bold uppercase text-amber-700">
-            staging — not trusted
-          </span>
+          <span className="cf-badge cf-badge--outline">staging</span>
         )}
       </span>
-      <span className="flex items-center gap-2">
+      <span className="cf-inline">
         <DownloadButton certificateId={summary.id} file="fullchain">
           fullchain
         </DownloadButton>
@@ -367,106 +421,104 @@ function IssueConfirmDialog({
   const [text, setText] = useState("");
   const ready = text.trim() === domain.name;
   return (
-    <Modal title={`Issue production certificate for ${domain.name}`} onClose={onClose}>
-      <p className="text-sm text-apple-muted">
-        This issues a Let&apos;s Encrypt production certificate — rate limits
-        apply. Type the domain name to confirm.
-      </p>
+    <Modal
+      title={`Issue production certificate for ${domain.name}`}
+      description="This issues a Let's Encrypt production certificate — rate limits apply. Type the domain name to confirm."
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="cf-btn cf-btn--secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="cf-btn cf-btn--primary"
+            disabled={!ready}
+            onClick={() => onConfirm(text.trim())}
+          >
+            Issue production
+          </button>
+        </>
+      }
+    >
       <input
         className={inputClass}
         value={text}
         onChange={(event) => setText(event.target.value)}
         placeholder={domain.name}
+        aria-label="Type the domain name to confirm"
       />
-      <div className="flex justify-end">
-        <button
-          type="button"
-          className={primaryButton}
-          disabled={!ready}
-          onClick={() => onConfirm(text.trim())}
-        >
-          Issue production
-        </button>
-      </div>
     </Modal>
   );
 }
 
-/** The runs dialog: status/phase/error verbatim, newest first. */
-function RunsDialog({
+/** The runs drawer: status/phase/error verbatim, newest first. */
+function RunsDrawer({
   domainId,
   runs,
+  onRefresh,
   onClose,
 }: {
   domainId: string;
   runs: CertRunOut[];
+  onRefresh: () => void;
   onClose: () => void;
 }) {
   return (
-    <Modal title={`Runs for domain ${domainId.slice(0, 8)}…`} onClose={onClose} wide>
+    <Drawer
+      title="Issue runs"
+      description={
+        runs.length > 0
+          ? `${runs[0].domain_name} · production and staging attempts, newest first`
+          : `domain ${domainId.slice(0, 8)}…`
+      }
+      onClose={onClose}
+      footer={
+        <button
+          type="button"
+          className="cf-btn cf-btn--secondary"
+          onClick={onRefresh}
+        >
+          <Icon name="refresh-cw" />
+          Refresh
+        </button>
+      }
+    >
       {runs.length === 0 ? (
-        <p className="text-sm text-apple-muted">No runs recorded yet.</p>
+        <EmptyState>No runs recorded yet.</EmptyState>
       ) : (
-        <div className="space-y-2">
-          {runs.map((run) => (
-            <div
-              key={run.id}
-              className="rounded-xl border border-apple-border p-3 text-xs"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge
-                  tone={
-                    run.status === "succeeded"
-                      ? "ok"
-                      : run.status === "failed"
-                        ? "bad"
-                        : "warn"
-                  }
-                >
-                  {run.status}
-                </Badge>
-                <span className="font-mono">{run.phase || "—"}</span>
-                <span className="text-amber-700">{run.trigger}</span>
-                <span className="text-apple-muted">{run.environment}</span>
-                <span className="text-gray-500">{run.created_at}</span>
-              </div>
-              {run.error && (
-                <pre className="mt-2 overflow-auto rounded bg-red-50 p-2 text-red-700">
-                  {run.error}
-                </pre>
-              )}
-              <details className="mt-1">
-                <summary className="cursor-pointer text-gray-500">
-                  {run.steps.length} steps
-                </summary>
-                <pre className="mt-1 overflow-auto">
-                  {JSON.stringify(run.steps, null, 1)}
-                </pre>
-              </details>
+        runs.map((run) => (
+          <div key={run.id} className="cf-run">
+            <div className="cf-run__meta">
+              <Badge
+                tone={
+                  run.status === "succeeded"
+                    ? "ok"
+                    : run.status === "failed"
+                      ? "bad"
+                      : "warn"
+                }
+              >
+                {run.status}
+              </Badge>
+              <span className="cf-mono">{run.phase || "—"}</span>
+              <span>
+                {run.trigger} · {run.environment}
+              </span>
+              <span>{run.created_at}</span>
             </div>
-          ))}
-        </div>
+            {run.error && <p className="cf-run__error">{run.error}</p>}
+            <pre className="cf-steps">{stepChain(run)}</pre>
+          </div>
+        ))
       )}
-    </Modal>
+    </Drawer>
   );
 }
 
-function Th({ children }: { children: ReactNode }) {
-  return <th className="px-4 py-3 font-medium">{children}</th>;
-}
-
-function Td({
-  children,
-  className = "",
-  title,
-}: {
-  children: ReactNode;
-  className?: string;
-  title?: string;
-}) {
-  return (
-    <td className={`px-4 py-3 ${className}`} title={title}>
-      {children}
-    </td>
-  );
+/** The recorded phases as one arrow chain, or a dash when none exist. */
+function stepChain(run: CertRunOut): ReactNode {
+  return run.steps.length === 0
+    ? "no steps recorded"
+    : run.steps.map((step) => step.phase).join(" → ");
 }

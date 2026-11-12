@@ -2,7 +2,7 @@
  * The user's subscription URL: display, copy, QR, and rotation.
  *
  * WHY it fetches its own user: the card is mounted in two places (the share
- * dialog and the user edit page), and owning its fetch plus its token state
+ * drawer and the user edit page), and owning its fetch plus its token state
  * means rotation behaves identically everywhere with no parent plumbing.
  * The token is a capability URL, re-displayable by design (plaintext at
  * rest) — this card is the only place the SPA shows it.
@@ -14,6 +14,7 @@ import { getUser, rotateSubToken } from "../api";
 import ConfirmButton from "./ConfirmButton";
 import CopyButton from "./CopyButton";
 import ErrorNote from "./ErrorNote";
+import Icon from "./icons";
 import { secondaryButton } from "./styles";
 import { fmtTimestamp } from "../lib/format";
 import { subscriptionUrl } from "../lib/subscription";
@@ -68,65 +69,68 @@ export default function SubscriptionCard({ username }: { username: string }) {
   const url = subscriptionUrl(window.location.origin, user?.sub_token ?? null);
 
   return (
-    <section className="space-y-3 rounded-2xl border border-apple-border bg-apple-card p-5 shadow-sm">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-apple-muted">
-          Subscription
-        </h2>
+    <section className="cf-card">
+      <div className="cf-card__head">
+        <h2 className="cf-card__title">Subscription</h2>
         {user?.sub_token_created_at && (
-          <span className="text-xs text-apple-muted">
+          <span className="cf-card__meta">
             token minted {fmtTimestamp(user.sub_token_created_at)}
           </span>
         )}
       </div>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      {url ? (
-        <>
-          <div className="break-all rounded-lg bg-apple-gray-surface px-3 py-2 font-mono text-xs">
-            {url}
-          </div>
-          <p className="text-xs text-apple-muted">
-            One URL for every node this user may use. A disabled or expired
-            user receives an empty list.
-          </p>
-          <div className="flex gap-2">
-            <CopyButton text={url} label="Copy URL" />
-            <button
-              type="button"
-              className={secondaryButton}
-              onClick={() => setShowQr((current) => !current)}
-            >
-              {showQr ? "Hide QR" : "QR"}
-            </button>
-            <ConfirmButton
-              className={secondaryButton}
-              message="Rotate the subscription token? The current URL stops working immediately, and every client must re-import the new one."
-              onConfirm={() => void mint()}
-            >
-              Rotate
-            </ConfirmButton>
-          </div>
-          {showQr && (
-            <div className="flex justify-center pt-2">
-              <QRCodeSVG value={url} size={176} marginSize={2} />
-            </div>
+      <div className="cf-card__body">
+        <div className="cf-section">
+          {error && <ErrorNote>{error}</ErrorNote>}
+          {url ? (
+            <>
+              <span className="cf-uri">{url}</span>
+              <p className="cf-hint">
+                One URL for every node this user may use. A disabled or expired
+                user receives an empty list.
+              </p>
+              <div className="cf-inline">
+                <CopyButton text={url} label="Copy URL" />
+                <button
+                  type="button"
+                  className={secondaryButton}
+                  onClick={() => setShowQr((current) => !current)}
+                >
+                  <Icon name="qr-code" />
+                  {showQr ? "Hide QR" : "Show QR"}
+                </button>
+                <ConfirmButton
+                  className={secondaryButton}
+                  message="Rotate the subscription token? The current URL stops working immediately, and every client must re-import the new one."
+                  onConfirm={() => void mint()}
+                >
+                  Rotate
+                </ConfirmButton>
+              </div>
+              {showQr && (
+                <div className="flex justify-center pt-2">
+                  <QRCodeSVG value={url} size={176} marginSize={2} />
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="cf-meta">
+                No subscription URL yet — generate one for this user.
+              </p>
+              <div className="cf-inline">
+                <button
+                  type="button"
+                  className={secondaryButton}
+                  disabled={busy}
+                  onClick={() => void mint()}
+                >
+                  {busy ? "Generating…" : "Generate"}
+                </button>
+              </div>
+            </>
           )}
-        </>
-      ) : (
-        <>
-          <p className="text-sm text-apple-muted">
-            No subscription URL yet — generate one for this user.
-          </p>
-          <button
-            type="button"
-            className={secondaryButton}
-            disabled={busy}
-            onClick={() => void mint()}
-          >
-            {busy ? "Generating…" : "Generate"}
-          </button>
-        </>
-      )}
+        </div>
+      </div>
     </section>
   );
 }

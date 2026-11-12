@@ -45,7 +45,7 @@ export function expiryText(daysLeft: number | null): string {
   if (daysLeft <= 0) {
     return "expired";
   }
-  return `${daysLeft}d`;
+  return `${daysLeft} day${daysLeft === 1 ? "" : "s"}`;
 }
 
 /** WHAT: true for a staging (untrusted) certificate row. */

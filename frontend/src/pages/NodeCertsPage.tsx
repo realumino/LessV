@@ -23,7 +23,7 @@ import {
 import Badge from "../components/Badge";
 import EmptyState from "../components/EmptyState";
 import ErrorNote from "../components/ErrorNote";
-import { primaryButton, secondaryButton } from "../components/styles";
+import Icon from "../components/icons";
 import type { NodeCertDomainOut, NodeOut } from "../types";
 import { certTone, daysUntilIso, expiryText } from "../lib/cert";
 import type { NodeOutletContext } from "./NodeLayout";
@@ -139,35 +139,46 @@ export default function NodeCertsPage() {
   const nginxTone = status?.nginx_ok === 1 ? "ok" : status?.nginx_ok === 0 ? "bad" : "idle";
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-apple-muted">
-          Certificates for this node
-        </h2>
-        <div className="flex items-center gap-3">
-          {status?.nginx_ok !== null && (
+    <>
+      <div className="cf-toolbar">
+        <div className="cf-toolbar__left">
+          <div className="cf-seg" role="group" aria-label="Certificate environment">
+            {ENVIRONMENTS.map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                className="cf-seg__item"
+                disabled={busy || environment === null || environment === value}
+                aria-pressed={environment === value}
+                onClick={() => void selectEnvironment(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="cf-toolbar__right">
+          {status?.nginx_ok !== null && status?.nginx_ok !== undefined && (
             <Badge tone={nginxTone}>
-              nginx {status?.nginx_ok === 1 ? "ok" : "failed"}
+              nginx {status.nginx_ok === 1 ? "ok" : "failed"}
             </Badge>
           )}
           {status?.nginx_error && (
-            <span
-              className="max-w-64 truncate text-xs text-apple-red"
-              title={status.nginx_error}
-            >
+            <span className="cf-meta max-w-64 truncate" title={status.nginx_error}>
               {status.nginx_error}
             </span>
           )}
           <button
             type="button"
-            className={secondaryButton}
+            className="cf-btn cf-btn--secondary"
             onClick={() => void load()}
           >
+            <Icon name="refresh-cw" />
             Refresh
           </button>
           <button
             type="button"
-            className={primaryButton}
+            className="cf-btn cf-btn--primary"
             disabled={busy || domains === null}
             onClick={() => void save()}
           >
@@ -175,47 +186,26 @@ export default function NodeCertsPage() {
           </button>
         </div>
       </div>
+
       {error && <ErrorNote>{error}</ErrorNote>}
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-xs uppercase tracking-wide text-apple-muted">
-          Certificate environment
-        </span>
-        <div
-          className="flex items-center gap-1 rounded-full bg-apple-gray-surface p-1"
-          role="group"
-          aria-label="Certificate environment"
-        >
-          {ENVIRONMENTS.map(({ value, label }) => (
-            <button
-              key={value}
-              type="button"
-              disabled={busy || environment === null || environment === value}
-              aria-pressed={environment === value}
-              className={
-                environment === value
-                  ? "rounded-full bg-apple-card px-4 py-1 text-sm font-medium text-apple-text shadow-sm"
-                  : "rounded-full px-4 py-1 text-sm font-medium text-apple-muted transition-colors hover:text-apple-text disabled:opacity-50"
-              }
-              onClick={() => void selectEnvironment(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
       {environment === "staging" && (
-        <p className="rounded-xl bg-[#fff9e6] px-3 py-2 text-xs text-amber-700">
-          <strong>Staging certificates are for testing only</strong> and are not
-          trusted by clients — test clients must trust the Let's Encrypt staging
-          root. Staging certificates are never renewed and are swept 7 days
-          after issuance.
-        </p>
+        <div className="cf-alert cf-alert--warn">
+          <Icon name="alert-triangle" />
+          <span>
+            Staging certificates are for testing only and are not trusted by
+            clients — test clients must trust the Let&apos;s Encrypt staging root.
+            Staging certificates are never renewed and are swept 7 days after
+            issuance.
+          </span>
+        </div>
       )}
       {notice && (
-        <p className="rounded-xl bg-green-50 px-3 py-2 text-xs text-green-700">
-          {notice}
-        </p>
+        <div className="cf-alert cf-alert--ok">
+          <Icon name="check" />
+          <span>{notice}</span>
+        </div>
       )}
+
       {domains === null ? (
         <EmptyState>Loading assignments…</EmptyState>
       ) : domains.length === 0 ? (
@@ -223,59 +213,78 @@ export default function NodeCertsPage() {
           No cert domains exist yet — create one on the Certificates page.
         </EmptyState>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-apple-border bg-apple-card shadow-sm">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-apple-border bg-apple-gray-surface text-left text-xs uppercase tracking-wide text-apple-muted">
-                <th className="px-4 py-3 font-medium">Assigned</th>
-                <th className="px-4 py-3 font-medium">Domain</th>
-                <th className="px-4 py-3 font-medium">Current cert</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {domains.map((domain) => {
-                const summary = domain.current_certificate;
-                const days = summary ? daysUntilIso(summary.not_after) : null;
-                return (
-                  <tr
-                    key={domain.id}
-                    className="border-b border-apple-border last:border-b-0"
-                  >
-                    <td className="px-4 py-3">
+        <section className="cf-card">
+          <div className="cf-tablewrap">
+            <table className="cf-table">
+              <thead>
+                <tr>
+                  <th className="cf-cell--check">
+                    <label className="cf-check">
                       <input
                         type="checkbox"
-                        checked={checked.has(domain.id)}
-                        onChange={() => toggle(domain.id)}
+                        checked={
+                          domains.length > 0 && checked.size === domains.length
+                        }
+                        onChange={(event) =>
+                          setChecked(
+                            event.target.checked
+                              ? new Set(domains.map((domain) => domain.id))
+                              : new Set(),
+                          )
+                        }
+                        aria-label="Select all domains"
                       />
-                    </td>
-                    <td className="px-4 py-3 font-semibold">{domain.name}</td>
-                    <td className="px-4 py-3">
-                      {summary ? (
-                        <span className="flex items-center gap-2">
-                          <Badge tone={certTone(days)}>{expiryText(days)}</Badge>
-                          {summary.environment === "staging" && (
-                            <span className="text-[10px] font-bold uppercase text-amber-700">
-                              staging
-                            </span>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="text-apple-muted">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge tone={domain.status === "active" ? "ok" : "idle"}>
-                        {domain.status}
-                      </Badge>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    </label>
+                  </th>
+                  <th>Domain</th>
+                  <th>Current cert</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {domains.map((domain) => {
+                  const summary = domain.current_certificate;
+                  const days = summary ? daysUntilIso(summary.not_after) : null;
+                  return (
+                    <tr key={domain.id}>
+                      <td className="cf-cell--check">
+                        <label className="cf-check">
+                          <input
+                            type="checkbox"
+                            checked={checked.has(domain.id)}
+                            onChange={() => toggle(domain.id)}
+                            aria-label={`Assign ${domain.name}`}
+                          />
+                        </label>
+                      </td>
+                      <td>{domain.name}</td>
+                      <td>
+                        {summary ? (
+                          <span className="cf-inline">
+                            <Badge tone={certTone(days)}>{expiryText(days)}</Badge>
+                            <span className="cf-meta">{summary.environment}</span>
+                          </span>
+                        ) : (
+                          <span className="cf-meta">—</span>
+                        )}
+                      </td>
+                      <td>
+                        <Badge tone={domain.status === "active" ? "ok" : "idle"}>
+                          {domain.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="cf-card__note">
+            Unchecking a domain removes it from this node&apos;s manifest on the
+            next heartbeat; the certificate itself stays on the plane.
+          </p>
+        </section>
       )}
-    </div>
+    </>
   );
 }

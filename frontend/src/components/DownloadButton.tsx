@@ -10,6 +10,7 @@ import type { ReactNode } from "react";
 
 import { downloadCertificateArtifact } from "../api";
 import ErrorNote from "./ErrorNote";
+import Icon from "./icons";
 
 export default function DownloadButton({
   certificateId,
@@ -36,13 +37,14 @@ export default function DownloadButton({
   };
 
   return (
-    <span className="inline-flex flex-col gap-1">
+    <span className="cf-stack">
       <button
         type="button"
-        className="text-xs font-medium text-apple-blue underline-offset-2 transition-colors hover:text-apple-blue-hover hover:underline"
+        className="cf-rowlink"
         onClick={() => void download()}
         disabled={busy}
       >
+        <Icon name="download" />
         {busy ? "…" : children}
       </button>
       {error && <ErrorNote>{error}</ErrorNote>}

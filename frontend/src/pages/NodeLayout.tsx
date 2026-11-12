@@ -6,9 +6,10 @@
  * the node, and every tab is a real refreshable child URL
  * (/admin/nodes/tokyo01/config — the M5 done-when's example).
  *
- * WHY the child context exposes reload: a mutation on any tab (save a
- * config, rotate a key, rename an inbound) changes the header's drift view,
- * and the tab asks the shell to refetch instead of duplicating that logic.
+ * WHY the child context exposes reload and the sync snapshot: a mutation
+ * on any tab (save a config, rotate a key, rename an inbound) changes the
+ * header's drift view, and the config tab's rail restates node state; the
+ * tab asks the shell to refetch instead of duplicating that logic.
  */
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
@@ -20,25 +21,25 @@ import {
   getNodeSync,
   mintNodeToken,
   updateNode,
-  updateNodeGeodata,
-  updateNodeXray,
 } from "../api";
 import Badge from "../components/Badge";
 import ConfirmButton from "../components/ConfirmButton";
 import ErrorNote from "../components/ErrorNote";
-import HashChip from "../components/HashChip";
+import Icon from "../components/icons";
 import TokenDialog from "../components/TokenDialog";
-import { dangerButton, inputClass, primaryButton, secondaryButton } from "../components/styles";
+import { inputClass } from "../components/styles";
 import { STATE_LABEL, STATE_TONE, fleetState } from "../lib/fleet";
 import { relativeTime } from "../lib/format";
 import type { NodeOut, NodeSyncOut } from "../types";
 
-/** What every node tab gets from the layout: the id, a refetch, and the
- * node's address (preset dialogs need a default domain). */
+/** What every node tab gets from the layout: identity, a refetch, and
+ * the node plus its last sync snapshot. */
 export interface NodeOutletContext {
   nodeId: string;
   reload: () => Promise<void>;
   nodeAddress: string;
+  node: NodeOut;
+  sync: NodeSyncOut | null;
 }
 
 export default function NodeLayout() {
@@ -94,14 +95,22 @@ export default function NodeLayout() {
   };
 
   if (error) {
-    return <ErrorNote>{error}</ErrorNote>;
+    return (
+      <div className="cf-page">
+        <ErrorNote>{error}</ErrorNote>
+      </div>
+    );
   }
   if (!node) {
-    return <p className="text-sm text-apple-muted">Loading node…</p>;
+    return (
+      <div className="cf-page">
+        <p className="cf-meta">Loading node…</p>
+      </div>
+    );
   }
 
   return (
-    <section className="space-y-4">
+    <div className="cf-page">
       <NodeHeader
         node={node}
         sync={sync}
@@ -110,46 +119,32 @@ export default function NodeLayout() {
         onDelete={() => void remove()}
         onRefresh={() => void reload()}
       />
-      <nav className="flex gap-2">
-        <Tab to="config">Config</Tab>
-        <Tab to="keys">Keys</Tab>
-        <Tab to="certs">Certs</Tab>
+      <nav className="cf-tabs" aria-label="Node sections">
+        <Tab to="config">Configuration</Tab>
+        <Tab to="keys">REALITY keys</Tab>
+        <Tab to="certs">Certificates</Tab>
         <Tab to="users">Users</Tab>
         <Tab to="links">Links</Tab>
       </nav>
-      <Outlet
-        context={{
-          nodeId,
-          reload,
-          nodeAddress: node.address ?? "",
-        } satisfies NodeOutletContext}
-      />
+      <div className="cf-tabpanel">
+        <Outlet
+          context={{
+            nodeId,
+            reload,
+            nodeAddress: node.address ?? "",
+            node,
+            sync,
+          } satisfies NodeOutletContext}
+        />
+      </div>
       {token && (
         <TokenDialog nodeId={nodeId} token={token} onClose={() => setToken(null)} />
       )}
-    </section>
+    </div>
   );
 }
 
-/**
- * The nginx certificate state: synced/ok/failed + when the node last
- * pulled. WHY a mini component: the sync payload mixes timestamps and
- * error strings, and the layout keeps facts as plain values.
- */
-function NginxFact({ sync }: { sync: NodeSyncOut | null }) {
-  if (!sync) {
-    return <>—</>;
-  }
-  if (sync.nginx_ok === 1) {
-    return <>ok · {relativeTime(sync.cert_synced_at)}</>;
-  }
-  if (sync.nginx_ok === 0) {
-    return <span className="text-apple-red">failed</span>;
-  }
-  return <>—</>;
-}
-
-/** The header card: identity, drift facts, and the two node-level actions. */
+/** The header: identity, actions, the fact strip, and node warnings. */
 function NodeHeader({
   node,
   sync,
@@ -166,21 +161,32 @@ function NodeHeader({
   onRefresh: () => void;
 }) {
   return (
-    <div className="space-y-3 rounded-2xl border border-apple-border bg-apple-card p-4 shadow-sm">
-      <div className="flex flex-wrap items-center gap-3">
-        <EditableName node={node} onSaved={onRefresh} />
-        <span className="font-mono text-xs text-apple-muted">{node.id}</span>
-        {sync && (
-          <Badge tone={STATE_TONE[fleetState(sync)]}>
-            {STATE_LABEL[fleetState(sync)]}
-          </Badge>
-        )}
-        <span className="ml-auto flex gap-2">
-          <button type="button" className={secondaryButton} onClick={onRefresh}>
+    <div className="cf-nodehead">
+      <div className="cf-nodehead__row">
+        <div className="cf-nodehead__id">
+          <EditableName node={node} onSaved={onRefresh} />
+          <div className="cf-nodehead__meta">
+            <code className="cf-mono">{node.id}</code>
+            {sync && (
+              <Badge tone={STATE_TONE[fleetState(sync)]}>
+                {STATE_LABEL[fleetState(sync)]}
+              </Badge>
+            )}
+            <span className="cf-meta">
+              Last seen {relativeTime(sync?.last_seen ?? null)}
+            </span>
+            <span className="cf-meta">
+              Certificate environment: {node.cert_environment}
+            </span>
+          </div>
+        </div>
+        <div className="cf-nodehead__actions">
+          <button type="button" className="cf-btn cf-btn--secondary" onClick={onRefresh}>
+            <Icon name="refresh-cw" />
             Refresh
           </button>
           <ConfirmButton
-            className={dangerButton}
+            className="cf-btn cf-btn--secondary"
             disabled={busy}
             message={`Re-generate ${node.id}'s token? The current token stops working immediately; the node is rejected until node.toml is updated.`}
             onConfirm={onMint}
@@ -188,49 +194,83 @@ function NodeHeader({
             Re-generate token
           </ConfirmButton>
           <ConfirmButton
-            className={dangerButton}
+            className="cf-btn cf-btn--danger"
             message={`Delete node ${node.id}? This removes its token, config, user access, endpoint registry, REALITY keys, and certificate assignment. The machine keeps running its last applied config until you decommission it.`}
             onConfirm={onDelete}
           >
-            Delete node
+            <Icon name="trash-2" />
+            Delete
           </ConfirmButton>
-        </span>
+        </div>
       </div>
-      <dl className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+
+      <dl className="cf-facts">
         <Fact
           label="Domain"
-          value={<EditableDomain node={node} onSaved={onRefresh} />}
-          hint="Optional public domain for share links — variants can add more."
-        />
-        <Fact
-          label="Reported IP"
-          value={node.reported_address ?? "—"}
-          hint="Self-reported at enroll; links always use the domain."
-        />
-        <Fact label="Last seen" value={relativeTime(sync?.last_seen ?? null)} />
-        <Fact label="Health" value={sync?.health ?? "—"} />
-        <Fact label="Node" value={sync?.agent_version ?? "—"} />
-        <Fact label="Applied" value={<HashChip hash={sync?.applied_hash ?? null} />} />
-        <Fact label="Desired" value={<HashChip hash={sync?.desired_hash ?? null} />} />
-        <Fact label="Xray" value={sync?.xray_version ?? "—"} />
-        <Fact
-          label="Geodata"
-          value={sync?.geodata_version ?? "—"}
-          hint="XTLS/Xray-rules-dat release; refreshed weekly."
-        />
-        <Fact label="nginx" value={<NginxFact sync={sync} />} />
-        <Fact label="Last error" value={sync?.last_error ?? "—"} />
+          hint="Every generated link uses this domain."
+        >
+          <EditableDomain node={node} onSaved={onRefresh} />
+        </Fact>
+        <Fact label="Reported IP">{node.reported_address ?? "—"}</Fact>
+        <Fact label="Health">
+          <HealthBadge health={sync?.health ?? null} />
+        </Fact>
+        <Fact label="Xray">{sync?.xray_version ?? "—"}</Fact>
+        <Fact label="Geodata" hint="Refresh of XTLS/Xray-rules-dat.">
+          {sync?.geodata_version ?? "—"}
+        </Fact>
+        <Fact label="nginx" hint={<NginxHint sync={sync} />}>
+          <NginxBadge sync={sync} />
+        </Fact>
       </dl>
-      <Maintenance nodeId={node.id} sync={sync} onChanged={onRefresh} />
+
       {sync && sync.warnings.length > 0 && (
-        <ul className="list-inside list-disc text-sm text-amber-700">
-          {sync.warnings.map((warning) => (
-            <li key={warning}>{warning}</li>
-          ))}
-        </ul>
+        <div className="cf-alert cf-alert--warn">
+          <Icon name="alert-triangle" />
+          <span>
+            {sync.warnings.map((warning) => (
+              <span key={warning} className="cf-stack">
+                {warning}
+              </span>
+            ))}
+          </span>
+        </div>
       )}
     </div>
   );
+}
+
+/** The health fact as a state badge; unknown values stay plain. */
+function HealthBadge({ health }: { health: string | null }) {
+  if (!health) {
+    return <span className="cf-meta">—</span>;
+  }
+  return (
+    <Badge tone={health === "healthy" ? "ok" : "warn"}>{health}</Badge>
+  );
+}
+
+/** The nginx fact as a state badge. */
+function NginxBadge({ sync }: { sync: NodeSyncOut | null }) {
+  if (!sync || sync.nginx_ok === null) {
+    return <span className="cf-meta">—</span>;
+  }
+  return sync.nginx_ok === 1 ? (
+    <Badge tone="ok">ok</Badge>
+  ) : (
+    <Badge tone="bad">failed</Badge>
+  );
+}
+
+/** The nginx hint: when the node last pulled certificates, or the error. */
+function NginxHint({ sync }: { sync: NodeSyncOut | null }) {
+  if (!sync) {
+    return <>—</>;
+  }
+  if (sync.nginx_ok === 0) {
+    return <span className="cf-error">{sync.nginx_error ?? "nginx rejected the config"}</span>;
+  }
+  return <>Synced {relativeTime(sync.cert_synced_at)}.</>;
 }
 
 /**
@@ -282,28 +322,26 @@ function EditableDomain({
 
   if (!editing) {
     return (
-      <span className="flex items-center gap-2">
-        <span className={node.address ? "" : "text-apple-muted"}>
+      <>
+        <span className={node.address ? "" : "cf-meta"}>
           {node.address || "—"}
         </span>
-        <button
-          type="button"
-          className="text-xs text-apple-blue transition-colors hover:text-apple-blue-hover"
-          onClick={open}
-        >
+        <button type="button" className="cf-rowlink" onClick={open}>
           Edit
         </button>
-      </span>
+      </>
     );
   }
   return (
-    <span className="flex flex-col gap-1.5">
-      <span className="flex items-center gap-2">
+    <span className="cf-stack">
+      <span className="cf-inline">
         <input
-          className={`${inputClass} w-52`}
+          className={inputClass}
+          style={{ width: 200 }}
           value={value}
           autoFocus
           placeholder="vpn.example.org"
+          aria-label="Node domain"
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -315,13 +353,17 @@ function EditableDomain({
         />
         <button
           type="button"
-          className={primaryButton}
+          className="cf-btn cf-btn--primary cf-btn--sm"
           disabled={saving}
           onClick={() => void save()}
         >
           Save
         </button>
-        <button type="button" className={secondaryButton} onClick={close}>
+        <button
+          type="button"
+          className="cf-btn cf-btn--secondary cf-btn--sm"
+          onClick={close}
+        >
           Cancel
         </button>
       </span>
@@ -362,30 +404,33 @@ function EditableName({ node, onSaved }: { node: NodeOut; onSaved: () => void })
 
   if (!editing) {
     return (
-      <span className="flex items-center gap-2">
-        <h1 className="text-lg font-bold">{node.label}</h1>
+      <h1 className="cf-pagehead__title">
+        {node.label}
         <button
           type="button"
-          className="text-xs text-apple-blue transition-colors hover:text-apple-blue-hover"
+          className="cf-iconbtn"
+          aria-label="Rename node"
           onClick={() => {
             setValue(node.label);
             setError(null);
             setEditing(true);
           }}
         >
-          Rename
+          <Icon name="pencil" />
         </button>
-      </span>
+      </h1>
     );
   }
   return (
-    <span className="flex flex-col gap-1.5">
-      <span className="flex items-center gap-2">
+    <span className="cf-stack">
+      <span className="cf-inline">
         <input
-          className={`${inputClass} w-52`}
+          className={inputClass}
+          style={{ width: 220 }}
           value={value}
           autoFocus
           placeholder="Tokyo 01"
+          aria-label="Node label"
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -397,7 +442,7 @@ function EditableName({ node, onSaved }: { node: NodeOut; onSaved: () => void })
         />
         <button
           type="button"
-          className={primaryButton}
+          className="cf-btn cf-btn--primary cf-btn--sm"
           disabled={saving}
           onClick={() => void save()}
         >
@@ -405,7 +450,7 @@ function EditableName({ node, onSaved }: { node: NodeOut; onSaved: () => void })
         </button>
         <button
           type="button"
-          className={secondaryButton}
+          className="cf-btn cf-btn--secondary cf-btn--sm"
           onClick={() => setEditing(false)}
         >
           Cancel
@@ -416,132 +461,29 @@ function EditableName({ node, onSaved }: { node: NodeOut; onSaved: () => void })
   );
 }
 
-/**
- * The node's maintenance controls: update Xray, refresh Geodata.
- *
- * WHY confirmation before the request: both actions replace files on a live
- * host and restart Xray, so the button that records the request is the
- * operator's sign-off. The node still does the download and its own
- * rollback; the panel only shows what it reported.
- */
-function Maintenance({
-  nodeId,
-  sync,
-  onChanged,
-}: {
-  nodeId: string;
-  sync: NodeSyncOut | null;
-  onChanged: () => void;
-}) {
-  const [version, setVersion] = useState("latest");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const run = async (request: () => Promise<{ error: string | null }>) => {
-    setBusy(true);
-    setError(null);
-    const result = await request();
-    setBusy(false);
-    if (result.error) {
-      setError(result.error);
-      return;
-    }
-    onChanged();
-  };
-
-  const actions = sync?.actions ?? [];
-  return (
-    <div className="space-y-2 border-t border-apple-border pt-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-apple-muted">
-          Maintenance
-        </h3>
-        <input
-          className={`${inputClass} w-44 font-mono text-xs`}
-          value={version}
-          onChange={(event) => setVersion(event.target.value)}
-          placeholder="latest or v26.11.9"
-          aria-label="Xray version"
-        />
-        <ConfirmButton
-          className={secondaryButton}
-          disabled={busy || version.trim() === ""}
-          message={`Ask ${nodeId} to install Xray ${version.trim()}? The node verifies the vendor SHA-256, tests the new binary against its live config, restarts, and rolls back if it does not stay up.`}
-          onConfirm={() => void run(() => updateNodeXray(nodeId, version.trim()))}
-        >
-          Update Xray
-        </ConfirmButton>
-        <ConfirmButton
-          className={secondaryButton}
-          disabled={busy}
-          message={`Ask ${nodeId} to download the latest GeoIP/GeoSite data? Xray restarts to load it, and the previous files are restored if it does not stay up.`}
-          onConfirm={() => void run(() => updateNodeGeodata(nodeId))}
-        >
-          Refresh Geodata
-        </ConfirmButton>
-      </div>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      {actions.length > 0 && (
-        <ul className="space-y-0.5 text-xs text-apple-muted">
-          {actions.map((action) => (
-            <li key={action.action}>
-              <span className="font-mono">{action.action}</span>{" "}
-              {action.target && action.action === "update_xray" && (
-                <span className="font-mono">→ {action.target} </span>
-              )}
-              {action.state === "pending" && <span>pending — next heartbeat</span>}
-              {action.state === "ok" && (
-                <span className="text-apple-green">
-                  ok · {relativeTime(action.finished_at)}
-                </span>
-              )}
-              {action.state === "failed" && (
-                <span className="text-apple-red">
-                  failed · {action.message ?? "no detail"}
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-/** One label/value pair in the header grid. */
+/** One label/value pair in the header strip. */
 function Fact({
   label,
-  value,
   hint,
+  children,
 }: {
   label: string;
-  value: ReactNode;
-  hint?: string;
+  hint?: ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <div>
-      <dt className="text-xs font-semibold uppercase tracking-wide text-apple-muted">
-        {label}
-      </dt>
-      <dd className="text-apple-text">{value}</dd>
-      {hint && <p className="mt-0.5 text-xs text-apple-muted">{hint}</p>}
+    <div className="cf-fact">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+      {hint && <dd className="cf-fact__hint">{hint}</dd>}
     </div>
   );
 }
 
-/** One tab link with active styling. */
+/** One tab link; the router marks it aria-current when active. */
 function Tab({ to, children }: { to: string; children: string }) {
   return (
-    <NavLink
-      to={to}
-      className={({ isActive }) =>
-        `rounded-full px-5 py-2 text-sm font-medium transition-colors ${
-          isActive
-            ? "bg-apple-blue text-white shadow-sm"
-            : "bg-apple-card text-apple-muted hover:bg-apple-gray-surface hover:text-apple-text"
-        }`
-      }
-    >
+    <NavLink to={to} className="cf-tab">
       {children}
     </NavLink>
   );

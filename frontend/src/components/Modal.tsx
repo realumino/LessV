@@ -1,45 +1,56 @@
 /**
- * A centered modal dialog with a title bar and a Close action.
+ * A centred dialog: scrim, title bar with a close control, scrollable body,
+ * and an optional action footer.
  *
- * WHY click-outside and a Close button, but no Escape handling: the two
- * dialogs here (a one-time token, a list of links) are informative; the
- * archived panel used the same backdrop pattern, and a close button keeps
- * it usable without a keyboard handler.
+ * WHY the overlay is two siblings and not a click-outside wrapper: the
+ * modal is fixed-positioned over a full-screen scrim, so the scrim itself
+ * carries the close affordance without an event bubbling through content.
  */
 import type { ReactNode } from "react";
 
+import Icon from "./icons";
+
 export default function Modal({
   title,
+  description,
   onClose,
   wide = false,
+  footer,
   children,
 }: {
   title: string;
+  description?: string;
   onClose: () => void;
   wide?: boolean;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <div
-      className="fixed inset-0 z-20 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
+    <>
+      <div className="cf-scrim" onClick={onClose} />
       <div
-        className={`my-8 w-full ${wide ? "max-w-2xl" : "max-w-lg"} space-y-4 rounded-2xl border border-apple-border bg-apple-card p-6 shadow-xl`}
-        onClick={(event) => event.stopPropagation()}
+        className={wide ? "cf-modal cf-modal--wide" : "cf-modal"}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
       >
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold">{title}</h2>
+        <div className="cf-modal__head">
+          <div>
+            <h2 className="cf-modal__title">{title}</h2>
+            {description && <p className="cf-modal__desc">{description}</p>}
+          </div>
           <button
             type="button"
+            className="cf-iconbtn"
+            aria-label="Close"
             onClick={onClose}
-            className="text-sm font-medium text-apple-muted transition-colors hover:text-apple-text"
           >
-            Close
+            <Icon name="x" />
           </button>
         </div>
-        {children}
+        <div className="cf-modal__body">{children}</div>
+        {footer && <div className="cf-modal__foot">{footer}</div>}
       </div>
-    </div>
+    </>
   );
 }

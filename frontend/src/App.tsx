@@ -1,11 +1,11 @@
 /**
- * The application shell: sign-in gate, header, top navigation, and the
- * complete route table.
+ * The application shell: sign-in gate, product sidebar, context bar, and
+ * the complete route table.
  *
  * WHY every route lives in this one file: the URL is the admin's state.
- * Each page is a refreshable address (the M5 done-when names
- * /admin/nodes/tokyo01/config), so the table below is the whole map of
- * the app and there is no navigation path hidden inside a component.
+ * Each page is a refreshable address (e.g. /admin/nodes/tokyo01/config),
+ * so the table below is the whole map of the app and there is no
+ * navigation path hidden inside a component.
  *
  * WHY the gate sits above the router and not as a route: keeping the
  * route table mounted behind one conditional means a deep link that is
@@ -13,10 +13,10 @@
  * ever "the page behind login".
  */
 import { useEffect, useState } from "react";
-import { Navigate, NavLink, Route, Routes } from "react-router";
+import { Link, Navigate, Route, Routes, useLocation } from "react-router";
 
 import { clearAdminKey, getAdminKey, onAuthChange } from "./lib/auth";
-import { secondaryButton } from "./components/styles";
+import Icon, { BrandMark } from "./components/icons";
 import CertificatesPage from "./pages/CertificatesPage";
 import FleetPage from "./pages/FleetPage";
 import LoginPage from "./pages/LoginPage";
@@ -46,59 +46,164 @@ export default function App() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl p-4 sm:p-6">
-      <Header />
-      <main className="mt-5">
-        <Routes>
-          <Route path="/" element={<Navigate to="/nodes" replace />} />
-          <Route path="/certs" element={<CertificatesPage />} />
-          <Route path="/nodes" element={<FleetPage />} />
-          <Route path="/nodes/:nodeId" element={<NodeLayout />}>
-            <Route index element={<Navigate to="config" replace />} />
-            <Route path="config" element={<NodeConfigPage />} />
-            <Route path="keys" element={<NodeKeysPage />} />
-            <Route path="certs" element={<NodeCertsPage />} />
-            <Route path="users" element={<NodeUsersPage />} />
-            <Route path="links" element={<NodeLinksPage />} />
-          </Route>
-          <Route path="/users" element={<UsersPage />} />
-          <Route path="/users/new" element={<UserEditPage />} />
-          <Route path="/users/:username" element={<UserEditPage />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </main>
+    <div className="cf-shell">
+      <Sidebar />
+      <div className="cf-main">
+        <Topbar />
+        <div className="cf-content">
+          <Routes>
+            <Route path="/" element={<Navigate to="/nodes" replace />} />
+            <Route path="/certs" element={<CertificatesPage />} />
+            <Route path="/nodes" element={<FleetPage />} />
+            <Route path="/nodes/:nodeId" element={<NodeLayout />}>
+              <Route index element={<Navigate to="config" replace />} />
+              <Route path="config" element={<NodeConfigPage />} />
+              <Route path="keys" element={<NodeKeysPage />} />
+              <Route path="certs" element={<NodeCertsPage />} />
+              <Route path="users" element={<NodeUsersPage />} />
+              <Route path="links" element={<NodeLinksPage />} />
+            </Route>
+            <Route path="/users" element={<UsersPage />} />
+            <Route path="/users/new" element={<UserEditPage />} />
+            <Route path="/users/:username" element={<UserEditPage />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+          <footer className="cf-footer">
+            <span>LessV · self-hosted Xray management plane</span>
+            <span>Admin API · v1</span>
+          </footer>
+        </div>
+      </div>
     </div>
   );
 }
 
-/** The top bar: brand, the two fleet-level destinations, and sign-out. */
-function Header() {
+/** The product sidebar: brand, the signed-in identity, nav, and sign-out. */
+function Sidebar() {
+  const { pathname } = useLocation();
   return (
-    <header className="flex items-center gap-6 rounded-2xl border border-apple-border bg-apple-card px-5 py-3 shadow-sm">
-      <span className="text-lg font-bold tracking-tight">LessV</span>
-      <NavLink to="/nodes" className={navClass}>
-        Nodes
-      </NavLink>
-      <NavLink to="/certs" className={navClass}>
-        Certificates
-      </NavLink>
-      <NavLink to="/users" className={navClass}>
-        Users
-      </NavLink>
-      <button
-        type="button"
-        onClick={clearAdminKey}
-        className={`${secondaryButton} ml-auto`}
-      >
-        Logout
-      </button>
+    <aside className="cf-sidebar">
+      <div className="cf-sidebar__head">
+        <Link className="cf-brand" to="/nodes">
+          <span className="cf-brand__mark">
+            <BrandMark />
+          </span>
+          <span className="cf-brand__name">LessV</span>
+        </Link>
+        <span className="cf-brand__tag">Admin</span>
+      </div>
+
+      <div className="cf-sidebar__account">
+        <span className="cf-avatar" aria-hidden="true">
+          LV
+        </span>
+        <span className="cf-account__text">
+          <span className="cf-account__name">LessV</span>
+          <span className="cf-account__sub">Self-hosted control plane</span>
+        </span>
+      </div>
+
+      <nav className="cf-nav" aria-label="Primary">
+        <p className="cf-nav__label">Manage</p>
+        <SidebarLink to="/nodes" icon="server" active={pathname.startsWith("/nodes")}>
+          Nodes
+        </SidebarLink>
+        <SidebarLink to="/certs" icon="shield-check" active={pathname.startsWith("/certs")}>
+          Certificates
+        </SidebarLink>
+        <p className="cf-nav__label">Access</p>
+        <SidebarLink to="/users" icon="users" active={pathname.startsWith("/users")}>
+          Users
+        </SidebarLink>
+      </nav>
+
+      <div className="cf-sidebar__foot">
+        <div className="cf-statusline">
+          <span className="cf-statusdot" aria-hidden="true" />
+          <span>Signed in with admin key</span>
+        </div>
+        <button
+          type="button"
+          className="cf-btn cf-btn--secondary cf-btn--block"
+          onClick={clearAdminKey}
+        >
+          Log out
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+/** One primary destination, marked active from the current path. */
+function SidebarLink({
+  to,
+  icon,
+  active,
+  children,
+}: {
+  to: string;
+  icon: "server" | "shield-check" | "users";
+  active: boolean;
+  children: string;
+}) {
+  return (
+    <Link
+      className="cf-nav__item"
+      to={to}
+      data-active={active ? "true" : undefined}
+      aria-current={active ? "page" : undefined}
+    >
+      <span className="cf-nav__icon">
+        <Icon name={icon} />
+      </span>
+      <span>{children}</span>
+    </Link>
+  );
+}
+
+/**
+ * The context bar: breadcrumbs derived from the URL, plus the environment
+ * badge and the signed-in identity.
+ */
+function Topbar() {
+  const { pathname } = useLocation();
+  const parts = pathname.split("/").filter(Boolean);
+  const section = parts[0] ?? "nodes";
+  const detail = parts[1];
+
+  return (
+    <header className="cf-topbar">
+      <nav className="cf-crumbs" aria-label="Breadcrumb">
+        {detail ? (
+          <>
+            <Link to={`/${section}`}>{SECTION_LABEL[section] ?? "Nodes"}</Link>
+            <span className="cf-crumbs__sep">/</span>
+            <span className="cf-crumbs__current">
+              {section === "users" && detail === "new" ? "New user" : detail}
+            </span>
+          </>
+        ) : (
+          <span className="cf-crumbs__current">
+            {SECTION_LABEL[section] ?? "Not found"}
+          </span>
+        )}
+      </nav>
+      <div className="cf-topbar__actions">
+        <span className="cf-badge cf-badge--outline">Self-hosted</span>
+        <span
+          className="cf-avatar cf-avatar--sm"
+          title="Signed in as the admin key"
+          aria-label="Signed in as the admin key"
+        >
+          A
+        </span>
+      </div>
     </header>
   );
 }
 
-/** Active/inactive styling for the top-level navigation links. */
-function navClass({ isActive }: { isActive: boolean }) {
-  return isActive
-    ? "text-sm font-semibold text-apple-blue"
-    : "text-sm font-medium text-apple-muted hover:text-apple-text";
-}
+const SECTION_LABEL: Record<string, string> = {
+  nodes: "Nodes",
+  certs: "Certificates",
+  users: "Users",
+};

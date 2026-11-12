@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent } from "react";
 
 import { createNode, getNodeSync, listNodes } from "../api";
 import Badge from "../components/Badge";
@@ -18,7 +18,9 @@ import EmptyState from "../components/EmptyState";
 import ErrorNote from "../components/ErrorNote";
 import Field from "../components/Field";
 import HashChip from "../components/HashChip";
-import { inputClass, primaryButton, secondaryButton } from "../components/styles";
+import Icon from "../components/icons";
+import Modal from "../components/Modal";
+import { inputClass } from "../components/styles";
 import type { FleetRow } from "../lib/fleet";
 import { STATE_LABEL, STATE_TONE, fleetRows } from "../lib/fleet";
 import { nearestCert } from "../lib/cert";
@@ -29,6 +31,7 @@ export default function FleetPage() {
   const [nodes, setNodes] = useState<NodeOut[] | null>(null);
   const [syncs, setSyncs] = useState<Record<string, NodeSyncOut | null>>({});
   const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const navigate = useNavigate();
 
   const load = useCallback(async () => {
@@ -54,23 +57,73 @@ export default function FleetPage() {
   }, [load]);
 
   const rows = fleetRows(nodes ?? [], syncs);
+  const drifted = rows.filter((row) => row.state === "drifted").length;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold">Fleet</h1>
-        <button type="button" className={secondaryButton} onClick={() => void load()}>
-          Refresh
-        </button>
-      </div>
+    <div className="cf-page">
+      <header className="cf-pagehead">
+        <div className="cf-pagehead__text">
+          <h1 className="cf-pagehead__title">Nodes</h1>
+          <p className="cf-pagehead__desc">
+            Every node enrolled with this control plane, with drift and liveness
+            at a glance.
+          </p>
+        </div>
+        <div className="cf-pagehead__actions">
+          <button
+            type="button"
+            className="cf-btn cf-btn--secondary"
+            onClick={() => void load()}
+          >
+            <Icon name="refresh-cw" />
+            Refresh
+          </button>
+          <button
+            type="button"
+            className="cf-btn cf-btn--primary"
+            onClick={() => setAdding(true)}
+          >
+            <Icon name="plus" />
+            Add node
+          </button>
+        </div>
+      </header>
+
       {error && <ErrorNote>{error}</ErrorNote>}
-      <CreateNodeForm onCreated={(id) => navigate(`/nodes/${id}`)} />
+
+      <div className="cf-toolbar">
+        <div className="cf-toolbar__left">
+          <span className="cf-toolbar__meta">
+            {rows.length} node{rows.length === 1 ? "" : "s"}
+            {drifted > 0 ? ` · ${drifted} drifted` : ""}
+          </span>
+        </div>
+      </div>
+
       {nodes === null ? (
         <EmptyState>Loading nodes…</EmptyState>
       ) : rows.length === 0 ? (
-        <EmptyState>No nodes yet — create the first one above.</EmptyState>
+        <EmptyState>No nodes yet — add the first one.</EmptyState>
       ) : (
-        <FleetTable rows={rows} />
+        <section className="cf-card">
+          <div className="cf-tablewrap">
+            <FleetTable rows={rows} />
+          </div>
+          <p className="cf-card__note">
+            Drift is computed from the applied and desired config hashes
+            reported at each heartbeat.
+          </p>
+        </section>
+      )}
+
+      {adding && (
+        <CreateNodeDialog
+          onClose={() => setAdding(false)}
+          onCreated={(id) => {
+            setAdding(false);
+            navigate(`/nodes/${id}`);
+          }}
+        />
       )}
     </div>
   );
@@ -79,72 +132,81 @@ export default function FleetPage() {
 /** The one table of nodes; a row links to that node's detail page. */
 function FleetTable({ rows }: { rows: FleetRow[] }) {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-apple-border bg-apple-card shadow-sm">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-apple-border bg-apple-gray-surface text-left text-xs uppercase tracking-wide text-apple-muted">
-            <Th>Node</Th>
-            <Th>Domain</Th>
-            <Th>Reported IP</Th>
-            <Th>State</Th>
-            <Th>Health</Th>
-            <Th>TLS cert</Th>
-            <Th>Last seen</Th>
-            <Th>Applied</Th>
-            <Th>Desired</Th>
-            <Th>Last error</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(({ node, sync, state }) => (
-            <tr key={node.id} className="border-b border-apple-border last:border-b-0">
-              <Td>
-                <Link
-                  to={`/nodes/${node.id}`}
-                  className="font-semibold text-apple-blue transition-colors hover:text-apple-blue-hover"
-                >
+    <table className="cf-table cf-table--fixed">
+      <thead>
+        <tr>
+          <th className="cf-table__first">Node</th>
+          <th>Domain</th>
+          <th>Reported IP</th>
+          <th>State</th>
+          <th>Health</th>
+          <th>TLS certificate</th>
+          <th>Last seen</th>
+          <th>Configuration</th>
+          <th>Last error</th>
+          <th className="cf-cell--actions">Open</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(({ node, sync, state }) => (
+          <tr key={node.id}>
+            <td className="cf-table__first">
+              <span className="cf-stack">
+                <Link className="cf-link cf-link--strong" to={`/nodes/${node.id}`}>
                   {node.label}
                 </Link>
-                <span className="ml-2 font-mono text-xs text-apple-muted">{node.id}</span>
-              </Td>
-              <Td className="text-apple-muted">{node.address || "—"}</Td>
-              <Td className="text-apple-muted">{node.reported_address || "—"}</Td>
-              <Td>
-                <span className="flex items-center gap-2">
-                  <Badge tone={STATE_TONE[state]}>{STATE_LABEL[state]}</Badge>
-                  {sync && sync.warnings.length > 0 && (
-                    <span
-                      className="text-xs text-amber-700"
-                      title={sync.warnings.join("\n")}
-                    >
-                      {sync.warnings.length} warning
-                      {sync.warnings.length === 1 ? "" : "s"}
-                    </span>
-                  )}
-                </span>
-              </Td>
-              <Td className="text-apple-muted">{sync?.health ?? "—"}</Td>
-              <Td>
-                <TlsCertCell certs={sync?.certs ?? []} />
-              </Td>
-              <Td className="text-apple-muted">{relativeTime(sync?.last_seen ?? null)}</Td>
-              <Td>
-                <HashChip hash={sync?.applied_hash ?? null} />
-              </Td>
-              <Td>
-                <HashChip hash={sync?.desired_hash ?? null} />
-              </Td>
-              <Td
-                className="max-w-56 truncate text-apple-red"
-                title={sync?.last_error ?? ""}
+                <span className="cf-mono">{node.id}</span>
+              </span>
+            </td>
+            <td>{node.address || "—"}</td>
+            <td className="cf-cell--mono">{node.reported_address || "—"}</td>
+            <td>
+              <span className="cf-inline">
+                <Badge tone={STATE_TONE[state]}>{STATE_LABEL[state]}</Badge>
+                {sync && sync.warnings.length > 0 && (
+                  <span
+                    className="cf-meta"
+                    title={sync.warnings.join("\n")}
+                  >
+                    {sync.warnings.length} warning
+                    {sync.warnings.length === 1 ? "" : "s"}
+                  </span>
+                )}
+              </span>
+            </td>
+            <td>{sync?.health ?? "—"}</td>
+            <td>
+              <TlsCertCell certs={sync?.certs ?? []} />
+            </td>
+            <td>
+              <span className="cf-meta">{relativeTime(sync?.last_seen ?? null)}</span>
+            </td>
+            <td>
+              <span className="cf-inline">
+                <HashChip hash={sync?.applied_hash ?? null} label="applied" />
+                <HashChip hash={sync?.desired_hash ?? null} label="desired" />
+              </span>
+            </td>
+            <td className="max-w-56 truncate" title={sync?.last_error ?? ""}>
+              {sync?.last_error ? (
+                <span className="cf-error">{sync.last_error}</span>
+              ) : (
+                <span className="cf-meta">—</span>
+              )}
+            </td>
+            <td className="cf-cell--actions">
+              <Link
+                to={`/nodes/${node.id}`}
+                className="cf-iconbtn"
+                aria-label={`Open ${node.label}`}
               >
-                {sync?.last_error || "—"}
-              </Td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+                <Icon name="chevron-right" />
+              </Link>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -160,18 +222,15 @@ function TlsCertCell({
 }) {
   const nearest = nearestCert(certs);
   if (!nearest) {
-    return <span className="text-apple-muted">—</span>;
+    return <span className="cf-meta">—</span>;
   }
   return (
     <span
-      className="text-apple-muted"
-      title={certs
-        .map((cert) => `${cert.domain} · ${cert.profile}`)
-        .join("\n")}
+      className="cf-stack"
+      title={certs.map((cert) => `${cert.domain} · ${cert.profile}`).join("\n")}
     >
-      {certs.length === 1 ? nearest.domain : `${certs.length} domains`} ·
-      {" "}
-      {nearest.days}d
+      <span>{certs.length === 1 ? nearest.domain : `${certs.length} domains`}</span>
+      <span className="cf-meta">{nearest.days} days left</span>
     </span>
   );
 }
@@ -181,7 +240,13 @@ function TlsCertCell({
  * domain is set later on the node page, and the node's reported IP shows
  * up on its own after the node enrolls — neither belongs in this form.
  */
-function CreateNodeForm({ onCreated }: { onCreated: (id: string) => void }) {
+function CreateNodeDialog({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (id: string) => void;
+}) {
   const [id, setId] = useState("");
   const [label, setLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -204,61 +269,54 @@ function CreateNodeForm({ onCreated }: { onCreated: (id: string) => void }) {
   };
 
   return (
-    <form
-      onSubmit={submit}
-      className="space-y-3 rounded-2xl border border-apple-border bg-apple-card p-4 shadow-sm"
+    <Modal
+      title="Add node"
+      description="The id is permanent and keys every config tag; the label is what the fleet shows."
+      onClose={onClose}
+      footer={
+        <>
+          <button
+            type="button"
+            className="cf-btn cf-btn--secondary"
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="add-node-form"
+            className="cf-btn cf-btn--primary"
+            disabled={busy || !id.trim() || !label.trim()}
+          >
+            {busy ? "Creating…" : "Create node"}
+          </button>
+        </>
+      }
     >
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-apple-muted">
-        Add node
-      </h2>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <div className="flex flex-wrap items-end gap-3">
-        <Field label="ID" hint="lowercase letters and digits, max 32">
+      <form id="add-node-form" className="cf-section" onSubmit={submit}>
+        {error && <ErrorNote>{error}</ErrorNote>}
+        <Field label="ID" hint="Lowercase letters and digits, max 32.">
           <input
             className={inputClass}
             value={id}
             onChange={(event) => setId(event.target.value)}
             placeholder="tokyo01"
+            aria-label="Node ID"
           />
         </Field>
-        <Field label="Label">
+        <Field
+          label="Label"
+          hint="Shown in the fleet, in share links, and in per-node access sections."
+        >
           <input
             className={inputClass}
             value={label}
             onChange={(event) => setLabel(event.target.value)}
             placeholder="Tokyo 01"
+            aria-label="Node label"
           />
         </Field>
-        <button
-          type="submit"
-          className={primaryButton}
-          disabled={busy || !id.trim() || !label.trim()}
-        >
-          {busy ? "Creating…" : "Create"}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-/** Consistent header cell padding. */
-function Th({ children }: { children: ReactNode }) {
-  return <th className="px-4 py-3 font-medium">{children}</th>;
-}
-
-/** Consistent body cell padding. */
-function Td({
-  children,
-  className = "",
-  title,
-}: {
-  children: ReactNode;
-  className?: string;
-  title?: string;
-}) {
-  return (
-    <td className={`px-4 py-3 ${className}`} title={title}>
-      {children}
-    </td>
+      </form>
+    </Modal>
   );
 }

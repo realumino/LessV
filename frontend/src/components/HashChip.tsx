@@ -6,13 +6,18 @@
  */
 import { shortHash } from "../lib/format";
 
-export default function HashChip({ hash }: { hash: string | null }) {
+export default function HashChip({
+  hash,
+  label,
+}: {
+  hash: string | null;
+  /** A short uppercase caption, e.g. "applied", "desired", "pbk". */
+  label?: string;
+}) {
   return (
-    <code
-      className="rounded-lg bg-apple-gray-surface px-2 py-1 font-mono text-xs text-apple-text"
-      title={hash ?? undefined}
-    >
+    <span className="cf-hash" title={hash ?? undefined}>
+      {label && <span className="cf-hash__label">{label}</span>}
       {shortHash(hash)}
-    </code>
+    </span>
   );
 }

@@ -16,6 +16,7 @@ import { buildNodePreset } from "../api";
 import CopyButton from "./CopyButton";
 import ErrorNote from "./ErrorNote";
 import Field from "./Field";
+import Icon from "./icons";
 import Modal from "./Modal";
 import { inputClass, primaryButton, secondaryButton } from "./styles";
 import type { PresetBuildOut, PresetOut } from "../types";
@@ -55,13 +56,48 @@ export default function PresetDialog({
   };
 
   return (
-    <Modal title={preset.label} onClose={onClose} wide>
-      <p className="text-sm text-apple-muted">{preset.summary}</p>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <Modal
+      title={preset.label}
+      description={preset.summary}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <button
+            type="button"
+            className={secondaryButton}
+            disabled={busy}
+            onClick={() => void build()}
+          >
+            {busy ? "Building…" : preview ? "Build again" : "Build preview"}
+          </button>
+          {preview && (
+            <CopyButton
+              text={JSON.stringify(preview.config, null, 2)}
+              label="Copy JSON"
+            />
+          )}
+          <button
+            type="button"
+            className={primaryButton}
+            disabled={preview === null}
+            onClick={() => {
+              if (preview !== null) {
+                onFill(JSON.stringify(preview.config, null, 2));
+                onClose();
+              }
+            }}
+          >
+            Fill editor
+          </button>
+        </>
+      }
+    >
+      <div className="cf-formrow">
         {preset.fields.map((field) => (
           <Field key={field.name} label={field.label} hint={field.hint}>
             <input
-              className={`${inputClass} w-full font-mono`}
+              className={inputClass}
               value={values[field.name] ?? ""}
               placeholder={field.placeholder}
               onChange={(event) =>
@@ -73,48 +109,25 @@ export default function PresetDialog({
       </div>
       {error && <ErrorNote>{error}</ErrorNote>}
       {preview && (
-        <div className="space-y-2">
+        <>
           {preview.warnings.length > 0 && (
-            <ul className="list-disc space-y-1 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
-              {preview.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
+            <div className="cf-alert cf-alert--warn">
+              <Icon name="alert-triangle" />
+              <span>
+                {preview.warnings.map((warning) => (
+                  <span key={warning} className="cf-stack">
+                    {warning}
+                  </span>
+                ))}
+              </span>
+            </div>
           )}
-          <pre className="max-h-72 overflow-auto rounded-xl border border-apple-border bg-apple-bg p-3 font-mono text-xs">
-            {JSON.stringify(preview.config, null, 2)}
-          </pre>
-        </div>
+          <div className="cf-stack">
+            <span className="cf-label">Preview</span>
+            <pre className="cf-code">{JSON.stringify(preview.config, null, 2)}</pre>
+          </div>
+        </>
       )}
-      <div className="flex flex-wrap justify-end gap-2">
-        <button
-          type="button"
-          className={secondaryButton}
-          disabled={busy}
-          onClick={() => void build()}
-        >
-          {busy ? "Building…" : preview ? "Build again" : "Build preview"}
-        </button>
-        {preview && (
-          <CopyButton
-            text={JSON.stringify(preview.config, null, 2)}
-            label="Copy JSON"
-          />
-        )}
-        <button
-          type="button"
-          className={primaryButton}
-          disabled={preview === null}
-          onClick={() => {
-            if (preview !== null) {
-              onFill(JSON.stringify(preview.config, null, 2));
-              onClose();
-            }
-          }}
-        >
-          Fill editor
-        </button>
-      </div>
     </Modal>
   );
 }

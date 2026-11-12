@@ -1,5 +1,5 @@
 /**
- * The share-link dialog for one user.
+ * The share-link drawer for one user.
  *
  * WHY it fetches its own data: links are a read-only view over existing
  * config, access, key, and variant rows, and the list page does not need
@@ -11,9 +11,10 @@ import { QRCodeSVG } from "qrcode.react";
 
 import { getUserLinks } from "../api";
 import CopyButton from "./CopyButton";
+import Drawer from "./Drawer";
 import EmptyState from "./EmptyState";
 import ErrorNote from "./ErrorNote";
-import Modal from "./Modal";
+import Icon from "./icons";
 import SubscriptionCard from "./SubscriptionCard";
 import { secondaryButton } from "./styles";
 import type { ShareLink } from "../types";
@@ -51,19 +52,43 @@ export default function ShareLinksDialog({
     };
   }, [username]);
 
+  const nodeCount = new Set((links ?? []).map((link) => link.node)).size;
+
   return (
-    <Modal title={`Share links for ${username}`} onClose={onClose} wide>
-      <div className="mb-4">
-        <SubscriptionCard username={username} />
-      </div>
+    <Drawer
+      title="Share links"
+      description={
+        links === null
+          ? username
+          : `${username} · ${links.length} links across ${nodeCount} nodes`
+      }
+      onClose={onClose}
+      footer={
+        <>
+          {links && links.length > 0 && (
+            <CopyButton
+              text={links.map((link) => link.uri).join("\n")}
+              label="Copy all"
+            />
+          )}
+          <button type="button" className="cf-btn cf-btn--primary" onClick={onClose}>
+            Done
+          </button>
+        </>
+      }
+    >
+      <SubscriptionCard username={username} />
       {error && <ErrorNote>{error}</ErrorNote>}
       {warnings.length > 0 && (
-        <div className="space-y-1 rounded-xl border border-[#ffcc00]/30 bg-[#fff9e6] px-4 py-2">
-          {warnings.map((warning) => (
-            <p key={warning} className="text-sm text-amber-700">
-              {warning}
-            </p>
-          ))}
+        <div className="cf-alert cf-alert--warn">
+          <Icon name="alert-triangle" />
+          <span>
+            {warnings.map((warning) => (
+              <span key={warning} className="cf-stack">
+                {warning}
+              </span>
+            ))}
+          </span>
         </div>
       )}
       {links === null ? (
@@ -71,29 +96,21 @@ export default function ShareLinksDialog({
       ) : links.length === 0 ? (
         <EmptyState>No shareable links.</EmptyState>
       ) : (
-        <div className="space-y-3">
-          {links.map((link) => (
-            <LinkRow
-              key={`${link.node}-${link.inbound}-${link.outbound}-${link.profile ?? "direct"}`}
-              link={link}
-              showQr={qrFor === link.uri}
-              onToggleQr={() => setQrFor(qrFor === link.uri ? null : link.uri)}
-            />
-          ))}
-          <div className="flex justify-end">
-            <CopyButton
-              text={links.map((link) => link.uri).join("\n")}
-              label="Copy all"
-            />
-          </div>
-        </div>
+        links.map((link) => (
+          <LinkItem
+            key={`${link.node}-${link.inbound}-${link.outbound}-${link.profile ?? "direct"}`}
+            link={link}
+            showQr={qrFor === link.uri}
+            onToggleQr={() => setQrFor(qrFor === link.uri ? null : link.uri)}
+          />
+        ))
       )}
-    </Modal>
+    </Drawer>
   );
 }
 
 /** One link: its readable label, remote email, URI, copy, and optional QR. */
-function LinkRow({
+function LinkItem({
   link,
   showQr,
   onToggleQr,
@@ -103,19 +120,18 @@ function LinkRow({
   onToggleQr: () => void;
 }) {
   return (
-    <div className="space-y-2 rounded-xl border border-apple-border p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-apple-muted">
+    <div className="cf-linkitem">
+      <div className="cf-linkitem__head">
+        <span className="cf-linkitem__name">
           {link.label ?? `${link.inbound} → ${link.outbound}`}
         </span>
-        <span className="truncate font-mono text-xs text-apple-muted">{link.email}</span>
+        <span className="cf-mono">{link.email}</span>
       </div>
-      <div className="break-all rounded-lg bg-apple-gray-surface px-3 py-2 font-mono text-xs">
-        {link.uri}
-      </div>
-      <div className="flex gap-2">
+      <span className="cf-uri">{link.uri}</span>
+      <div className="cf-inline">
         <CopyButton text={link.uri} />
         <button type="button" className={secondaryButton} onClick={onToggleQr}>
+          <Icon name="qr-code" />
           {showQr ? "Hide QR" : "QR"}
         </button>
       </div>

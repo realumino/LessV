@@ -15,8 +15,8 @@ import Badge from "../components/Badge";
 import ConfirmButton from "../components/ConfirmButton";
 import EmptyState from "../components/EmptyState";
 import ErrorNote from "../components/ErrorNote";
+import Icon from "../components/icons";
 import ShareLinksDialog from "../components/ShareLinksDialog";
-import { primaryButton, secondaryButton } from "../components/styles";
 import { fmtExpire } from "../lib/format";
 import type { NodeOut, UserOut } from "../types";
 
@@ -53,85 +53,127 @@ export default function UsersPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold">Users</h1>
-        <div className="flex gap-2">
-          <button type="button" className={secondaryButton} onClick={() => void load()}>
+    <div className="cf-page">
+      <header className="cf-pagehead">
+        <div className="cf-pagehead__text">
+          <h1 className="cf-pagehead__title">Users</h1>
+          <p className="cf-pagehead__desc">
+            Accounts, their expiry, and the nodes they may reach.
+          </p>
+        </div>
+        <div className="cf-pagehead__actions">
+          <button
+            type="button"
+            className="cf-btn cf-btn--secondary"
+            onClick={() => void load()}
+          >
+            <Icon name="refresh-cw" />
             Refresh
           </button>
-          <Link className={primaryButton} to="/users/new">
+          <Link className="cf-btn cf-btn--primary" to="/users/new">
+            <Icon name="plus" />
             Add user
           </Link>
         </div>
-      </div>
+      </header>
+
       {error && <ErrorNote>{error}</ErrorNote>}
       {notice && <ErrorNote>{notice}</ErrorNote>}
+
+      <div className="cf-toolbar">
+        <div className="cf-toolbar__left">
+          <span className="cf-toolbar__meta">
+            {users === null ? "Loading…" : `${users.length} users`}
+          </span>
+        </div>
+      </div>
+
       {users === null ? (
         <EmptyState>Loading users…</EmptyState>
       ) : users.length === 0 ? (
-        <EmptyState>No users yet.</EmptyState>
+        <EmptyState>No users yet — add the first one.</EmptyState>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-apple-border bg-apple-card shadow-sm">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-apple-border bg-apple-gray-surface text-left text-xs uppercase tracking-wide text-apple-muted">
-                <Th>User</Th>
-                <Th>Status</Th>
-                <Th>Expiry</Th>
-                <Th>Nodes</Th>
-                <Th>Note</Th>
-                <Th>Actions</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.username} className="border-b border-apple-border last:border-b-0">
-                  <Td>
-                    <Link
-                      to={`/users/${encodeURIComponent(user.username)}`}
-                      className="font-mono font-semibold text-apple-blue hover:text-apple-blue-hover"
-                    >
-                      {user.username}
-                    </Link>
-                  </Td>
-                  <Td>
-                    <Badge tone={user.status === "active" ? "ok" : "idle"}>
-                      {user.status}
-                    </Badge>
-                  </Td>
-                  <Td className="text-apple-muted">{fmtExpire(user.expire)}</Td>
-                  <Td className="text-apple-muted">{membershipSummary(user, nodes)}</Td>
-                  <Td className="max-w-48 truncate text-apple-muted" title={user.note ?? ""}>
-                    {user.note || "—"}
-                  </Td>
-                  <Td>
-                    <span className="flex gap-2">
-                      <Link className={secondaryButton} to={`/users/${encodeURIComponent(user.username)}`}>
-                        Edit
-                      </Link>
-                      <button
-                        type="button"
-                        className={secondaryButton}
-                        onClick={() => setShareFor(user.username)}
-                      >
-                        Share
-                      </button>
-                      <ConfirmButton
-                        className={secondaryButton}
-                        message={`Delete user "${user.username}"? Their access rows are removed too.`}
-                        onConfirm={() => void remove(user.username)}
-                      >
-                        Delete
-                      </ConfirmButton>
-                    </span>
-                  </Td>
+        <section className="cf-card">
+          <div className="cf-tablewrap">
+            <table className="cf-table">
+              <thead>
+                <tr>
+                  <th className="cf-table__first">User</th>
+                  <th>Status</th>
+                  <th>Expiry</th>
+                  <th>Nodes</th>
+                  <th>Note</th>
+                  <th className="cf-cell--actions">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {users.map((user) => (
+                  <tr key={user.username}>
+                    <td className="cf-table__first">
+                      <span className="cf-stack">
+                        <Link
+                          className="cf-link cf-link--strong"
+                          to={`/users/${encodeURIComponent(user.username)}`}
+                        >
+                          {user.username}
+                        </Link>
+                        <span className="cf-meta">
+                          created{" "}
+                          {new Date(user.created_at * 1000).toLocaleDateString()}
+                        </span>
+                      </span>
+                    </td>
+                    <td>
+                      <Badge tone={user.status === "active" ? "ok" : "idle"}>
+                        {user.status}
+                      </Badge>
+                    </td>
+                    <td>{fmtExpire(user.expire)}</td>
+                    <td>
+                      <span className="cf-inline">
+                        {membershipChips(user, nodes)}
+                      </span>
+                    </td>
+                    <td className="max-w-48 truncate" title={user.note ?? ""}>
+                      {user.note || <span className="cf-meta">—</span>}
+                    </td>
+                    <td className="cf-cell--actions">
+                      <span className="cf-inline">
+                        <Link
+                          className="cf-rowlink"
+                          to={`/users/${encodeURIComponent(user.username)}`}
+                        >
+                          Edit
+                        </Link>
+                        <button
+                          type="button"
+                          className="cf-rowlink"
+                          onClick={() => setShareFor(user.username)}
+                        >
+                          Share
+                        </button>
+                        <ConfirmButton
+                          className="cf-iconbtn"
+                          ariaLabel={`Delete ${user.username}`}
+                          message={`Delete user "${user.username}"? Their access rows are removed too.`}
+                          onConfirm={() => void remove(user.username)}
+                        >
+                          <Icon name="trash-2" />
+                        </ConfirmButton>
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="cf-card__note">
+            Deleting a user removes their access rows; their subscription URL
+            stops resolving immediately.
+          </p>
+        </section>
       )}
+
       {shareFor && (
         <ShareLinksDialog username={shareFor} onClose={() => setShareFor(null)} />
       )}
@@ -140,37 +182,15 @@ export default function UsersPage() {
 }
 
 /** Readable per-node membership: labels only, counts inside. */
-function membershipSummary(user: UserOut, nodes: NodeOut[]): string {
-  const parts: string[] = [];
-  for (const node of nodes) {
-    const access = user.access[node.id];
-    if (access) {
-      parts.push(
-        `${node.label} (${access.allowed_inbounds.length} in / ${access.allowed_outbounds.length} out)`,
-      );
-    }
-  }
-  return parts.join("; ") || "none";
-}
-
-/** Consistent header cell padding. */
-function Th({ children }: { children: ReactNode }) {
-  return <th className="px-4 py-3 font-medium">{children}</th>;
-}
-
-/** Consistent body cell padding. */
-function Td({
-  children,
-  className = "",
-  title,
-}: {
-  children: ReactNode;
-  className?: string;
-  title?: string;
-}) {
-  return (
-    <td className={`px-4 py-3 ${className}`} title={title}>
-      {children}
-    </td>
-  );
+function membershipChips(user: UserOut, nodes: NodeOut[]): ReactNode {
+  const chips = Object.entries(user.access).map(([nodeId, access]) => {
+    const label = nodes.find((node) => node.id === nodeId)?.label ?? nodeId;
+    return (
+      <span key={nodeId} className="cf-nodechip">
+        {label} · {access.allowed_inbounds.length} in /{" "}
+        {access.allowed_outbounds.length} out
+      </span>
+    );
+  });
+  return chips.length > 0 ? chips : <span className="cf-meta">none</span>;
 }

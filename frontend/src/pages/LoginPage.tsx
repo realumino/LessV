@@ -11,7 +11,8 @@ import type { FormEvent } from "react";
 
 import { checkAdminKey } from "../api";
 import { setAdminKey } from "../lib/auth";
-import { inputClass, primaryButton } from "../components/styles";
+import ErrorNote from "../components/ErrorNote";
+import { BrandMark } from "../components/icons";
 
 export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [key, setKey] = useState("");
@@ -37,34 +38,54 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   }
 
   return (
-    <div className="flex min-h-[60vh] items-center justify-center">
-      <form
-        onSubmit={submit}
-        className="w-full max-w-sm space-y-4 rounded-2xl border border-apple-border bg-apple-card p-6 shadow-sm"
-      >
-        <h1 className="text-lg font-bold">LessV admin</h1>
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-apple-muted">
-            Admin key
-          </span>
-          <input
-            type="password"
-            autoFocus
-            className={inputClass}
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            placeholder="Paste the ADMIN_KEY"
-          />
-        </label>
-        {error && <p className="text-sm text-apple-red">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy || key.trim() === ""}
-          className={primaryButton}
-        >
-          {busy ? "Checking…" : "Sign in"}
-        </button>
-      </form>
+    <div className="cf-auth">
+      <div className="cf-auth__brand">
+        <span className="cf-brand__mark">
+          <BrandMark />
+        </span>
+        <span className="cf-brand__name">LessV</span>
+        <span className="cf-brand__tag">Admin</span>
+      </div>
+
+      <div className="cf-auth__card">
+        <h1 className="cf-auth__title">Sign in</h1>
+        <p className="cf-auth__desc">
+          Use the admin key configured on your Worker to open the control plane.
+        </p>
+
+        <form className="cf-auth__form" onSubmit={submit}>
+          <label className="cf-field">
+            <span className="cf-label">Admin key</span>
+            <input
+              type="password"
+              autoFocus
+              className="cf-input"
+              value={key}
+              onChange={(event) => setKey(event.target.value)}
+              placeholder="Paste the ADMIN_KEY"
+              aria-label="Admin key"
+              autoComplete="off"
+            />
+          </label>
+          {error && <ErrorNote>{error}</ErrorNote>}
+          <button
+            type="submit"
+            disabled={busy || key.trim() === ""}
+            className="cf-btn cf-btn--primary cf-btn--block"
+          >
+            {busy ? "Checking…" : "Sign in"}
+          </button>
+        </form>
+
+        <p className="cf-auth__note">
+          The key is verified against <code className="cf-mono">/api/admin/status</code>{" "}
+          before it is stored in this browser.
+        </p>
+      </div>
+
+      <footer className="cf-auth__foot">
+        LessV · self-hosted Xray management plane
+      </footer>
     </div>
   );
 }

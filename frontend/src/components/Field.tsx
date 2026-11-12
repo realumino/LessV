@@ -17,12 +17,10 @@ export default function Field({
   children: ReactNode;
 }) {
   return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-apple-muted">
-        {label}
-      </span>
+    <label className="cf-field">
+      <span className="cf-label">{label}</span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-apple-muted">{hint}</span>}
+      {hint && <span className="cf-hint">{hint}</span>}
     </label>
   );
 }

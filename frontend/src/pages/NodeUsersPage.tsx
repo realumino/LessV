@@ -7,14 +7,13 @@
  * `access[nodeId]` entry, which is exactly what the server stores.
  */
 import { useCallback, useEffect, useState } from "react";
-import type { ReactNode } from "react";
 import { Link, useOutletContext } from "react-router";
 
 import { listUsers } from "../api";
 import Badge from "../components/Badge";
 import EmptyState from "../components/EmptyState";
 import ErrorNote from "../components/ErrorNote";
-import { secondaryButton } from "../components/styles";
+import Icon from "../components/icons";
 import { fmtExpire } from "../lib/format";
 import type { UserOut } from "../types";
 import type { NodeOutletContext } from "./NodeLayout";
@@ -39,85 +38,101 @@ export default function NodeUsersPage() {
   }, [load]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-apple-muted">
-          Users on this node
-        </h2>
-        <div className="flex gap-2">
-          <button type="button" className={secondaryButton} onClick={() => void load()}>
+    <>
+      <div className="cf-toolbar">
+        <div className="cf-toolbar__left">
+          <span className="cf-toolbar__meta">
+            {members === null
+              ? "Loading…"
+              : `${members.length} user${members.length === 1 ? "" : "s"} authorized on this node`}
+          </span>
+        </div>
+        <div className="cf-toolbar__right">
+          <button
+            type="button"
+            className="cf-btn cf-btn--secondary"
+            onClick={() => void load()}
+          >
+            <Icon name="refresh-cw" />
             Refresh
           </button>
-          <Link className={secondaryButton} to="/users/new">
+          <Link className="cf-btn cf-btn--primary" to="/users/new">
+            <Icon name="plus" />
             Add user
           </Link>
         </div>
       </div>
+
       {error && <ErrorNote>{error}</ErrorNote>}
+
       {members === null ? (
         <EmptyState>Loading users…</EmptyState>
       ) : members.length === 0 ? (
         <EmptyState>No user is authorized on this node yet.</EmptyState>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-apple-border bg-apple-card shadow-sm">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-apple-border bg-apple-gray-surface text-left text-xs uppercase tracking-wide text-apple-muted">
-                <Th>User</Th>
-                <Th>Status</Th>
-                <Th>Expiry</Th>
-                <Th>Allowed inbounds</Th>
-                <Th>Allowed outbounds</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((user) => {
-                const access = user.access[nodeId];
-                return (
-                  <tr key={user.username} className="border-b border-apple-border last:border-b-0">
-                    <Td>
-                      <Link
-                        to={`/users/${encodeURIComponent(user.username)}`}
-                        className="font-mono font-semibold text-apple-blue hover:text-apple-blue-hover"
-                      >
-                        {user.username}
-                      </Link>
-                    </Td>
-                    <Td>
-                      <Badge tone={user.status === "active" ? "ok" : "idle"}>
-                        {user.status}
-                      </Badge>
-                    </Td>
-                    <Td className="text-apple-muted">{fmtExpire(user.expire)}</Td>
-                    <Td className="text-apple-muted">
-                      {access.allowed_inbounds.join(", ") || "—"}
-                    </Td>
-                    <Td className="text-apple-muted">
-                      {access.allowed_outbounds.join(", ") || "—"}
-                    </Td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <section className="cf-card">
+          <div className="cf-tablewrap">
+            <table className="cf-table">
+              <thead>
+                <tr>
+                  <th className="cf-table__first">User</th>
+                  <th>Status</th>
+                  <th>Expiry</th>
+                  <th>Inbounds</th>
+                  <th>Outbounds</th>
+                  <th className="cf-cell--actions">Open</th>
+                </tr>
+              </thead>
+              <tbody>
+                {members.map((user) => {
+                  const access = user.access[nodeId];
+                  return (
+                    <tr key={user.username}>
+                      <td className="cf-table__first">
+                        <Link
+                          className="cf-link cf-link--strong"
+                          to={`/users/${encodeURIComponent(user.username)}`}
+                        >
+                          {user.username}
+                        </Link>
+                      </td>
+                      <td>
+                        <Badge tone={user.status === "active" ? "ok" : "idle"}>
+                          {user.status}
+                        </Badge>
+                      </td>
+                      <td className="cf-cell--mono">{fmtExpire(user.expire)}</td>
+                      <td>
+                        <span className="cf-mono">
+                          {access.allowed_inbounds.join(", ") || "—"}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="cf-mono">
+                          {access.allowed_outbounds.join(", ") || "—"}
+                        </span>
+                      </td>
+                      <td className="cf-cell--actions">
+                        <Link
+                          to={`/users/${encodeURIComponent(user.username)}`}
+                          className="cf-iconbtn"
+                          aria-label={`Open ${user.username}`}
+                        >
+                          <Icon name="chevron-right" />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="cf-card__note">
+            Membership is the presence of an access row for this node; removing
+            it on the user page takes effect on the next subscription read.
+          </p>
+        </section>
       )}
-    </div>
+    </>
   );
-}
-
-/** Consistent header cell padding. */
-function Th({ children }: { children: ReactNode }) {
-  return <th className="px-4 py-3 font-medium">{children}</th>;
-}
-
-/** Consistent body cell padding. */
-function Td({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <td className={`px-4 py-3 ${className}`}>{children}</td>;
 }

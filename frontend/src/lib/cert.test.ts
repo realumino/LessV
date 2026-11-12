@@ -31,7 +31,8 @@ describe("daysUntilIso", () => {
   it("expiryText", () => {
     expect(expiryText(null)).toBe("—");
     expect(expiryText(-1)).toBe("expired");
-    expect(expiryText(15)).toBe("15d");
+    expect(expiryText(1)).toBe("1 day");
+    expect(expiryText(15)).toBe("15 days");
   });
 
   it("isStaging", () => {

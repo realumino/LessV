@@ -18,23 +18,21 @@ export default function JsonPanel({
   empty: string;
 }) {
   return (
-    <section className="rounded-2xl border border-apple-border bg-apple-card p-5 shadow-sm">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-apple-muted">
-        {title}
-        {subtitle && (
-          <span className="ml-2 text-xs font-normal normal-case text-apple-muted/70">
-            {subtitle}
-          </span>
-        )}
-      </h2>
+    <section className="cf-card">
+      <div className="cf-card__head">
+        <h2 className="cf-card__title">{title}</h2>
+        {subtitle && <span className="cf-card__meta">{subtitle}</span>}
+      </div>
       {value === undefined ? (
-        <p className="text-sm text-apple-muted">Loading…</p>
+        <div className="cf-card__body">
+          <span className="cf-meta">Loading…</span>
+        </div>
       ) : value === null ? (
-        <p className="text-sm text-apple-muted">{empty}</p>
+        <div className="cf-card__body">
+          <span className="cf-meta">{empty}</span>
+        </div>
       ) : (
-        <pre className="max-h-96 overflow-auto rounded-xl border border-apple-border bg-apple-bg p-3 text-xs text-apple-text">
-          {JSON.stringify(value, null, 2)}
-        </pre>
+        <pre className="cf-code">{JSON.stringify(value, null, 2)}</pre>
       )}
     </section>
   );

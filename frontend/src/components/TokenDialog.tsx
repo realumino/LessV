@@ -19,17 +19,17 @@ export default function TokenDialog({
   onClose: () => void;
 }) {
   return (
-    <Modal title={`Token for ${nodeId}`} onClose={onClose}>
-      <p className="text-sm text-apple-muted">
+    <Modal
+      title={`Token for ${nodeId}`}
+      description="Shown once — the plane stores only its hash."
+      onClose={onClose}
+      footer={<CopyButton text={token} label="Copy token" />}
+    >
+      <p className="cf-meta">
         Copy this now — it is shown once and never stored in plaintext. Put it
-        in <code className="font-mono">node.toml</code> (mode 0600) on the node.
+        in <code className="cf-mono">node.toml</code> (mode 0600) on the node.
       </p>
-      <code className="block break-all rounded-xl border border-apple-border bg-apple-bg p-3 font-mono text-xs">
-        {token}
-      </code>
-      <div className="flex justify-end">
-        <CopyButton text={token} label="Copy token" />
-      </div>
+      <pre className="cf-code">{token}</pre>
     </Modal>
   );
 }

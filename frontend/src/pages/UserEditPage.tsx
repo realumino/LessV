@@ -26,7 +26,7 @@ import Badge from "../components/Badge";
 import EmptyState from "../components/EmptyState";
 import ErrorNote from "../components/ErrorNote";
 import Field from "../components/Field";
-import { inputClass, primaryButton, secondaryButton } from "../components/styles";
+import { inputClass, selectClass } from "../components/styles";
 import SubscriptionCard from "../components/SubscriptionCard";
 import type {
   AccessForm,
@@ -144,141 +144,198 @@ export default function UserEditPage() {
   };
 
   if (nodes === null) {
-    return <EmptyState>Loading user…</EmptyState>;
+    return (
+      <div className="cf-page">
+        <EmptyState>Loading user…</EmptyState>
+      </div>
+    );
   }
 
   return (
-    <form onSubmit={submit} className="space-y-4">
-      <h1 className="text-lg font-bold">
-        {isEdit ? `Edit ${username}` : "Add user"}
-      </h1>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <GlobalSection
-        isEdit={isEdit}
-        username={username}
-        usernameInput={usernameInput}
-        onUsername={setUsernameInput}
-        global={global}
-        onChange={setGlobal}
-      />
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-apple-muted">
-          Access by node
-        </h2>
-        <p className="text-xs text-apple-muted">
-          Each section is one node. The checkboxes are that node's registered
-          inbounds and exits; unchecking membership removes the node's access
-          row on save. BLOCK is never offered — it is the fallback route.
-        </p>
-        {nodes.length === 0 ? (
-          <EmptyState>No nodes exist yet — create one first.</EmptyState>
-        ) : (
-          nodes.map((node) => (
-            <AccessSection
-              key={node.id}
-              node={node}
-              section={form[node.id]}
-              endpoints={endpoints[node.id] ?? NO_ENDPOINTS}
-              onToggleNode={() => setForm((current) => toggleNode(current, node.id))}
-              onToggleOption={(list, id) =>
-                setForm((current) => toggleOption(current, node.id, list, id))
-              }
-            />
-          ))
-        )}
-      </section>
-      {isEdit && (
-        <div className="pt-2">
-          <SubscriptionCard username={username!} />
+    <div className="cf-page">
+      <header className="cf-pagehead">
+        <div className="cf-pagehead__text">
+          <h1 className="cf-pagehead__title">
+            {isEdit ? username : "New user"}
+            {isEdit && (
+              <Badge tone={global.status === "active" ? "ok" : "idle"}>
+                {global.status}
+              </Badge>
+            )}
+          </h1>
+          <p className="cf-pagehead__desc">
+            {isEdit
+              ? "Edit access per node; unchecking a node removes its access row on save."
+              : "Create an account, then choose which nodes it may use."}
+          </p>
         </div>
-      )}
-      <div className="flex gap-2">
-        <button type="submit" className={primaryButton} disabled={busy}>
-          {busy ? "Saving…" : isEdit ? "Save changes" : "Create user"}
-        </button>
-        <button
-          type="button"
-          className={secondaryButton}
-          onClick={() => navigate("/users")}
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
-  );
-}
+        <div className="cf-pagehead__actions">
+          <button
+            type="button"
+            className="cf-btn cf-btn--secondary"
+            onClick={() => navigate("/users")}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="user-form"
+            className="cf-btn cf-btn--primary"
+            disabled={busy}
+          >
+            {busy ? "Saving…" : isEdit ? "Save changes" : "Create user"}
+          </button>
+        </div>
+      </header>
 
-/** The user-wide fields: identity, status, expiry, note. */
-function GlobalSection({
-  isEdit,
-  username,
-  usernameInput,
-  onUsername,
-  global,
-  onChange,
-}: {
-  isEdit: boolean;
-  username?: string;
-  usernameInput: string;
-  onUsername: (value: string) => void;
-  global: GlobalFields;
-  onChange: (value: GlobalFields) => void;
-}) {
-  return (
-    <section className="flex flex-wrap items-end gap-3 rounded-2xl border border-apple-border bg-apple-card p-5 shadow-sm">
-      <Field label="Username">
-        {isEdit ? (
-          <p className="py-2 font-mono text-sm">{username}</p>
-        ) : (
-          <input
-            className={inputClass}
-            value={usernameInput}
-            onChange={(event) => onUsername(event.target.value)}
-            placeholder="alice"
-          />
-        )}
-      </Field>
-      <Field label="Status">
-        <select
-          className={inputClass}
-          value={global.status}
-          onChange={(event) => onChange({ ...global, status: event.target.value })}
-        >
-          <option value="active">active</option>
-          <option value="disabled">disabled</option>
-        </select>
-      </Field>
-      <Field label="Expiry">
-        <label className="mb-1 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="h-4 w-4 accent-apple-blue"
-            checked={global.hasExpire}
-            onChange={(event) =>
-              onChange({ ...global, hasExpire: event.target.checked })
-            }
-          />
-          Expires at a date
-        </label>
-        {global.hasExpire && (
-          <input
-            type="datetime-local"
-            className={inputClass}
-            value={global.expireLocal}
-            onChange={(event) =>
-              onChange({ ...global, expireLocal: event.target.value })
-            }
-          />
-        )}
-      </Field>
-      <Field label="Note">
-        <input
-          className={inputClass}
-          value={global.note}
-          onChange={(event) => onChange({ ...global, note: event.target.value })}
-        />
-      </Field>
-    </section>
+      {error && <ErrorNote>{error}</ErrorNote>}
+
+      <form id="user-form" onSubmit={submit}>
+        <div className="cf-formgrid">
+          <div className="cf-formgrid__main">
+            <section className="cf-card">
+              <div className="cf-card__head">
+                <h2 className="cf-card__title">User</h2>
+                <span className="cf-card__meta">
+                  {isEdit ? username : "not created yet"}
+                </span>
+              </div>
+              <div className="cf-card__body">
+                <div className="cf-section">
+                  <div className="cf-formrow">
+                    <div className="cf-field">
+                      <span className="cf-label">Username</span>
+                      {isEdit ? (
+                        <p className="cf-mono">{username}</p>
+                      ) : (
+                        <input
+                          className={inputClass}
+                          value={usernameInput}
+                          onChange={(event) => setUsernameInput(event.target.value)}
+                          placeholder="alice"
+                          aria-label="Username"
+                        />
+                      )}
+                    </div>
+                    <Field label="Note">
+                      <input
+                        className={inputClass}
+                        value={global.note}
+                        onChange={(event) =>
+                          setGlobal({ ...global, note: event.target.value })
+                        }
+                        aria-label="Note"
+                      />
+                    </Field>
+                  </div>
+                  <div className="cf-formrow">
+                    <Field label="Status">
+                      <select
+                        className={selectClass}
+                        value={global.status}
+                        onChange={(event) =>
+                          setGlobal({ ...global, status: event.target.value })
+                        }
+                      >
+                        <option value="active">active</option>
+                        <option value="disabled">disabled</option>
+                      </select>
+                    </Field>
+                    <div className="cf-field">
+                      <span className="cf-label">Expiry</span>
+                      <label className="cf-check">
+                        <input
+                          type="checkbox"
+                          checked={global.hasExpire}
+                          onChange={(event) =>
+                            setGlobal({ ...global, hasExpire: event.target.checked })
+                          }
+                        />
+                        Expires at a date
+                      </label>
+                      {global.hasExpire && (
+                        <input
+                          type="datetime-local"
+                          className={`${inputClass} mt-2`}
+                          value={global.expireLocal}
+                          onChange={(event) =>
+                            setGlobal({ ...global, expireLocal: event.target.value })
+                          }
+                          aria-label="Expiry date"
+                        />
+                      )}
+                      <span className="cf-hint">Leave empty for no expiry.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="cf-card__foot">
+                <button
+                  type="button"
+                  className="cf-btn cf-btn--secondary"
+                  onClick={() => navigate("/users")}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="cf-btn cf-btn--primary"
+                  disabled={busy}
+                >
+                  {busy ? "Saving…" : isEdit ? "Save changes" : "Create user"}
+                </button>
+              </div>
+            </section>
+
+            <section className="cf-card">
+              <div className="cf-card__head">
+                <h2 className="cf-card__title">Access by node</h2>
+                <span className="cf-card__meta">
+                  {nodes.length} node{nodes.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="cf-card__body cf-card__body--flush">
+                {nodes.length === 0 ? (
+                  <div className="cf-card__body">
+                    <span className="cf-meta">
+                      No nodes exist yet — create one first.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="cf-nodeaccess">
+                    {nodes.map((node) => (
+                      <AccessSection
+                        key={node.id}
+                        node={node}
+                        section={form[node.id]}
+                        endpoints={endpoints[node.id] ?? NO_ENDPOINTS}
+                        onToggleNode={() =>
+                          setForm((current) => toggleNode(current, node.id))
+                        }
+                        onToggleOption={(list, id) =>
+                          setForm((current) => toggleOption(current, node.id, list, id))
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+              <p className="cf-card__note">
+                Access is authoritative: a node left unchecked is removed from
+                the user&apos;s access map on save. BLOCK is never offered — it is
+                the fallback route.
+              </p>
+            </section>
+          </div>
+
+          {isEdit && (
+            <aside className="cf-rail">
+              <SubscriptionCard username={username!} />
+            </aside>
+          )}
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -298,26 +355,39 @@ function AccessSection({
 }) {
   const authorized = section?.authorized ?? false;
   return (
-    <div
-      className={`rounded-2xl border p-4 shadow-sm ${
-        authorized ? "border-apple-blue/40 bg-apple-card" : "border-apple-border bg-apple-card"
-      }`}
-    >
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="flex cursor-pointer items-center gap-2">
+    <>
+      <div className="cf-nodeaccess__row">
+        <label className="cf-switch">
           <input
             type="checkbox"
-            className="h-4 w-4 accent-apple-blue"
             checked={authorized}
             onChange={onToggleNode}
+            aria-label={`Authorize this user on ${node.label}`}
           />
-          <span className="font-semibold">{node.label}</span>
+          <span className="cf-switch__track">
+            <span className="cf-switch__thumb" />
+          </span>
         </label>
-        <span className="font-mono text-xs text-apple-muted">{node.id}</span>
-        {!node.has_config && <Badge tone="idle">no config</Badge>}
+        <div className="cf-nodeaccess__id">
+          <span className="cf-nodeaccess__name">{node.label}</span>
+          <span className="cf-mono">{node.id}</span>
+          <span className="cf-meta">
+            {endpoints.inbounds.length} inbound
+            {endpoints.inbounds.length === 1 ? "" : "s"} ·{" "}
+            {assignableExits(endpoints)} exit
+            {assignableExits(endpoints) === 1 ? "" : "s"}
+          </span>
+        </div>
+        {authorized ? (
+          <span className="cf-badge cf-badge--ok">authorized</span>
+        ) : node.has_config ? (
+          <span className="cf-meta">no access</span>
+        ) : (
+          <span className="cf-badge cf-badge--idle">no config</span>
+        )}
       </div>
       {authorized && section && (
-        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+        <div className="cf-nodeaccess__panel">
           <OptionList
             label="Allowed inbounds"
             options={optionsFor("inbound", endpoints, section.allowedInbounds)}
@@ -332,11 +402,16 @@ function AccessSection({
           />
         </div>
       )}
-    </div>
+    </>
   );
 }
 
-/** A grid of endpoint checkboxes with an empty state. */
+/** Exits a user may be assigned: BLOCK is the fallback route, never an exit. */
+function assignableExits(endpoints: NodeEndpoints): number {
+  return endpoints.outbounds.filter((outbound) => outbound.kind !== "block").length;
+}
+
+/** A column of endpoint checkboxes with an empty state. */
 function OptionList({
   label,
   options,
@@ -349,38 +424,25 @@ function OptionList({
   onToggle: (id: string) => void;
 }) {
   return (
-    <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-apple-muted">
-        {label}
-      </p>
+    <div className="cf-optionlist">
+      <p className="cf-optionlist__label">{label}</p>
       {options.length === 0 ? (
-        <p className="text-xs text-apple-muted">
+        <span className="cf-meta">
           None available — the node has no config, or declares none.
-        </p>
+        </span>
       ) : (
-        <div className="grid gap-2">
-          {options.map((option) => (
-            <label
-              key={option.id}
-              className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:border-apple-blue/40 ${
-                option.missing
-                  ? "border-amber-300 bg-amber-50"
-                  : "border-apple-border"
-              }`}
-            >
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-apple-blue"
-                checked={checked.includes(option.id)}
-                onChange={() => onToggle(option.id)}
-              />
-              <span className="font-semibold">{option.label}</span>
-              <span className="font-mono text-xs text-apple-muted">
-                {option.detail}
-              </span>
-            </label>
-          ))}
-        </div>
+        options.map((option) => (
+          <label key={option.id} className="cf-option">
+            <input
+              type="checkbox"
+              checked={checked.includes(option.id)}
+              onChange={() => onToggle(option.id)}
+            />
+            <span>{option.label}</span>
+            {option.missing && <Badge tone="warn">missing</Badge>}
+            <span className="cf-option__tag">{option.detail}</span>
+          </label>
+        ))
       )}
     </div>
   );

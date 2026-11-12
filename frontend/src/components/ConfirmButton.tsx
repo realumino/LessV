@@ -12,18 +12,21 @@ export default function ConfirmButton({
   children,
   className,
   disabled = false,
+  ariaLabel,
 }: {
   message: string;
   onConfirm: () => void;
   children: ReactNode;
   className: string;
   disabled?: boolean;
+  ariaLabel?: string;
 }) {
   return (
     <button
       type="button"
       disabled={disabled}
       className={className}
+      aria-label={ariaLabel}
       onClick={() => {
         if (window.confirm(message)) {
           onConfirm();

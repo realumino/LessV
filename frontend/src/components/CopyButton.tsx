@@ -6,6 +6,8 @@
  */
 import { useState } from "react";
 
+import Icon from "./icons";
+
 export default function CopyButton({
   text,
   label = "Copy",
@@ -29,9 +31,10 @@ export default function CopyButton({
     <button
       type="button"
       onClick={copy}
-      className="rounded-full bg-apple-gray-surface px-4 py-1.5 text-sm font-medium text-apple-text transition-colors hover:bg-apple-border"
+      className="cf-btn cf-btn--secondary cf-btn--sm"
     >
-      {copied ? "Copied!" : label}
+      <Icon name="copy" />
+      {copied ? "Copied" : label}
     </button>
   );
 }

@@ -15,10 +15,9 @@ import {
   rotateNodeRealityKey,
 } from "../api";
 import ConfirmButton from "../components/ConfirmButton";
-import CopyButton from "../components/CopyButton";
 import EmptyState from "../components/EmptyState";
 import ErrorNote from "../components/ErrorNote";
-import { dangerButton, secondaryButton } from "../components/styles";
+import Icon from "../components/icons";
 import { fmtTimestamp } from "../lib/format";
 import type { RealityKey } from "../types";
 import type { NodeOutletContext } from "./NodeLayout";
@@ -77,88 +76,118 @@ export default function NodeKeysPage() {
     await reload();
   };
 
-  return (
-    <div className="space-y-4">
-      {error && <ErrorNote>{error}</ErrorNote>}
-      {notice && <p className="text-sm text-apple-muted">{notice}</p>}
-      {keys === undefined ? (
-        <EmptyState>Loading keys…</EmptyState>
-      ) : keys === null ? (
-        <EmptyState>This node has no config, so it has no REALITY inbounds.</EmptyState>
-      ) : keys.length === 0 ? (
-        <EmptyState>No REALITY inbounds in this node's config.</EmptyState>
-      ) : (
-        <section className="space-y-3 rounded-2xl border border-apple-border bg-apple-card p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-apple-muted">
-              REALITY keys
-            </h2>
-            {keys.length > 1 && (
-              <ConfirmButton
-                className={dangerButton}
-                disabled={rotating !== null}
-                message={`Rotate ALL ${keys.length} REALITY keys? Every client using an old key stops working.`}
-                onConfirm={() => void rotateAll()}
-              >
-                {rotating === "*" ? "Rotating…" : "Rotate all"}
-              </ConfirmButton>
-            )}
-          </div>
-          <div className="space-y-3">
-            {keys.map((key) => (
-              <KeyRow
-                key={key.inbound_id}
-                row={key}
-                rotating={rotating}
-                onRotate={() => void rotate(key.inbound_id)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-    </div>
-  );
-}
+  if (error) {
+    return <ErrorNote>{error}</ErrorNote>;
+  }
+  if (keys === undefined) {
+    return <EmptyState>Loading keys…</EmptyState>;
+  }
+  if (keys === null) {
+    return (
+      <EmptyState>This node has no config, so it has no REALITY inbounds.</EmptyState>
+    );
+  }
+  if (keys.length === 0) {
+    return <EmptyState>No REALITY inbounds in this node&apos;s config.</EmptyState>;
+  }
 
-/** One REALITY inbound: its registered name, derived public key, rotation. */
-function KeyRow({
-  row,
-  rotating,
-  onRotate,
-}: {
-  row: RealityKey;
-  rotating: string | null;
-  onRotate: () => void;
-}) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-apple-border p-3">
-      <span className="min-w-24">
-        <span className="block text-sm font-semibold">{row.label}</span>
-        <span className="font-mono text-xs text-apple-muted">{row.tag}</span>
-      </span>
-      {row.public_key ? (
-        <>
-          <code className="min-w-48 flex-1 break-all rounded-lg bg-apple-gray-surface px-3 py-1.5 font-mono text-xs">
-            pbk: {row.public_key}
-          </code>
-          <CopyButton text={row.public_key} />
-        </>
-      ) : (
-        <span className="flex-1 text-sm text-apple-muted">
-          Key pending — generated on the next render.
-        </span>
+    <>
+      {notice && (
+        <div className="cf-alert cf-alert--info">
+          <Icon name="info" />
+          <span>{notice}</span>
+        </div>
       )}
-      <span className="text-xs text-apple-muted">
-        {row.created_at ? `from ${fmtTimestamp(row.created_at)}` : ""}
-      </span>
-      <ConfirmButton
-        className={secondaryButton}
-        disabled={rotating !== null}
-        message={`Rotate the REALITY key for "${row.label}"? Clients using the old key stop working until they re-import.`}
-        onConfirm={onRotate}
-      >
-        {rotating === row.inbound_id ? "Rotating…" : "Rotate"}
-      </ConfirmButton>
-    </div>
+      <section className="cf-card">
+        <div className="cf-card__head">
+          <div className="cf-inline">
+            <h2 className="cf-card__title">REALITY keys</h2>
+            <span className="cf-card__meta">
+              {keys.length} inbound{keys.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          {keys.length > 1 && (
+            <ConfirmButton
+              className="cf-btn cf-btn--danger cf-btn--sm"
+              disabled={rotating !== null}
+              message={`Rotate ALL ${keys.length} REALITY keys? Every client using an old key stops working.`}
+              onConfirm={() => void rotateAll()}
+            >
+              {rotating === "*" ? "Rotating…" : "Rotate all"}
+            </ConfirmButton>
+          )}
+        </div>
+        <div className="cf-tablewrap">
+          <table className="cf-table">
+            <thead>
+              <tr>
+                <th className="cf-table__first">Inbound</th>
+                <th>Tag</th>
+                <th>Public key</th>
+                <th>Created</th>
+                <th className="cf-cell--actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {keys.map((key) => (
+                <tr key={key.inbound_id}>
+                  <td className="cf-table__first">
+                    <span className="cf-stack">
+                      <span className="cf-preset__name">{key.label}</span>
+                      <span className="cf-mono">{key.inbound_id}</span>
+                    </span>
+                  </td>
+                  <td>
+                    <code className="cf-mono">{key.tag}</code>
+                  </td>
+                  <td>
+                    {key.public_key ? (
+                      <span className="cf-inline">
+                        <span className="cf-hash" title={key.public_key}>
+                          <span className="cf-hash__label">pbk</span>
+                          {key.public_key}
+                        </span>
+                        <button
+                          type="button"
+                          className="cf-iconbtn"
+                          aria-label="Copy public key"
+                          onClick={() => void navigator.clipboard.writeText(key.public_key!)}
+                        >
+                          <Icon name="copy" />
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="cf-meta">
+                        Pending — generated on the next render.
+                      </span>
+                    )}
+                  </td>
+                  <td>
+                    <span className="cf-meta">
+                      {key.created_at ? fmtTimestamp(key.created_at) : "—"}
+                    </span>
+                  </td>
+                  <td className="cf-cell--actions">
+                    <ConfirmButton
+                      className="cf-btn cf-btn--secondary cf-btn--sm"
+                      disabled={rotating !== null}
+                      message={`Rotate the REALITY key for "${key.label}"? Clients using the old key stop working until they re-import.`}
+                      onConfirm={() => void rotate(key.inbound_id)}
+                    >
+                      {rotating === key.inbound_id ? "Rotating…" : "Rotate"}
+                    </ConfirmButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="cf-card__note">
+          Only public keys are shown. Rotating one breaks every link that
+          carries the old key until clients re-import it.
+        </p>
+      </section>
+    </>
   );
 }
