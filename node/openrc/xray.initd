@@ -14,6 +14,9 @@ command_user="root:root"
 pidfile="/run/xray.pid"
 output_log="/var/log/xray.log"
 error_log="/var/log/xray.log"
+# One fd per proxied connection (plus the listener); the systemd unit
+# carries the same ceiling. cloud-init nodes also raise fs.file-max.
+rc_ulimit="-n 1000000"
 respawn_delay=5
 respawn_max=0
 

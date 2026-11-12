@@ -15,6 +15,8 @@ Group=root
 # node.toml holds the node token (0600); state holds the applied hash; the
 # decoy root and certificate tree are written by the reconciler.
 ReadWritePaths=/etc/lessv /var/lib/lessv /var/www/lessv-decoy
+# Match the xray unit's fd ceiling.
+LimitNOFILE=1000000
 NoNewPrivileges=true
 
 [Install]

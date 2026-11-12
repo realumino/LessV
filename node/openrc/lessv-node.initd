@@ -12,6 +12,9 @@ command_user="root:root"
 pidfile="/run/lessv-node.pid"
 output_log="/var/log/lessv-node.log"
 error_log="/var/log/lessv-node.log"
+# Match the systemd unit; the reconciler is not the fd hog, but the
+# ceiling is cheap and keeps both supervisors consistent.
+rc_ulimit="-n 1000000"
 respawn_delay=5
 respawn_max=0
 
