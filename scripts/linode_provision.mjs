@@ -1,6 +1,6 @@
 /**
- * WHAT: provision Linode fixtures (server + optional client) and production
- * LessV nodes, and inventory them.
+ * WHAT: provision Linode fixtures (server + optional client) and optionally
+ * boot LessV nodes, and inventory them.
  *
  * WHY a script and not dashboard clicks: a reproducible fixture —
  * `g6-nanode-1` Debian 12 instances with an SSH key injected, polled to
@@ -9,11 +9,13 @@
  * replace exactly that block and cleanup is mechanical. Hand-clicking
  * loses the root password and the ids the cleanup steps need.
  *
- * The `node` command is the production path: it creates the plane node row
- * (with the REALITY preset unless disabled), mints its token, boots an
- * Alpine Linode whose cloud-init user data is `scripts/alpine_cloud_init.yaml`,
- * waits for enrollment, and writes the inventory (0600; holds the LISH root
- * password). That user data disables SSH, so this path writes no SSH alias.
+ * The `node` command is a Linode-specific convenience: it creates the plane
+ * node row (with the REALITY preset unless disabled), mints its token, boots
+ * an Alpine Linode whose cloud-init user data is
+ * `scripts/alpine_cloud_init.yaml`, waits for enrollment, and writes the
+ * inventory (0600; holds the LISH root password). It is not the documented
+ * installation path; the operator manual describes the generic cloud-init
+ * and manual SSH paths instead.
  *
  * Usage:
  *   node scripts/linode_provision.mjs create --token-file <token-file> \

@@ -6,7 +6,7 @@
  * they are stored as AES-256-GCM ciphertext (`crypto.ts`,
  * `v1:<base64(iv || ct+tag)>`) with the key held in the Worker secret
  * `KEY_SECRET`. A database dump then yields only ciphertext — that
- * is the "seatbelt" trade ARCHITECTURE.md describes.
+ * is the "seatbelt" trade `docs/dev/architecture.md` describes.
  *
  * WHY there is no plaintext fallback: the app runs only under workerd,
  * where the secret binding always exists. A missing secret is a

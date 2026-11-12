@@ -158,16 +158,16 @@ Every issuance records an `issue_runs` row with phases
 failures keep the raw Let's Encrypt error text in `error` — that is the
 first place to look.
 
-## Disposable Alpine nodes (Linode cloud-init)
+## Alpine cloud-init nodes
 
-The automated path is `node scripts/linode_provision.mjs node ...` (README):
-it creates the plane row, the REALITY preset, and the token, then boots
-`linode/alpine3.24` with `scripts/alpine_cloud_init.yaml` as user data and
-waits for enrollment. The only per-node values are the four keys in the
-marked `/root/lessv.env` write_files block (`NODE_ID`, `CP_URL`, `TOKEN`,
-`VERSION`); `VERSION` also derives the Gitee release URL. There is no SSH and
-no Tailscale; the plane is the management interface and LISH (root password
-in the 0600 inventory) is the rescue console.
+`scripts/alpine_cloud_init.yaml` is a complete cloud-config for a disposable
+Alpine 3.22+ node. The operator creates the plane row and token, fills the
+four values in the marked `/root/lessv.env` block (`NODE_ID`, `CP_URL`,
+`TOKEN`, `VERSION`), and boots an Alpine image with cloud-init using the
+edited file as user data. `VERSION` also derives the Gitee release URL. The
+template is Alpine/OpenRC-specific; Debian/Ubuntu hosts use the manual
+`install.sh` path instead. There is no SSH and no Tailscale: the plane is the
+management interface and the provider console is the rescue path.
 
 First boot sets:
 
@@ -194,16 +194,15 @@ First boot sets:
   `apk upgrade`; a node's package set is its image plus these installs.
 
 Failure policy: a node that does not enroll is destroyed and rebuilt with a
-new node id; the script does not retain rendered user data for an in-place
-rebuild. The root password in the inventory is only for LISH debugging
-(`/var/log/cloud-init-output.log`); `delete` removes the Linode, and
-deleting the plane row revokes its token.
+new node id; user data is not retained for an in-place rebuild. Read
+`/var/log/cloud-init-output.log` through the provider console when the first
+boot fails.
 
 The node token is in cloud-init user data (and in the root-only cloud-init
-cache on the host). Linode cannot update user data in place, so revocation
-is deleting the plane row, not rotating in place; the token's blast radius
-is that node's rendered config and certificate private keys. Keep
-inventories and rendered user data out of the tree.
+cache on the host). Providers generally cannot update user data in place, so
+revocation is deleting the plane row, not rotating in place; the token's
+blast radius is that node's rendered config and certificate private keys.
+Keep rendered user data and inventories out of the tree.
 
 ## Node delivery layout (lessv-node)
 
@@ -292,7 +291,7 @@ Disallow: /
   X25519MLKEM768:X25519` makes a TLS 1.3 handshake prefer the ML-KEM-768 +
   X25519 hybrid and fall back to X25519 for clients that do not offer it.
   The linked TLS library resolves the group at `nginx -t` time: OpenSSL ≥ 3.5
-  (Debian 13, Ubuntu 25.04, Alpine 3.22, current nginx images) knows it;
+  (Debian 13, Ubuntu 25.10, Alpine 3.22, current nginx images) knows it;
   older hosts reject the whole file. There is **no classical-only render**:
   the apply fails, the previous nginx config is restored, and the node reports
   `nginx_ok: false` with the `nginx -t` output. `install.sh` refuses to
@@ -409,18 +408,16 @@ nginx -t && systemctl reload nginx      # rc-service nginx reload on Alpine
 | LE CAA error on a name | a CAA record forbids issuance | fix/remove the CAA record (`0 issue "none"` blocks everything) |
 | `too many certificates already issued` | production rate limit | wait; use staging for any further testing |
 | panel warning `nginx is not healthy: nginx unit is not active` | nginx stopped/crashed — the text after the colon is the node's `nginx_error` field | the node restarts nginx on its next poll; if it stays down, `systemctl start nginx` / `rc-service nginx start` and read the node log |
-| `nginx -t rejected the decoy (post-quantum X25519MLKEM768:X25519 requires OpenSSL >= 3.5): SSL_CTX_set1_curves_list(...) failed` | the host's TLS library cannot negotiate the hybrid group; the node refuses to serve classical-only TLS and restored the previous decoy config | move the node to Debian 13+/Ubuntu 25.04+/Alpine 3.22+ (or build nginx against OpenSSL ≥ 3.5). There is no fallback to enable |
+| `nginx -t rejected the decoy (post-quantum X25519MLKEM768:X25519 requires OpenSSL >= 3.5): SSL_CTX_set1_curves_list(...) failed` | the host's TLS library cannot negotiate the hybrid group; the node refuses to serve classical-only TLS and restored the previous decoy config | move the node to Debian 13+/Ubuntu 25.10+/Alpine 3.22+ (or build nginx against OpenSSL ≥ 3.5). There is no fallback to enable |
 | node reports cert failure, files unchanged | artifact read/validate failed | check the object path from the error; do not edit files by hand |
 | renewed cert never appears on the node | assignment changed or ETag stuck | re-check assignment; compare `nodes.cert_etag` (the node's adopted ETag) with the manifest ETag from `GET /api/node/certs` — equal means the node already has this version |
 
-## Tearing down a provisioned node VPS
+## Tearing down a node VPS
 
-When a VPS is no longer needed: `node scripts/linode_provision.mjs delete
---token-file <token-file> --label <label> [--tag <tag>]` (same tag as
-create; pass the same `--out` to strike the instance from the inventory).
-Delete the node itself with `DELETE /api/admin/nodes/<id>` (or the node
-page's **Delete node**): one batch removes the row plus its token, config,
-user access, endpoint registry, REALITY keys, and certificate assignments.
+Destroy the VPS through its provider, then delete the node with
+`DELETE /api/admin/nodes/<id>` (or the node page's **Delete node**): one
+batch removes the row plus its token, config, user access, endpoint
+registry, REALITY keys, and certificate assignments.
 Domain-scoped evidence (cert domains, certificates, issue runs) is untouched,
 and the machine keeps running its last applied config — decommission it
 separately. The plane keeps domain/cert records; soft-deleted cert

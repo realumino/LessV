@@ -248,7 +248,7 @@ install_nginx() {
         old)
             die "nginx links an OpenSSL older than 3.5, so the decoy cannot negotiate
 X25519MLKEM768 (post-quantum). Post-quantum TLS is required — lessv-node will
-not fall back to classical key exchange. Use Debian 13+, Ubuntu 25.04+, or
+not fall back to classical key exchange. Use Debian 13+, Ubuntu 25.10+, or
 Alpine 3.22+ (or an nginx built against OpenSSL >= 3.5)."
             ;;
         *)

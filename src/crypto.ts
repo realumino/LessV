@@ -6,7 +6,7 @@
  * primitive through Pyodide's FFI, and this port talks to it directly.
  * This module is the only place in the app that encrypts or decrypts.
  *
- * Ciphertext format matches ARCHITECTURE.md exactly:
+ * Ciphertext format matches `docs/dev/architecture.md` exactly:
  *     v1:<base64(iv || ciphertext+tag)>
  * The scheme prefix plus the embedded IV means the format can rotate later
  * without a migration, and every stored value is self-contained.

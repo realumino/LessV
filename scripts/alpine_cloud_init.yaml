@@ -1,17 +1,18 @@
 #cloud-config
-# WHAT: first boot for a disposable LessV node on Linode's Alpine image.
+# WHAT: first boot for a disposable Alpine (OpenRC) LessV node. The same
+# file works on any provider whose Alpine 3.22+ image runs cloud-init.
 # WHY: a node is cattle. This file raises the socket/fd ceilings, installs the
 # pinned lessv-node release, enrolls it, and leaves no remote shell behind.
 # There is no Tailscale, no configuration management agent, and no package
 # upgrade step: a host that drifts or breaks is destroyed and rebuilt from
 # this file plus the plane.
 #
-# Rendered by `scripts/linode_provision.mjs node`, which substitutes the
-# four values in the marked lessv.env block below. For a manual paste, edit
-# only that block (NODE_ID, CP_URL, TOKEN, VERSION) and leave everything else
-# alone. The node token is intentionally in user data (the operator's current
-# trade-off): the plane can revoke it by deleting the node row, and the host
-# has no SSH listener after first boot.
+# The four values in the marked lessv.env block below are the only per-node
+# edits (NODE_ID, CP_URL, TOKEN, VERSION). The token is intentionally in user
+# data (the operator's current trade-off): the plane can revoke it by deleting
+# the node row, and the host has no SSH listener after first boot. The
+# Linode-specific helper `scripts/linode_provision.mjs` can render this file,
+# but it is not required; the operator manual documents the manual paste.
 manage_etc_hosts: false
 ssh_pwauth: false
 
@@ -131,9 +132,10 @@ write_files:
               rm -rf "$WORK"
           fi
           rm -f /root/lessv.env /root/lessv.nft /root/lessv-bootstrap.sh
-          # No remote shell, on success or failure. LISH (root password in
-          # the provisioning inventory) is the only console, and a host that
-          # cannot converge is destroyed rather than repaired.
+          # No remote shell, on success or failure. The provider console
+          # (with whatever root password the image or operator set) is the
+          # only console, and a host that cannot converge is destroyed
+          # rather than repaired.
           rc-update del sshd default >/dev/null 2>&1 || true
           rc-update del sshd boot >/dev/null 2>&1 || true
           rc-service sshd stop >/dev/null 2>&1 || true

@@ -11,7 +11,8 @@ Workflows), a React admin SPA served by the same Worker, and `lessv-node`, a
 static Rust reconciler managed by systemd or OpenRC. Monorepo, single
 deployable unit.
 
-Entry docs, in order: `README.md` (deploy + first node), `docs/PROTOCOL.md`
+Entry docs, in order: `README.md` (operator manual: Workers, Access, nodes),
+`docs/dev/architecture.md` (system design and invariants), `docs/PROTOCOL.md`
 (node↔plane contract), `docs/OPERATIONS.md` (certificates/nginx/ops). Read
 the one covering the area you are changing, and keep every doc true in the
 same commit as the change.
@@ -25,6 +26,8 @@ same commit as the change.
 - `migrations/` — append-only D1 SQL; no foreign keys by convention
 - `tests/` — `pure/` (hermetic unit), `cert/` (ACME against a mock CA),
   `workerd/` (integration via the Cloudflare vitest plugin), `fixtures/`
+- `docs/dev/` — contributor documentation: architecture, local development,
+  testing, and releases (English)
 - `scripts/` — operational tools; each carries a WHAT/WHY header docstring;
   parameters are neutral placeholders (`<token-file>`, `<node-id>`) — never
   hardcode hosts, tags, token paths, IPs, or domains
@@ -65,9 +68,9 @@ The remote is public. The tracked tree carries current truth only:
 
 ## Documentation and comments
 
-- Standing docs are exactly `README.md`, `docs/PROTOCOL.md`,
-  `docs/OPERATIONS.md`. Do not add PLAN/ARCHITECTURE/WORKBOOK-style files
-  to the tree.
+- Operator docs are `README.md`, `docs/PROTOCOL.md`, `docs/OPERATIONS.md`.
+  Contributor docs live under `docs/dev/`. Do not add PLAN/WORKBOOK-style
+  files anywhere else in the tree.
 - Comments state invariants and reasons, self-contained — no references to
   plans, sessions, or files that do not exist in the tree.
 - `docs/PROTOCOL.md`, `PROTOCOL_VERSION` (`src/routers/node.ts`), and the

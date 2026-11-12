@@ -1,4 +1,4 @@
--- M1 schema: the node-scoped data model from ARCHITECTURE.md.
+-- M1 schema: the node-scoped data model from docs/dev/architecture.md.
 --
 -- Every table that describes something belonging to a machine carries the
 -- node dimension. Agent-facing columns (token_hash, applied_hash, last_seen,
