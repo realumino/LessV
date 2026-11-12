@@ -158,6 +158,53 @@ Every issuance records an `issue_runs` row with phases
 failures keep the raw Let's Encrypt error text in `error` — that is the
 first place to look.
 
+## Disposable Alpine nodes (Linode cloud-init)
+
+The automated path is `node scripts/linode_provision.mjs node ...` (README):
+it creates the plane row, the REALITY preset, and the token, then boots
+`linode/alpine3.24` with `scripts/alpine_cloud_init.yaml` as user data and
+waits for enrollment. The only per-node values are the four keys in the
+marked `/root/lessv.env` write_files block (`NODE_ID`, `CP_URL`, `TOKEN`,
+`VERSION`); `VERSION` also derives the Gitee release URL. There is no SSH and
+no Tailscale; the plane is the management interface and LISH (root password
+in the 0600 inventory) is the rescue console.
+
+First boot sets:
+
+- `/etc/sysctl.d/99-lessv.conf` — BBR/fq, `fs.file-max`, socket backlog,
+  keepalive. The bootstrap applies it once; the OpenRC `sysctl` service
+  applies it on later boots. `ip_forward` is deliberately absent: the host
+  terminates its own TLS and is not a router.
+- `/etc/nftables.nft` — an inbound fallback that drops everything except TCP
+  80/443. ICMP errors, IPv6 neighbour discovery, and DHCP client replies are
+  allowed because TCP/IP and boot need them; no service listens on those
+  ports. The service runs from `boot` before `net`, and `lessv-node`/`xray`
+  already declare `after firewall`. `22` is not open. The bootstrap starts it
+  before `install.sh`; a ruleset that will not load aborts the enrollment
+  instead of leaving an unfirewalled node.
+- `/etc/init.d/sshd` is replaced by a no-op. Stopping the service alone is not
+  enough: cloud-init's `cc_ssh` calls `rc-service sshd restart`, and the
+  default runlevel can start it after the bootstrap's cleanup. The no-op makes
+  both paths inert; there is no SSH listener even if a runlevel link survives.
+- The fd ceiling lives in the shipped units (`rc_ulimit` in the OpenRC init
+  scripts, `LimitNOFILE` in the systemd units), not in cloud-init, so nodes
+  installed by `install.sh` alone get it too.
+- Release install: Gitee tarball plus `SHA256SUMS`, then `install.sh`
+  (nginx, Xray, units, enroll). cloud-init is one-shot and does not run
+  `apk upgrade`; a node's package set is its image plus these installs.
+
+Failure policy: a node that does not enroll is destroyed and rebuilt with a
+new node id; the script does not retain rendered user data for an in-place
+rebuild. The root password in the inventory is only for LISH debugging
+(`/var/log/cloud-init-output.log`); `delete` removes the Linode, and
+deleting the plane row revokes its token.
+
+The node token is in cloud-init user data (and in the root-only cloud-init
+cache on the host). Linode cannot update user data in place, so revocation
+is deleting the plane row, not rotating in place; the token's blast radius
+is that node's rendered config and certificate private keys. Keep
+inventories and rendered user data out of the tree.
+
 ## Node delivery layout (lessv-node)
 
 ```

@@ -86,20 +86,51 @@ npm --prefix frontend run dev    # Vite dev server，代理 API 到 :8787
 
 ## 首节点（≤30 分钟）
 
-前提：VPS（Debian 13+/Ubuntu 25.04+/Alpine 3.22+，root SSH，80 与 443 空闲
-（80 用于 302 到 https），可出站 443 与 GitHub/Gitee）；一个 **DNS only**（proxied 关闭）的 A 记录指向服务器
-IP（REALITY 与 nginx 都必须直连）；面板已部署（上节）。发行版的要求来自 TLS
-1.3 + PQ：nginx 链接的 OpenSSL 必须 ≥ 3.5，decoy 只提供
-`X25519MLKEM768:X25519`，**不回退到经典密钥交换**——不满足的宿主机
-`install.sh` 直接报错，已经装好的节点会 apply 失败（`nginx -t` 拒绝）并在面板
-显示错误，而不是悄悄降级。
-`install.sh` 负责 nginx、Xray、服务单元与 enroll，计时从第 1 条命令开始，
-到第 6 步的客户端探针成功结束。
+前提：面板已部署（上节）；一个 **DNS only**（proxied 关闭）的 A 记录指向
+服务器 IP（REALITY 与 nginx 都必须直连）。VPS（手动路径）为 Debian
+13+/Ubuntu 25.04+/Alpine 3.22+，root SSH，80 与 443 空闲（80 用于 302 到
+https），可出站 443 与 GitHub/Gitee。发行版的要求来自 TLS 1.3 + PQ：nginx
+链接的 OpenSSL 必须 ≥ 3.5，decoy 只提供 `X25519MLKEM768:X25519`，**不回退
+到经典密钥交换**——不满足的宿主机 `install.sh` 直接报错，已经装好的节点会
+apply 失败（`nginx -t` 拒绝）并在面板显示错误，而不是悄悄降级。
 
 ```bash
 CP=https://<cp-host>; NODE=<node-id>; NAME=<节点域名>
 ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
 ```
+
+### 自动路径（Linode + Alpine cloud-init）
+
+`linode/alpine3.24` 自带 cloud-init。需要 Linode token（Linodes read/write）、
+面板 `ADMIN_KEY` 和一个尚未使用的 node id。本地一条命令完成建节点行 →
+REALITY 预设 → mint token → 创建 Linode → 等待首次 enroll：
+
+```bash
+node scripts/linode_provision.mjs node \
+  --token-file <linode-env> --admin-key-file .env.production \
+  --cp $CP --node $NODE --address $NAME \
+  --region jp-tyo-3 --out <inventory.json>
+```
+
+手动复制 cloud-init 时只改模板 `write_files` 顶部标注的 `/root/lessv.env` 块：
+`NODE_ID`、`CP_URL`、`TOKEN`、`VERSION` 四项；其余内容不要动，release
+下载地址由 `VERSION` 推出。
+
+cloud-init 首启写 `/etc/sysctl.d/99-lessv.conf`（BBR、file-max/socket 上限）
+和 `/etc/nftables.nft`（入站只开 TCP 80/443，另放行 ICMP/ND/DHCP 必需流量），
+校验并安装 Gitee release（nginx、Xray、服务单元、enroll；单元的
+`rc_ulimit`/`LimitNOFILE` 提供 fd 上限），并禁用 sshd（init 脚本替换为
+no-op，防止 cloud-init 自己重启）。此后节点
+只暴露 80/443，只从面板拉取；没有 SSH 与 Tailscale，故障按不可变基础设施
+处理——销毁重建，不原地修。`--cert-environment staging` 直接选证书环境；
+`--no-config true` 跳过 REALITY 预设；`--version` 默认取 Gitee 最新
+release。inventory（0600，放在 gitignored 路径）存 LISH 用的 root 密码。
+成功后先建 A 记录，再按手动路径第 4–6 步做证书、分配和订阅。
+
+### 手动路径（任意 VPS，root SSH）
+
+`install.sh` 负责 nginx、Xray、服务单元与 enroll，计时从第 1 条命令开始，
+到第 6 步的客户端探针成功结束。
 
 1. **建节点 + mint token**（面板或 API；token 只显示一次）：
    ```bash
