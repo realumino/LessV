@@ -47,9 +47,14 @@ presses Save config.
   node's configured domain and the decoy socket.
 - **WARP outbound** — the plane registers a free Cloudflare WARP device
   (`POST https://api.cloudflareclient.com/v0a2158/reg`, the exchange wgcf
-  performs), derives the reserved bytes from the device's `client_id`, and
-  returns a `wireguard` outbound with `noKernelTun: true` (the built-in
-  stack needs no `/dev/net/tun`). Every build creates a new device.
+  performs), switches it to MASQUE with a P-256 key
+  (`PATCH .../reg/{id}`, `key_type: secp256r1`, `tunnel_type: masque`), and
+  returns a `masque` outbound (CONNECT-IP over HTTP/3, edge certificate
+  pinned to the key the registration returns). Every build creates a new
+  device. The node's Xray must be 26.10.21 or newer — the preset warns when
+  the reported version is older, because the apply's config test would
+  otherwise reject the outbound and roll back. `h3` only: the tunnel is
+  QUIC, so a node whose uplink blocks UDP/443 cannot use it.
 - **Geo block routing** — appends `geoip:<code>` and/or `geosite:<category>`
   rules that send matches to `BLOCK` (or another chosen tag). Two rules,
   because Xray ANDs the matchers inside one rule (`ip` + `domain` in one rule

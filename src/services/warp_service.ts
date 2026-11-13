@@ -1,52 +1,87 @@
 /**
- * Cloudflare WARP registration for a node's outbound.
+ * Cloudflare WARP registration for a node's outbound, as a MASQUE tunnel.
  *
  * WHY this exists: a WARP exit is one outbound object, but obtaining it
- * requires a WireGuard key pair and a device registration with Cloudflare's
- * client API (the same exchange wgcf performs). Doing it in the plane means
- * the admin pastes nothing and the private key is generated here, goes into
- * the authored config, and reaches the node through the normal render.
+ * requires a device registration with Cloudflare's client API (the same
+ * exchange wgcf performs) plus a switch of that device to MASQUE. Doing it
+ * in the plane means the admin pastes nothing and the device key is
+ * generated here, goes into the authored config, and reaches the node
+ * through the normal render.
+ *
+ * WHY two calls and not one: `/reg` creates the device with an ordinary
+ * Curve25519-shaped key because that is the only shape that endpoint takes
+ * for a new account; `PATCH /reg/{id}` then replaces it with a P-256 key and
+ * `tunnel_type: "masque"`. Cloudflare authenticates the tunnel with a
+ * client certificate derived from that P-256 key and pins its own edge key,
+ * so the WireGuard key, the `client_id`, and the three "reserved" bytes are
+ * never used after the switch.
+ *
+ * WHY the SPI/keys the way they are: Xray's `masqueSettings.warp` wants a
+ * PKCS#8 (or SEC 1) private key and the edge's SubjectPublicKeyInfo, each
+ * base64 or PEM. WebCrypto exports exactly those DER shapes, so the plane
+ * needs no new dependency to mint them.
  *
  * WHY the API version and headers are pinned: the endpoint is an app API
  * with no published contract; `v0a2158` plus the okhttp user agent is the
- * long-lived combination wgcf uses. A rejected registration surfaces as an
- * error the admin can retry, never as a half-written config.
+ * long-lived combination wgcf uses, and it was verified to accept the
+ * MASQUE enrollment. A rejected registration surfaces as an error the admin
+ * can retry, never as a half-written config.
  *
  * The registration is free and disposable: each call creates a new device,
  * and the returned credentials live only inside the outbound object.
  */
 
-import { x25519 } from "@noble/curves/ed25519.js";
-
-import { clampScalar } from "../core/x25519";
-
-/** WHAT: the API surface the registration uses. */
+/** WHAT: the API surface device creation uses. */
 export const WARP_API = "https://api.cloudflareclient.com/v0a2158/reg";
-export const WARP_MTU = 1280;
-/** WHAT: the WireGuard port Cloudflare's peers accept (the API reports 0). */
-export const WARP_PORT = 2408;
+/** WHAT: the endpoint and HTTP version a WARP MASQUE tunnel speaks. */
+export const WARP_MASQUE_SNI = "consumer-masque.cloudflareclient.com";
+export const WARP_MASQUE_PORT = 443;
+/**
+ * WHAT: the oldest Xray that understands `masqueSettings.warp`.
+ *
+ * WHY pinned to a version: a node on an older core fails `xray -test` on the
+ * rendered config, and the preset route warns before the operator saves one.
+ */
+export const WARP_MASQUE_MIN_XRAY = "26.10.21";
+/** WHAT: resolvers used inside the tunnel; WARP routes 1.1.1.1 natively. */
+const WARP_RESOLVERS = [
+  "1.1.1.1",
+  "1.0.0.1",
+  "2606:4700:4700::1111",
+  "2606:4700:4700::1001",
+];
 
-/** WHAT: the facts a registered device contributes to an outbound. */
-export type WarpRegistration = {
-  private_key: string;
-  public_key: string;
-  addresses: [string, string];
+/** WHAT: the device the registration call created. */
+export type WarpDevice = { id: string; token: string };
+
+/** WHAT: the tunnel facts an enrolled device reports. */
+export type WarpEnrollment = {
+  /** The WARP edge's P-256 public key (PEM or base64 SPKI), pinned by Xray. */
   peer_public_key: string;
+  /** The edge host the tunnel dials. */
   endpoint: string;
-  reserved: number[];
-  client_id: string;
+  /** The addresses WARP assigned to the device, as /32 and /128. */
+  addresses: [string, string];
 };
 
-/** WHAT: one registration response, as far as this module reads it. */
-type WarpResponse = {
+/** WHAT: an enrollment plus the private half of the enrolled key. */
+export type WarpMasque = WarpEnrollment & {
+  /** Base64 PKCS #8 P-256 private key; Cloudflare sees only its public half. */
+  private_key: string;
+};
+
+/** WHAT: the registration response, as far as this module reads it. */
+type RegResponse = { id?: unknown; token?: unknown };
+
+/** WHAT: the enrollment response, as far as this module reads it. */
+type EnrollResponse = {
   config?: {
-    client_id?: unknown;
     peers?: unknown;
     interface?: unknown;
   };
 };
 
-/** WHAT: encode bytes as standard base64 (WireGuard's key encoding). */
+/** WHAT: encode bytes as standard base64 (the API's key encoding). */
 export function base64Encode(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) {
@@ -55,71 +90,54 @@ export function base64Encode(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/** WHAT: decode standard base64 into bytes; throws on malformed input. */
-export function base64Decode(text: string): Uint8Array {
-  const binary = atob(text);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
+/**
+ * WHAT: a throwaway 32-byte key for the registration call.
+ *
+ * WHY any value works: the endpoint only requires a well-formed Curve25519
+ * public key to create the account, and the MASQUE enrollment replaces it
+ * before the tunnel exists. Clamping and a derived public key would only
+ * pretend the key still matters.
+ */
+function registrationKey(): string {
+  return base64Encode(crypto.getRandomValues(new Uint8Array(32)));
 }
 
-/** WHAT: a fresh clamped WireGuard key pair. */
-export function generateKeyPair(): {
+/**
+ * WHAT: a fresh P-256 key pair, base64 PKCS #8 private and SPKI public.
+ *
+ * WHY WebCrypto and not a curve library: the Worker platform exports
+ * exactly the DER shapes Xray parses, and adding a dependency for two
+ * `crypto.subtle` calls would be the only reason to have one.
+ */
+export async function generateP256KeyPair(): Promise<{
   private_key: string;
   public_key: string;
-} {
-  const raw = crypto.getRandomValues(new Uint8Array(32));
-  const clamped = clampScalar(raw);
+}> {
+  const algorithm: SubtleCryptoGenerateKeyAlgorithm = {
+    name: "ECDSA",
+    namedCurve: "P-256",
+  };
+  const pair = (await crypto.subtle.generateKey(algorithm, true, [
+    "sign",
+    "verify",
+  ])) as CryptoKeyPair;
+  const [pkcs8, spki] = await Promise.all([
+    crypto.subtle.exportKey("pkcs8", pair.privateKey) as Promise<ArrayBuffer>,
+    crypto.subtle.exportKey("spki", pair.publicKey) as Promise<ArrayBuffer>,
+  ]);
   return {
-    private_key: base64Encode(clamped),
-    public_key: base64Encode(x25519.getPublicKey(clamped)),
+    private_key: base64Encode(new Uint8Array(pkcs8)),
+    public_key: base64Encode(new Uint8Array(spki)),
   };
 }
 
 /**
- * WHAT: the three reserved bytes WARP's WireGuard framing needs.
+ * WHAT: pull and validate one string field out of a nested object.
  *
- * WHY they come from `client_id`: Cloudflare encodes them as the base64
- * payload of the device's client id; sending the wrong bytes makes the
- * handshake complete but every packet get dropped.
+ * WHY a path string: the response nests device facts three levels deep and
+ * one missing level must produce the field name, not a TypeError.
  */
-export function reservedFromClientId(clientId: string): number[] {
-  const bytes = base64Decode(clientId);
-  if (bytes.length < 3) {
-    throw new Error(`warp: client_id ${clientId} is too short`);
-  }
-  return [bytes[0], bytes[1], bytes[2]];
-}
-
-/**
- * WHAT: the peer endpoint (`host:2408`) from the registration.
- *
- * WHY the assigned v4 host and not `engage.cloudflareclient.com`: the API
- * hands out a host that belongs to this account's colo; the service name is
- * a DNS dependency and resolves to a pool. The port in the response is 0
- * ("any"), so the documented WireGuard port is used.
- */
-function peerEndpoint(peer: Record<string, unknown>): string {
-  const endpoint = peer["endpoint"];
-  if (typeof endpoint === "object" && endpoint !== null) {
-    const v4 = (endpoint as Record<string, unknown>)["v4"];
-    if (typeof v4 === "string" && v4) {
-      const host = v4.split(":")[0];
-      if (host) {
-        return `${host}:${WARP_PORT}`;
-      }
-    }
-  }
-  throw new Error("warp: response has no peer endpoint");
-}
-
-/** WHAT: pull and validate one string field out of a nested object. */
-function stringField(
-  source: unknown,
-  path: string,
-): string {
+function stringField(source: unknown, path: string): string {
   let cursor: unknown = source;
   for (const part of path.split(".")) {
     if (typeof cursor !== "object" || cursor === null) {
@@ -134,17 +152,65 @@ function stringField(
 }
 
 /**
- * WHAT: register one WARP device and return the facts an outbound needs.
+ * WHAT: the host part of an endpoint value (`host:port`, `[v6]:port`, host).
  *
- * WHY `fetcher` is a parameter: the registration is the only network call in
- * the preset path, so unit tests inject a stub and prove the request shape
- * and the response parsing without touching Cloudflare.
+ * WHY strip it: the API reports the peer port as 0 ("any") and the tunnel
+ * always dials the MASQUE port, so only the host is meaningful.
+ */
+export function endpointHost(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const text = value.trim();
+  if (!text) {
+    return null;
+  }
+  if (text.startsWith("[")) {
+    const end = text.indexOf("]");
+    return end > 1 ? text.slice(1, end) : null;
+  }
+  const colon = text.lastIndexOf(":");
+  return colon > 0 ? text.slice(0, colon) : text;
+}
+
+/**
+ * WHAT: return true when an Xray version string supports WARP over MASQUE.
+ *
+ * WHY not a string comparison: `26.9.30` must sort below `26.10.21`. A
+ * missing or unparsable version (a node that never reported one) is false,
+ * which is what makes the preset warning fire instead of staying silent.
+ */
+export function supportsWarpMasque(
+  xrayVersion: string | null | undefined,
+  minimum: string = WARP_MASQUE_MIN_XRAY,
+): boolean {
+  const parse = (value: string): number[] | null => {
+    const match = value.trim().match(/^v?(\d+)\.(\d+)\.(\d+)/);
+    return match === null ? null : [Number(match[1]), Number(match[2]), Number(match[3])];
+  };
+  const current = parse(xrayVersion ?? "");
+  const required = parse(minimum);
+  if (current === null || required === null) {
+    return false;
+  }
+  for (let index = 0; index < 3; index += 1) {
+    if (current[index]! !== required[index]!) {
+      return current[index]! > required[index]!;
+    }
+  }
+  return true;
+}
+
+/**
+ * WHAT: create one free WARP device and return its registration credentials.
+ *
+ * WHY `fetcher` is a parameter: this is a network call, so unit tests inject
+ * a stub and prove the request shape without touching Cloudflare.
  */
 export async function registerWarp(
   fetcher: typeof fetch,
   now: Date,
-): Promise<WarpRegistration> {
-  const keys = generateKeyPair();
+): Promise<WarpDevice> {
   const response = await fetcher(WARP_API, {
     method: "POST",
     headers: {
@@ -153,7 +219,7 @@ export async function registerWarp(
       "CF-Client-Version": "a-6.10-2158",
     },
     body: JSON.stringify({
-      key: keys.public_key,
+      key: registrationKey(),
       install_id: "",
       fcm_token: "",
       tos: now.toISOString(),
@@ -165,58 +231,125 @@ export async function registerWarp(
     const detail = (await response.text()).slice(0, 300);
     throw new Error(`warp: registration answered HTTP ${response.status} ${detail}`);
   }
-  const body = (await response.json()) as WarpResponse;
-  const config = body.config;
-  if (typeof config !== "object" || config === null) {
-    throw new Error("warp: registration response has no config");
-  }
-  const peers = config.peers;
-  if (!Array.isArray(peers) || peers.length === 0 || typeof peers[0] !== "object") {
-    throw new Error("warp: registration response has no peer");
-  }
-  const clientId = stringField(config, "client_id");
+  const body = (await response.json()) as RegResponse;
   return {
-    private_key: keys.private_key,
-    public_key: keys.public_key,
-    addresses: [
-      `${stringField(config, "interface.addresses.v4")}/32`,
-      `${stringField(config, "interface.addresses.v6")}/128`,
-    ],
-    peer_public_key: stringField(peers[0], "public_key"),
-    endpoint: peerEndpoint(peers[0] as Record<string, unknown>),
-    reserved: reservedFromClientId(clientId),
-    client_id: clientId,
+    id: stringField(body, "id"),
+    token: stringField(body, "token"),
   };
 }
 
 /**
- * WHAT: the Xray `wireguard` outbound object for one registration.
+ * WHAT: switch one device to MASQUE and return the tunnel parameters.
  *
- * WHY `noKernelTun` is always true: Xray 26 defaults to a kernel TUN
- * device, which a node without `/dev/net/tun` (every container, and many
- * minimal hosts) cannot create; the built-in stack needs no privileges and
- * is what the outbound is for here.
+ * WHY the caller passes its own key pair: the preset mints it and would
+ * otherwise keep a copy that only this function needs, and a test can pin
+ * the exact SPKI it sends.
  */
-export function warpOutbound(
+export async function enrollMasque(
+  fetcher: typeof fetch,
+  device: WarpDevice,
+  keys: { public_key: string },
+): Promise<WarpEnrollment> {
+  const response = await fetcher(`${WARP_API}/${device.id}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": "okhttp/3.12.1",
+      "CF-Client-Version": "a-6.10-2158",
+      Authorization: `Bearer ${device.token}`,
+    },
+    body: JSON.stringify({
+      key: keys.public_key,
+      key_type: "secp256r1",
+      tunnel_type: "masque",
+    }),
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error(`warp: enrollment answered HTTP ${response.status} ${detail}`);
+  }
+  const body = (await response.json()) as EnrollResponse;
+  const config = body.config;
+  if (typeof config !== "object" || config === null) {
+    throw new Error("warp: enrollment response has no config");
+  }
+  const peers = config.peers;
+  if (!Array.isArray(peers) || peers.length === 0 || typeof peers[0] !== "object") {
+    throw new Error("warp: enrollment response has no peer");
+  }
+  const peer = peers[0] as Record<string, unknown>;
+  const endpointField = peer["endpoint"];
+  const endpoint = endpointHost(
+    typeof endpointField === "object" && endpointField !== null
+      ? (endpointField as Record<string, unknown>)["v4"]
+      : undefined,
+  );
+  if (endpoint === null) {
+    throw new Error("warp: enrollment response has no peer endpoint");
+  }
+  return {
+    peer_public_key: stringField(peer, "public_key"),
+    endpoint,
+    addresses: [
+      `${stringField(config, "interface.addresses.v4")}/32`,
+      `${stringField(config, "interface.addresses.v6")}/128`,
+    ],
+  };
+}
+
+/**
+ * WHAT: register a device, switch it to MASQUE, and return the tunnel facts.
+ *
+ * WHY the private key comes back here and not from `enrollMasque`: the key
+ * pair is minted once, used for the public half in the PATCH, and only the
+ * private half survives into the outbound.
+ */
+export async function createWarpMasque(
+  fetcher: typeof fetch,
+  now: Date,
+): Promise<WarpMasque> {
+  const device = await registerWarp(fetcher, now);
+  const keys = await generateP256KeyPair();
+  const enrollment = await enrollMasque(fetcher, device, keys);
+  return { ...enrollment, private_key: keys.private_key };}
+
+/**
+ * WHAT: the Xray `masque` outbound object for one WARP enrollment.
+ *
+ * WHY HTTP/3 only: the tunnel carries IP packets inside QUIC datagrams,
+ * which is the shape the official client uses and the one that avoids
+ * stacking IP packets inside a TCP stream. `alpn` is therefore `h3`.
+ *
+ * WHY serverName is the consumer edge name: Xray pins the edge certificate
+ * to `warp.publicKey`, so the name is cosmetic — but using the real one
+ * keeps the handshake indistinguishable from the official client's.
+ */
+export function warpMasqueOutbound(
   tag: string,
-  registration: WarpRegistration,
+  registration: WarpMasque,
 ): Record<string, unknown> {
   return {
     tag,
-    protocol: "wireguard",
+    protocol: "masque",
     settings: {
-      secretKey: registration.private_key,
-      address: registration.addresses,
-      peers: [
-        {
+      address: registration.endpoint,
+      port: WARP_MASQUE_PORT,
+      remoteDNS: [...WARP_RESOLVERS],
+    },
+    streamSettings: {
+      network: "masque",
+      security: "tls",
+      tlsSettings: {
+        serverName: WARP_MASQUE_SNI,
+        alpn: ["h3"],
+      },
+      masqueSettings: {
+        warp: {
+          privateKey: registration.private_key,
           publicKey: registration.peer_public_key,
-          endpoint: registration.endpoint,
-          allowedIPs: ["0.0.0.0/0", "::/0"],
+          address: registration.addresses,
         },
-      ],
-      reserved: registration.reserved,
-      mtu: WARP_MTU,
-      noKernelTun: true,
+      },
     },
   };
 }

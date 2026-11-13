@@ -18,7 +18,7 @@
  */
 
 import { canonicalJson } from "../core/python_json";
-import { registerWarp, warpOutbound } from "./warp_service";
+import { createWarpMasque, warpMasqueOutbound } from "./warp_service";
 
 /** WHAT: a JSON object carrying config data. */
 type Dict = Record<string, unknown>;
@@ -139,8 +139,9 @@ export function presetDescriptors(nodeAddress: string): PresetDescriptor[] {
       id: "warp",
       label: "WARP outbound",
       summary:
-        "Registers a free Cloudflare WARP device and adds it as a WireGuard " +
-        "outbound. Each build creates a new device.",
+        "Registers a free Cloudflare WARP device, switches it to MASQUE " +
+        "(CONNECT-IP over HTTP/3) and adds it as a masque outbound. Each " +
+        "build creates a new device.",
       fields: [
         {
           name: "tag",
@@ -385,8 +386,8 @@ export async function buildPreset(
     return [mergeFragment(document, { inbounds: [inbound] }), warnings];
   }
   if (id === "warp") {
-    const registration = await registerWarp(fetcher, now);
-    const outbound = warpOutbound(option(options, "tag", "warp"), registration);
+    const registration = await createWarpMasque(fetcher, now);
+    const outbound = warpMasqueOutbound(option(options, "tag", "warp"), registration);
     return [mergeFragment(document, { outbounds: [outbound] }), []];
   }
   const [rules, warnings] = geoBlockRules(options);

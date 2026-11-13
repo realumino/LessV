@@ -167,7 +167,24 @@ describe("the preset catalog", () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it("registers a WARP device and returns a wireguard outbound", async () => {
+  /** WHAT: mint one node token and report a heartbeat with a core version. */
+  async function reportXrayVersion(version: string): Promise<void> {
+    const token = (
+      await body<{ token: string }>(
+        await planeJson("POST", `/api/admin/nodes/${node}/token`),
+      )
+    ).token;
+    const heartbeat = await planeJson(
+      "POST",
+      "/api/node/heartbeat",
+      { protocol: 3, xray_version: version },
+      { Authorization: `Bearer ${token}`, "X-Lessv-Node": node },
+    );
+    expect(heartbeat.status).toBe(200);
+  }
+
+  it("registers a WARP device and returns a masque outbound", async () => {
+    await reportXrayVersion("26.11.9");
     const response = await planeJson(
       "POST",
       `/api/admin/nodes/${node}/presets/warp`,
@@ -175,19 +192,47 @@ describe("the preset catalog", () => {
     );
     expect(response.status, await response.clone().text()).toBe(200);
     const result = await body<PresetBuildOut>(response);
+    expect(result.warnings).toEqual([]);
     const outbounds = result.config["outbounds"] as Array<Record<string, unknown>>;
     expect(outbounds.map((entry) => entry["tag"])).toEqual(["BLOCK", "warp"]);
     const warp = outbounds[1] as {
       protocol: string;
       settings: Record<string, unknown>;
+      streamSettings: Record<string, unknown>;
     };
-    expect(warp.protocol).toBe("wireguard");
-    expect(warp.settings["reserved"]).toEqual([81, 81, 220]);
-    expect(warp.settings["noKernelTun"]).toBe(true);
-    expect(warp.settings["address"]).toEqual([
-      "172.16.0.2/32",
-      "2606:4700:110:8a78:72d9:6e7f:da52:294f/128",
-    ]);
+    expect(warp.protocol).toBe("masque");
+    expect(warp.settings["address"]).toBe("162.159.198.2");
+    expect(warp.settings["port"]).toBe(443);
+    expect(warp.streamSettings).toMatchObject({
+      network: "masque",
+      security: "tls",
+      tlsSettings: {
+        serverName: "consumer-masque.cloudflareclient.com",
+        alpn: ["h3"],
+      },
+      masqueSettings: {
+        warp: {
+          publicKey: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIw==",
+          address: [
+            "172.16.0.2/32",
+            "2606:4700:110:8a78:72d9:6e7f:da52:294f/128",
+          ],
+        },
+      },
+    });
+  });
+
+  it("warns when the node core predates MASQUE WARP support", async () => {
+    // A node that never reported a version is the same failure mode as an
+    // old one: the apply's config test would reject the outbound.
+    const response = await planeJson(
+      "POST",
+      `/api/admin/nodes/${node}/presets/warp`,
+      { config: null, options: { tag: "warp" } },
+    );
+    const result = await body<PresetBuildOut>(response);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/needs 26\.10\.21 or newer/);
   });
 
   it("404s an unknown preset and 422s a non-object document", async () => {

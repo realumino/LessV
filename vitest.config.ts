@@ -43,18 +43,25 @@ export default {
       }
       return Response.json({ success: false, errors: [{ message: "unexpected DNS API request" }] }, { status: 500 });
     }
-    if (url.origin === "https://api.cloudflareclient.com" && url.pathname.endsWith("/reg")) {
-      // The WARP preset registers a device; this canned device keeps the
-      // preset path hermetic while preserving the real response shape.
+    if (url.origin === "https://api.cloudflareclient.com" && url.pathname.includes("/reg")) {
+      // The WARP preset registers a device and then switches it to MASQUE;
+      // these canned responses keep the preset path hermetic while preserving
+      // the real response shapes of both calls.
+      if (request.method === "PATCH") {
+        return Response.json({
+          config: {
+            peers: [{
+              public_key: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIw==",
+              endpoint: { v4: "162.159.198.2:0", v6: "[2606:4700:103::2]:0" },
+            }],
+            interface: { addresses: { v4: "172.16.0.2", v6: "2606:4700:110:8a78:72d9:6e7f:da52:294f" } },
+          },
+        });
+      }
       return Response.json({
-        config: {
-          client_id: "UVHc",
-          peers: [{
-            public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
-            endpoint: { v4: "162.159.192.4:0", host: "engage.cloudflareclient.com:2408", ports: [2408] },
-          }],
-          interface: { addresses: { v4: "172.16.0.2", v6: "2606:4700:110:8a78:72d9:6e7f:da52:294f" } },
-        },
+        id: "warp-device-test",
+        token: "warp-token-test",
+        config: { client_id: "UVHc", peers: [], interface: { addresses: {} } },
       });
     }
     if ((url.origin === "https://cloudflare-dns.com" && url.pathname === "/dns-query") ||

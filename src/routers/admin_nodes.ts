@@ -33,6 +33,7 @@ import {
 } from "../services/preset_service";
 import { loadRegistry, deleteInbound, deleteOutbound, updateInbound, updateOutbound } from "../services/registry_service";
 import * as renderService from "../services/render_service";
+import { supportsWarpMasque, WARP_MASQUE_MIN_XRAY } from "../services/warp_service";
 
 export const adminNodes = new Hono<{ Bindings: Env }>();
 
@@ -402,7 +403,7 @@ const PRESET_IDS: readonly PresetId[] = ["reality", "warp", "geo_block"];
  * remains the only write path.
  */
 adminNodes.post("/api/admin/nodes/:node_id/presets/:preset_id", async (c) => {
-  await nodeOr404(c.env, c.req.param("node_id"));
+  const node = await nodeOr404(c.env, c.req.param("node_id"));
   const presetId = c.req.param("preset_id") as PresetId;
   if (!PRESET_IDS.includes(presetId)) {
     throw new ApiError(404, "preset not found");
@@ -416,6 +417,17 @@ adminNodes.post("/api/admin/nodes/:node_id/presets/:preset_id", async (c) => {
       fetch,
       new Date(),
     );
+    // WHY a warning and not a refusal: the config is the operator's document
+    // and the node's core is what actually rejects an unknown protocol. The
+    // preset is the only writer that knows this requirement, so it names the
+    // version the node must run before the config can apply.
+    if (presetId === "warp" && !supportsWarpMasque(node.xray_version)) {
+      warnings.push(
+        `node reports Xray ${node.xray_version ?? "unknown"}; a MASQUE WARP ` +
+          `outbound needs ${WARP_MASQUE_MIN_XRAY} or newer — update the core ` +
+          "first (Nodes → Actions), or the apply will fail its config test",
+      );
+    }
     return c.json({ config, warnings });
   } catch (error) {
     throw new ApiError(

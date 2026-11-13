@@ -348,7 +348,7 @@ tail -n 50 /var/log/lessv-node.log      # OpenRC
 
 等 ≤60 秒，`GET /api/admin/nodes/node1/sync`（或节点页状态）应满足 `applied_hash == desired_hash`、`health=ok`。若配置非法，节点会保留上一份可用配置并把错误写进 `last_error`，面板会显示。
 
-需要额外出口时，在配置里加 outbound（`freedom` 为直连，WARP 预设会生成 wireguard 出站，其余按上游出口处理），再给用户分配。`BLOCK` 是未匹配流量的默认路由，永远不能分配给用户。保存配置会把每个 inbound/outbound 登记进端点注册表；改 tag 不会丢用户授权、REALITY 密钥或链接变体。
+需要额外出口时，在配置里加 outbound（`freedom` 为直连，WARP 预设会生成 masque 出站（CONNECT-IP over HTTP/3，要求节点 Xray ≥ 26.10.21），其余按上游出口处理），再给用户分配。`BLOCK` 是未匹配流量的默认路由，永远不能分配给用户。保存配置会把每个 inbound/outbound 登记进端点注册表；改 tag 不会丢用户授权、REALITY 密钥或链接变体。
 
 不要手工改节点上的 `/var/lib/lessv/config.json`；面板是唯一事实来源，节点会在下次拉取时覆盖。
 
@@ -894,7 +894,8 @@ keeps the previous working config and writes the error to `last_error`, which
 the panel displays.
 
 For extra exits, add outbounds to the config (`freedom` is direct; the WARP
-preset creates a wireguard outbound; anything else is treated as an upstream exit), then assign
+preset creates a masque outbound (CONNECT-IP over HTTP/3; needs Xray 26.10.21 or
+newer); anything else is treated as an upstream exit), then assign
 them to users. `BLOCK` is the default route for unmatched traffic and can
 never be assigned to a user. Saving the config registers every inbound and
 outbound in the endpoint registry; renaming a tag preserves user access,
@@ -1497,7 +1498,7 @@ user-data رندرشده را هرگز commit نکنید.
 نشان می‌دهد.
 
 برای خروجی‌های بیشتر، outbound اضافه کنید (`freedom` مستقیم است؛ preset WARP
-یک wireguard می‌سازد؛ بقیه خروجی بالادست‌اند)، سپس به کاربران اختصاص دهید. `BLOCK`
+یک masque (CONNECT-IP روی HTTP/3؛ نیازمند Xray 26.10.21 یا جدیدتر) می‌سازد؛ بقیه خروجی بالادست‌اند)، سپس به کاربران اختصاص دهید. `BLOCK`
 مسیر پیش‌فرض ترافیک بی‌تطبیق است و هرگز به کاربر داده نمی‌شود. ذخیرهٔ پیکربندی
 هر inbound/outbound را در رجیستری ثبت می‌کند؛ تغییر tag دسترسی کاربران،
 کلیدهای REALITY و variantهای پیوند را حفظ می‌کند.
@@ -2106,7 +2107,7 @@ tail -n 50 /var/log/lessv-node.log      # OpenRC
 показывает панель.
 
 Для дополнительных выходов добавьте outbound (`freedom` — прямой; preset WARP
-создаёт wireguard; остальные считаются вышестоящими выходами), затем назначьте их
+создаёт masque (CONNECT-IP поверх HTTP/3; нужен Xray 26.10.21 или новее); остальные считаются вышестоящими выходами), затем назначьте их
 пользователям. `BLOCK` — маршрут по умолчанию для несовпавшего трафика, его
 нельзя назначать пользователю. Сохранение конфигурации регистрирует каждый
 inbound/outbound в реестре; переименование tag сохраняет доступ пользователей,
@@ -2711,7 +2712,7 @@ Script를 systemd 주계산기에 넣지 마십시오.
 그것을 보여줍니다.
 
 출구를 더 두려면 outbound를 더하십시오(`freedom`은 직접, WARP preset은
-wireguard를 만듬, 나머지는 상류출구). 다음 사용자에게 배정하십시오. `BLOCK`은
+masque(CONNECT-IP over HTTP/3, Xray 26.10.21 이상 필요)를 만듬, 나머지는 상류출구). 다음 사용자에게 배정하십시오. `BLOCK`은
 맞지 않는 흐름의 기본길이며 사용자에게 절대로 배정할수 없습니다. 설정을
 저장하면 모든 inbound/outbound가 endpoint 등록부에 들어갑니다. tag를 고쳐도
 사용자권한, REALITY 열쇠, 련결변형이 보존됩니다.
@@ -3321,7 +3322,7 @@ konfigurasiýa öňki işleýän konfigurasiýany saklaýar we ýalňyşlygy
 `last_error`-a ýazýar; panel ony görkezýär.
 
 Goşmaça çykyşlar üçin konfigurasiýa outbound goşuň (`freedom` göni; WARP
-preseti wireguard döredýär; beýlekiler ýokary akym çykyşy hasaplanýar), soň
+preseti masque (CONNECT-IP, HTTP/3; Xray 26.10.21 ýa-da täze bolmaly) döredýär; beýlekiler ýokary akym çykyşy hasaplanýar), soň
 ulanyjylara belläň. `BLOCK` gabat gelmeýän trafigiň deslapky ýoludyr we
 hiç wagt ulanyja berilmeýär. Konfigurasiýany saklamak her inbound/outbound-y
 endpoint registrine ýazýar; tag üýtgese-de ulanyjy hukuklary, REALITY

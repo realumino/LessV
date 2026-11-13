@@ -1,39 +1,41 @@
 /**
- * The WARP registration exchange and the outbound it produces.
+ * The WARP device registration, the MASQUE enrollment, and the outbound.
  *
- * WHY a stub fetcher: the registration is one HTTP call whose request shape
- * (headers, body, public key) and response parsing are the whole contract.
- * A canned Cloudflare response keeps the test hermetic and pins the reserved
- * bytes, which are the field a re-implementation usually gets wrong.
+ * WHY a stub fetcher: the exchange is two HTTP calls whose request shapes
+ * (headers, bodies, key encodings) and response parsing are the whole
+ * contract. Canned Cloudflare responses keep the test hermetic and pin the
+ * field names a re-implementation usually gets wrong.
  */
 
 import { describe, expect, it } from "vitest";
 
 import {
-  base64Decode,
-  base64Encode,
-  generateKeyPair,
+  createWarpMasque,
+  endpointHost,
+  enrollMasque,
+  generateP256KeyPair,
   registerWarp,
-  reservedFromClientId,
+  supportsWarpMasque,
   WARP_API,
-  warpOutbound,
+  WARP_MASQUE_SNI,
+  warpMasqueOutbound,
 } from "../../src/services/warp_service";
 
-/** WHAT: a Cloudflare-shaped registration response. */
-function registration(overrides: Record<string, unknown> = {}): Response {
+/** WHAT: a device-creation response. */
+function deviceResponse(): Response {
+  return Response.json({ id: "dev-1", token: "tok-1", config: { client_id: "UVHc" } });
+}
+
+/** WHAT: a MASQUE enrollment response with the fields the outbound needs. */
+function enrollmentResponse(): Response {
   return Response.json(
     {
       config: {
-        client_id: "UVHc",
         peers: [
           {
-            public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
-            endpoint: {
-              v4: "162.159.192.4:0",
-              v6: "[2606:4700:d0::a29f:c004]:0",
-              host: "engage.cloudflareclient.com:2408",
-              ports: [2408, 500, 1701, 4500],
-            },
+            public_key:
+              "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIw==\n-----END PUBLIC KEY-----\n",
+            endpoint: { v4: "162.159.198.2:0", v6: "[2606:4700:103::2]:0" },
           },
         ],
         interface: {
@@ -43,32 +45,36 @@ function registration(overrides: Record<string, unknown> = {}): Response {
           },
         },
       },
-      ...overrides,
     },
     { status: 200 },
   );
 }
 
-/** WHAT: a fetch stub that records the request it received. */
-function stub(responder: () => Response): {
+/** WHAT: a fetch stub that plays the responses in order and records requests. */
+function stub(responses: Array<() => Response>): {
   fetcher: typeof fetch;
   calls: Array<{ url: string; init?: RequestInit }>;
 } {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
+  let index = 0;
   const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
     calls.push({ url: String(input), init });
-    return responder();
+    const responder = responses[Math.min(index, responses.length - 1)];
+    index += 1;
+    return responder!();
   }) as typeof fetch;
   return { fetcher, calls };
 }
 
 describe("registerWarp", () => {
-  it("posts a WireGuard public key and parses the device facts", async () => {
-    const { fetcher, calls } = stub(() => registration());
-    const result = await registerWarp(fetcher, new Date("2026-11-11T00:00:00Z"));
+  it("creates a device with a one-off Curve25519-shaped key", async () => {
+    const { fetcher, calls } = stub([deviceResponse]);
+    const device = await registerWarp(fetcher, new Date("2026-11-11T00:00:00Z"));
 
+    expect(device).toEqual({ id: "dev-1", token: "tok-1" });
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe(WARP_API);
+    expect(calls[0].init?.method).toBe("POST");
     const headers = calls[0].init?.headers as Record<string, string>;
     expect(headers["CF-Client-Version"]).toBe("a-6.10-2158");
     expect(headers["User-Agent"]).toBe("okhttp/3.12.1");
@@ -76,86 +82,166 @@ describe("registerWarp", () => {
     const body = JSON.parse(String(calls[0].init?.body)) as Record<string, unknown>;
     expect(body["tos"]).toBe("2026-11-11T00:00:00.000Z");
     expect(body["model"]).toBe("PC");
-    expect(base64Decode(String(body["key"]))).toHaveLength(32);
-
-    expect(result).toMatchObject({
-      addresses: ["172.16.0.2/32", "2606:4700:110:8a78:72d9:6e7f:da52:294f/128"],
-      peer_public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
-      endpoint: "162.159.192.4:2408",
-      reserved: [81, 81, 220],
-      client_id: "UVHc",
-    });
-    // The private key must actually belong to the advertised public key.
-    expect(base64Decode(result.private_key)).toHaveLength(32);
-    expect(base64Decode(result.public_key)).toHaveLength(32);
+    expect(atob(String(body["key"]))).toHaveLength(32);
   });
 
   it("fails loudly on a rejected registration", async () => {
-    const { fetcher } = stub(() => new Response("no", { status: 429 }));
+    const { fetcher } = stub([() => new Response("no", { status: 429 })]);
     await expect(registerWarp(fetcher, new Date())).rejects.toThrow(/HTTP 429/);
   });
 
-  it("fails when the response lacks the fields an outbound needs", async () => {
-    const { fetcher } = stub(() => Response.json({}));
-    await expect(registerWarp(fetcher, new Date())).rejects.toThrow(/no config/);
-
-    const bare = stub(() =>
-      Response.json({ config: { client_id: "UVHc", peers: [], interface: {} } }),
-    );
-    await expect(registerWarp(bare.fetcher, new Date())).rejects.toThrow(/no peer/);
-
-    const noEndpoint = stub(() =>
-      Response.json({
-        config: {
-          client_id: "UVHc",
-          peers: [{ public_key: "x" }],
-          interface: { addresses: { v4: "172.16.0.2", v6: "::1" } },
-        },
-      }),
-    );
-    await expect(registerWarp(noEndpoint.fetcher, new Date())).rejects.toThrow(
-      /no peer endpoint/,
-    );
-  });
-
-  it("generates distinct clamped key pairs", () => {
-    const first = generateKeyPair();
-    const second = generateKeyPair();
-    expect(first.public_key).not.toBe(second.public_key);
-    const raw = base64Decode(first.private_key);
-    expect(raw[0] & 0b111).toBe(0);
-    expect(raw[31] & 0b11000000).toBe(0b01000000);
-    expect(base64Encode(raw)).toBe(first.private_key);
-  });
-
-  it("takes the reserved bytes from the client id", () => {
-    expect(reservedFromClientId("UVHc")).toEqual([81, 81, 220]);
-    expect(() => reservedFromClientId("QQ==")).toThrow(/too short/);
+  it("fails when the response lacks the credentials", async () => {
+    const { fetcher } = stub([() => Response.json({ id: "dev-1" })]);
+    await expect(registerWarp(fetcher, new Date())).rejects.toThrow(/missing token/);
   });
 });
 
-describe("warpOutbound", () => {
-  it("builds a userspace WireGuard outbound", async () => {
-    const { fetcher } = stub(() => registration());
-    const result = await registerWarp(fetcher, new Date());
-    const outbound = warpOutbound("warp", result);
+describe("enrollMasque", () => {
+  it("patches the device to a P-256 MASQUE key", async () => {
+    const keys = await generateP256KeyPair();
+    const { fetcher, calls } = stub([enrollmentResponse]);
+    const enrollment = await enrollMasque(
+      fetcher,
+      { id: "dev-1", token: "tok-1" },
+      keys,
+    );
+
+    expect(calls[0].url).toBe(`${WARP_API}/dev-1`);
+    expect(calls[0].init?.method).toBe("PATCH");
+    const headers = calls[0].init?.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer tok-1");
+
+    const body = JSON.parse(String(calls[0].init?.body)) as Record<string, unknown>;
+    expect(body).toEqual({
+      key: keys.public_key,
+      key_type: "secp256r1",
+      tunnel_type: "masque",
+    });
+    // The enrolled key must be a P-256 SPKI, not a Curve25519 blob.
+    expect(atob(String(body["key"]))).toHaveLength(91);
+
+    expect(enrollment).toEqual({
+      peer_public_key:
+        "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIw==\n-----END PUBLIC KEY-----\n",
+      endpoint: "162.159.198.2",
+      addresses: ["172.16.0.2/32", "2606:4700:110:8a78:72d9:6e7f:da52:294f/128"],
+    });
+  });
+
+  it("fails when the response lacks the fields a tunnel needs", async () => {
+    const keys = await generateP256KeyPair();
+    const noConfig = stub([() => Response.json({})]);
+    await expect(
+      enrollMasque(noConfig.fetcher, { id: "d", token: "t" }, keys),
+    ).rejects.toThrow(/no config/);
+
+    const noEndpoint = stub([
+      () =>
+        Response.json({
+          config: {
+            peers: [{ public_key: "x", endpoint: {} }],
+            interface: { addresses: { v4: "172.16.0.2", v6: "::1" } },
+          },
+        }),
+    ]);
+    await expect(
+      enrollMasque(noEndpoint.fetcher, { id: "d", token: "t" }, keys),
+    ).rejects.toThrow(/no peer endpoint/);
+  });
+});
+
+describe("createWarpMasque", () => {
+  it("returns a private key that belongs to the enrolled public key", async () => {
+    const { fetcher, calls } = stub([deviceResponse, enrollmentResponse]);
+    const registration = await createWarpMasque(fetcher, new Date());
+
+    expect(calls).toHaveLength(2);
+    const enrolled = JSON.parse(String(calls[1].init?.body)) as Record<string, unknown>;
+    const algorithm = { name: "ECDSA", namedCurve: "P-256" } as const;
+    const privateKey = await crypto.subtle.importKey(
+      "pkcs8",
+      Uint8Array.from(atob(registration.private_key), (char) => char.charCodeAt(0)),
+      algorithm,
+      false,
+      ["sign"],
+    );
+    const publicKey = await crypto.subtle.importKey(
+      "spki",
+      Uint8Array.from(atob(String(enrolled["key"])), (char) => char.charCodeAt(0)),
+      algorithm,
+      false,
+      ["verify"],
+    );
+    const message = new TextEncoder().encode("warp");
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      privateKey,
+      message,
+    );
+    expect(
+      await crypto.subtle.verify(
+        { name: "ECDSA", hash: "SHA-256" },
+        publicKey,
+        signature,
+        message,
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("endpointHost", () => {
+  it("strips the port the API reports as zero", () => {
+    expect(endpointHost("162.159.198.2:0")).toBe("162.159.198.2");
+    expect(endpointHost("[2606:4700:103::2]:0")).toBe("2606:4700:103::2");
+    expect(endpointHost("162.159.198.2")).toBe("162.159.198.2");
+    expect(endpointHost("")).toBeNull();
+    expect(endpointHost(7)).toBeNull();
+  });
+});
+
+describe("supportsWarpMasque", () => {
+  it("compares dotted versions numerically", () => {
+    expect(supportsWarpMasque("26.11.9")).toBe(true);
+    expect(supportsWarpMasque("v26.10.21")).toBe(true);
+    expect(supportsWarpMasque("26.10.20")).toBe(false);
+    expect(supportsWarpMasque("26.9.30")).toBe(false);
+    expect(supportsWarpMasque("25.12.1")).toBe(false);
+    expect(supportsWarpMasque("")).toBe(false);
+    expect(supportsWarpMasque(null)).toBe(false);
+    expect(supportsWarpMasque("not-a-version")).toBe(false);
+  });
+});
+
+describe("warpMasqueOutbound", () => {
+  it("builds the masque outbound with the pinned edge key", async () => {
+    const { fetcher } = stub([deviceResponse, enrollmentResponse]);
+    const registration = await createWarpMasque(fetcher, new Date());
+    const outbound = warpMasqueOutbound("warp", registration);
 
     expect(outbound).toMatchObject({
       tag: "warp",
-      protocol: "wireguard",
+      protocol: "masque",
       settings: {
-        secretKey: result.private_key,
-        address: result.addresses,
-        peers: [
-          {
-            publicKey: result.peer_public_key,
-            endpoint: "162.159.192.4:2408",
-            allowedIPs: ["0.0.0.0/0", "::/0"],
-          },
+        address: "162.159.198.2",
+        port: 443,
+        remoteDNS: [
+          "1.1.1.1",
+          "1.0.0.1",
+          "2606:4700:4700::1111",
+          "2606:4700:4700::1001",
         ],
-        reserved: [81, 81, 220],
-        mtu: 1280,
-        noKernelTun: true,
+      },
+      streamSettings: {
+        network: "masque",
+        security: "tls",
+        tlsSettings: { serverName: WARP_MASQUE_SNI, alpn: ["h3"] },
+        masqueSettings: {
+          warp: {
+            privateKey: registration.private_key,
+            publicKey: registration.peer_public_key,
+            address: registration.addresses,
+          },
+        },
       },
     });
   });
