@@ -29,7 +29,13 @@ protocol requires a node release, and vice versa.
 
    The pipeline builds the SPA, uploads the Worker, applies remote D1
    migrations, and requires `https://<host>/api/health` to answer 200.
-4. Verify:
+4. If the release adds a table or column that the **new** Worker reads
+   (`plane_settings`, `link_names`, …), apply the migrations before the
+   Worker deploy: `npx wrangler d1 migrations apply DB --remote`. They are
+   additive, so the running Worker ignores them, and the pipeline's own apply
+   becomes a no-op. Doing it the other way round leaves a window where the new
+   Worker queries a missing table.
+5. Verify:
 
    ```bash
    npx wrangler deployments list
@@ -37,7 +43,7 @@ protocol requires a node release, and vice versa.
    curl -fsS https://<host>/api/health
    ```
 
-5. Tag the commit and write release notes that name the operator-visible
+6. Tag the commit and write release notes that name the operator-visible
    change, the protocol version, and any migration. Do not put hostnames,
    certificate serials, tokens, or run output in the notes.
 
