@@ -8,8 +8,8 @@
 
 Operator documentation:
 
-- [`../../README.md`](../../README.md) — operator manual in five languages
-  (Workers, Access, nodes, certificates, users).
+- [`../../README.md`](../../README.md) — operator manual (Workers, Access,
+  nodes, certificates, users).
 - [`../PROTOCOL.md`](../PROTOCOL.md) — node ↔ plane pull contract.
 - [`../OPERATIONS.md`](../OPERATIONS.md) — certificate, nginx, and node
   operations.
