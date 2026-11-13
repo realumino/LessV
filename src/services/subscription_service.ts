@@ -14,10 +14,12 @@
  * entitled identically and one capability URL serves either kind of app.
  */
 
+import { renderTemplate } from "../core/template";
 import * as db from "../db";
 import { bytesToBase64 } from "../crypto";
 import { clashProfile } from "./clash_service";
 import { userLinks } from "./link_service";
+import { loadPlaneSettings } from "./settings_service";
 import { isEntitled, nowSeconds } from "./user_service";
 
 /** WHAT: how the subscription body is presented. */
@@ -88,17 +90,46 @@ export async function subscriptionBody(
   env: Env,
   token: string,
   format: SubscriptionFormat = "uri",
-): Promise<string> {
+): Promise<{ body: string; title: string | null }> {
   if (!token) {
-    return "";
+    return { body: "", title: null };
   }
   const user = await db.getUserBySubToken(env.DB, token);
   if (user === null || !isEntitled(user, nowSeconds())) {
-    return "";
+    return { body: "", title: null };
   }
+  const settings = await loadPlaneSettings(env.DB);
+  // WHY the title is resolved only here: it comes from a fleet-wide format
+  // plus this user's fields, and a token that is not entitled must not learn
+  // anything about the profile — no title either.
+  const title = profileTitleHeader(
+    renderTemplate(settings.subscription_title_template, {
+      username: user.username,
+      status: user.status,
+    }),
+  );
   const aggregated = await userLinks(env, user.username, user.status);
-  if (format === "clash") {
-    return clashProfile(aggregated.links);
+  const body =
+    format === "clash"
+      ? clashProfile(aggregated.links)
+      : encodeSubscription(aggregated.links.map((link) => link.uri));
+  return { body, title };
+}
+
+/**
+ * WHAT: the `profile-title` header value for a rendered title, or null.
+ *
+ * WHY base64 with the `base64:` prefix: the de-facto client convention
+ * (v2rayN, Clash Verge) and the only way to carry a non-ASCII title, because
+ * an HTTP header value is limited to Latin-1 bytes.
+ *
+ * WHY null for empty: a plane that never set a title must send no header at
+ * all, which keeps the response byte-identical to the pre-title behaviour.
+ */
+export function profileTitleHeader(rendered: string): string | null {
+  const title = rendered.trim();
+  if (!title) {
+    return null;
   }
-  return encodeSubscription(aggregated.links.map((link) => link.uri));
+  return `base64:${bytesToBase64(new TextEncoder().encode(title))}`;
 }

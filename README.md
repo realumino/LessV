@@ -386,6 +386,8 @@ curl -I https://node1.example.com    # 200，证书有效（不用 -k）
    - v2rayN / NekoBox / Shadowrocket / Hiddify：直接导入 URL，得到 base64 的 VLESS 链接列表；
    - Clash Verge / FlClash / mihomo：UA 含 `clash`/`mihomo`/`stash` 时返回 mihomo 配置；也可以强制 `?target=clash`；
    - `?target=uri` 强制回到 VLESS 列表。
+
+   **Names → Subscription title** 可给订阅加显示标题（例如 `LessV · {username}`，字段 `{username}` `{status}`）；服务器以 `profile-title: base64:…` 头下发，v2rayN、Clash Verge 这类客户端会显示它。留空则不下发该头，行为与之前完全一致。
 5. 探针：
 
    ```bash
@@ -960,6 +962,11 @@ follows without a new assignment.
    - Clash Verge / FlClash / mihomo: a user agent containing
      `clash`/`mihomo`/`stash` gets a mihomo profile; `?target=clash` forces it;
    - `?target=uri` forces the VLESS list.
+
+   **Names → Subscription title** gives the profile a display name (for
+example `LessV · {username}`; fields `{username}`, `{status}`). It travels as
+a `profile-title: base64:…` header, which v2rayN and Clash Verge display;
+leaving it empty sends no header and keeps the old bytes exactly.
 5. Probe from the client side:
 
    ```bash
@@ -1569,6 +1576,11 @@ UTC خودکار تمدید می‌شود و گره بدون تخصیص دوبا
      `clash`/`mihomo`/`stash` پروفایل mihomo می‌گیرد؛ `?target=clash` آن را
      مجبور می‌کند؛
    - `?target=uri` فهرست VLESS را مجبور می‌کند.
+
+   **Names → Subscription title** یک نام نمایشی به پروفایل می‌دهد (مثلاً
+   `LessV · {username}`؛ فیلدها `{username}`، `{status}`). این نام در هدر
+   `profile-title: base64:…` می‌آید که v2rayN و Clash Verge نشان می‌دهند؛
+   خالی گذاشتن آن هیچ هدری نمی‌فرستد و پاسخ دقیقاً مثل قبل می‌ماند.
 5. آزمون از سمت کلاینت:
 
    ```bash
@@ -2186,6 +2198,12 @@ staging-сертификаты не продлеваются и удаляютс
    - Clash Verge / FlClash / mihomo: user-agent с `clash`/`mihomo`/`stash`
      получает профиль mihomo; `?target=clash` форсирует его;
    - `?target=uri` форсирует список VLESS.
+
+   **Names → Subscription title** задаёт отображаемое имя профиля
+   (например `LessV · {username}`; поля `{username}`, `{status}`). Оно уходит
+   заголовком `profile-title: base64:…`, который показывают v2rayN и Clash
+   Verge; пустое значение не отправляет заголовок вовсе и оставляет ответ
+   прежним.
 5. Проверка со стороны клиента:
 
    ```bash
@@ -2796,6 +2814,12 @@ UTC cron이 자동으로 갱신하며 마디는 다시 배정하지 않아도 �
      `clash`/`mihomo`/`stash`가 있으면 mihomo 설정을 받습니다.
      `?target=clash`로 강제할수 있습니다;
    - `?target=uri`는 VLESS 목록을 강제합니다.
+
+   **Names → Subscription title**은 프로필에 표시 이름을 붙입니다(예:
+   `LessV · {username}`, 필드 `{username}`, `{status}`). 이름은
+   `profile-title: base64:…` 헤더로 나가며 v2rayN, Clash Verge 같은
+   클라이언트가 보여줍니다. 비워 두면 헤더를 보내지 않아 응답이 이전과
+   똑같습니다.
 5. 클라이언트쪽 검사:
 
    ```bash
@@ -3416,6 +3440,12 @@ täze bellemäsiz yzarlaýar.
      `clash`/`mihomo`/`stash` bar bolsa, mihomo profili berilýär;
      `?target=clash` ony mejbur edýär;
    - `?target=uri` VLESS sanawyny mejbur edýär.
+
+   **Names → Subscription title** profile görkezijä at berýär (meselem
+   `LessV · {username}`; meýdanlar `{username}`, `{status}`). Ol
+   `profile-title: base64:…` sözbaşysy bilen gidýär we v2rayN, Clash Verge
+   ýaly klientler ony görkezýär; boş goýsaň hiç hili sözbaşy iberilmeýär we
+   jogap öňki ýaly bolýar.
 5. Klient tarapdan synag:
 
    ```bash

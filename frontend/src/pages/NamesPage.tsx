@@ -32,6 +32,7 @@ function combinationKey(combination: NamingCombination): string {
 export default function NamesPage() {
   const [naming, setNaming] = useState<NamingOut | null>(null);
   const [template, setTemplate] = useState("");
+  const [titleTemplate, setTitleTemplate] = useState("");
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -47,6 +48,7 @@ export default function NamesPage() {
     setError(null);
     setNaming(result.data);
     setTemplate(result.data.templates.link_name_template);
+    setTitleTemplate(result.data.templates.subscription_title_template);
     setEdits({});
   }, []);
 
@@ -54,10 +56,13 @@ export default function NamesPage() {
     void load();
   }, [load]);
 
-  const saveTemplate = async () => {
+  const saveTemplate = async (patch: {
+    link_name_template?: string;
+    subscription_title_template?: string;
+  }) => {
     setBusy(true);
     setNotice(null);
-    const result = await saveNaming({ link_name_template: template });
+    const result = await saveNaming(patch);
     setBusy(false);
     if (result.error || !result.data) {
       setError(result.error ?? "save failed");
@@ -66,7 +71,8 @@ export default function NamesPage() {
     setError(null);
     setNaming(result.data);
     setTemplate(result.data.templates.link_name_template);
-    setNotice("Link name format saved.");
+    setTitleTemplate(result.data.templates.subscription_title_template);
+    setNotice("Saved.");
   };
 
   const saveOverride = async (
@@ -172,7 +178,7 @@ export default function NamesPage() {
                 type="button"
                 className="cf-btn cf-btn--primary"
                 disabled={busy}
-                onClick={() => void saveTemplate()}
+                onClick={() => void saveTemplate({ link_name_template: template })}
               >
                 {busy ? "Saving…" : "Save format"}
               </button>
@@ -186,6 +192,64 @@ export default function NamesPage() {
               >
                 <Icon name="rotate-ccw" />
                 Use default
+              </button>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section className="cf-section">
+        <div className="cf-section__head">
+          <h2 className="cf-section__title">Subscription title</h2>
+          <span className="cf-section__hint">
+            The profile name a client shows for the subscription URL. Leave it
+            empty to send no title at all. Only entitled users receive it.
+          </span>
+        </div>
+        <section className="cf-card">
+          <div className="cf-card__body">
+            <Field label="Title format">
+              <input
+                className={inputClass}
+                value={titleTemplate}
+                onChange={(event) => setTitleTemplate(event.target.value)}
+                aria-label="Subscription title format"
+                placeholder="e.g. LessV · {username}"
+              />
+            </Field>
+            <p className="cf-hint">
+              Fields:{" "}
+              {naming.fields.subscription_title.map((field) => (
+                <code key={field} className="cf-mono">
+                  {`{${field}}`}{" "}
+                </code>
+              ))}
+            </p>
+            <div className="cf-inline">
+              <button
+                type="button"
+                className="cf-btn cf-btn--primary"
+                disabled={busy}
+                onClick={() =>
+                  void saveTemplate({
+                    subscription_title_template: titleTemplate,
+                  })
+                }
+              >
+                {busy ? "Saving…" : "Save title"}
+              </button>
+              <button
+                type="button"
+                className={secondaryButton}
+                disabled={busy}
+                onClick={() =>
+                  setTitleTemplate(
+                    naming.defaults.subscription_title_template,
+                  )
+                }
+              >
+                <Icon name="rotate-ccw" />
+                Clear
               </button>
             </div>
           </div>

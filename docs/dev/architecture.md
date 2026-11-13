@@ -164,6 +164,13 @@ aggregates links, and chooses a format:
 Every failure (unknown, disabled, expired, nothing configured) is an empty
 200 body. The response is `Cache-Control: no-store`.
 
+An entitled response may also carry `profile-title: base64:<utf8>`, resolved
+from `plane_settings.subscription_title_template` with `{username}` and
+`{status}`. The header is absent when the format is empty, so a plane that
+never sets it keeps byte-identical responses. An unentitled token gets neither
+the body nor the title, which is what makes the four failure states
+indistinguishable.
+
 ## Data model
 
 D1 is the only database. Migrations are append-only under `migrations/` and

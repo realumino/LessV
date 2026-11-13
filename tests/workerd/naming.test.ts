@@ -64,9 +64,9 @@ type Combination = {
 
 /** WHAT: the naming payload. */
 type NamingOut = {
-  templates: { link_name_template: string };
-  defaults: { link_name_template: string };
-  fields: { link_name: string[] };
+  templates: { link_name_template: string; subscription_title_template: string };
+  defaults: { link_name_template: string; subscription_title_template: string };
+  fields: { link_name: string[]; subscription_title: string[] };
   nodes: Array<{
     id: string;
     label: string;
@@ -108,6 +108,7 @@ describe("the naming API", () => {
   afterEach(async () => {
     await planeJson("PUT", "/api/admin/naming", {
       link_name_template: DEFAULT_TEMPLATE,
+      subscription_title_template: "",
     });
   });
 
@@ -271,6 +272,38 @@ describe("the naming API", () => {
       combinations.find((row) => row.link_id === "cdn" && row.outbound_id === "korea")!
         .name,
     ).toBe("Tokyo 01 · CDN → Korea");
+  });
+
+  it("titles the subscription from one fleet-wide format", async () => {
+    const node = await makeNode();
+    const user = await makeUser(node);
+
+    // The default (empty format) sends no header at all.
+    const untitled = await planeJson("GET", `/sub/${user.token}`);
+    expect(untitled.headers.get("profile-title")).toBeNull();
+
+    const saved = await planeJson("PUT", "/api/admin/naming", {
+      subscription_title_template: "{username} · {status}",
+    });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    expect(
+      (await body<NamingOut>(saved)).templates.subscription_title_template,
+    ).toBe("{username} · {status}");
+
+    const titled = await planeJson("GET", `/sub/${user.token}`);
+    const header = titled.headers.get("profile-title");
+    expect(header).not.toBeNull();
+    expect(header!.startsWith("base64:")).toBe(true);
+    const decoded = new TextDecoder().decode(
+      Uint8Array.from(atob(header!.slice("base64:".length)), (char) =>
+        char.charCodeAt(0),
+      ),
+    );
+    expect(decoded).toBe(`${user.username} · active`);
+
+    // An unentitled token must not reveal the title either.
+    const unknown = await planeJson("GET", `/sub/${"x".repeat(43)}`);
+    expect(unknown.headers.get("profile-title")).toBeNull();
   });
 
   it("rejects malformed templates and unknown references", async () => {

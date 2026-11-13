@@ -1,0 +1,11 @@
+-- The display title a subscription client shows for this profile.
+--
+-- WHY one fleet-wide format instead of a per-user column: the title is a
+-- presentation rule ("Tokyo 01 · alice"), and every user already renders
+-- through the same subscription endpoint. A format plus the `{username}` and
+-- `{status}` fields covers per-user naming without a column per user.
+--
+-- WHY empty means "no header": the default must leave the response exactly
+-- as it was before this migration, so a plane that never writes this value
+-- keeps its current bytes.
+ALTER TABLE plane_settings ADD COLUMN subscription_title_template TEXT NOT NULL DEFAULT '';

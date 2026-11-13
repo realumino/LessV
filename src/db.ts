@@ -132,6 +132,7 @@ export type LinkNameRow = {
 /** WHAT: the plane's naming knobs, as stored (a missing row means default). */
 export type PlaneSettingsRow = {
   link_name_template: string;
+  subscription_title_template: string;
   updated_at: number;
 };
 
@@ -1109,13 +1110,19 @@ export async function savePlaneSettings(
   await executeWrite(
     db,
     `
-        INSERT INTO plane_settings (id, link_name_template, updated_at)
-        VALUES (1, ?, ?)
+        INSERT INTO plane_settings
+            (id, link_name_template, subscription_title_template, updated_at)
+        VALUES (1, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             link_name_template = excluded.link_name_template,
+            subscription_title_template = excluded.subscription_title_template,
             updated_at = excluded.updated_at
         `,
-    [settings.link_name_template, settings.updated_at],
+    [
+      settings.link_name_template,
+      settings.subscription_title_template,
+      settings.updated_at,
+    ],
   );
 }
 

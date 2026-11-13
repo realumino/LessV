@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   encodeSubscription,
+  profileTitleHeader,
   subscriptionFormat,
 } from "../../src/services/subscription_service";
 
@@ -72,5 +73,30 @@ describe("subscriptionFormat", () => {
   it("falls back to the user agent for an unknown target", () => {
     expect(subscriptionFormat("clsh", "clash-verge/v2.4.2")).toBe("clash");
     expect(subscriptionFormat("clsh", "curl/8.7.1")).toBe("uri");
+  });
+});
+
+describe("profileTitleHeader", () => {
+  it("encodes a non-ASCII title as base64 after the marker", () => {
+    const header = profileTitleHeader("东京 · alice");
+    expect(header).toMatch(/^base64:/);
+    const bytes = Uint8Array.from(atob(header!.slice("base64:".length)), (char) =>
+      char.charCodeAt(0),
+    );
+    expect(new TextDecoder().decode(bytes)).toBe("东京 · alice");
+  });
+
+  it("sends no header for an empty or blank title", () => {
+    expect(profileTitleHeader("")).toBeNull();
+    expect(profileTitleHeader("   ")).toBeNull();
+    expect(profileTitleHeader(String.fromCharCode(10))).toBeNull();
+  });
+
+  it("keeps a plain ASCII title intact after decoding", () => {
+    const header = profileTitleHeader("Tokyo 01 · alice");
+    const bytes = Uint8Array.from(atob(header!.slice("base64:".length)), (char) =>
+      char.charCodeAt(0),
+    );
+    expect(new TextDecoder().decode(bytes)).toBe("Tokyo 01 · alice");
   });
 });

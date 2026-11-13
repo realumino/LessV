@@ -35,13 +35,21 @@ subRouter.get("/sub/:token", async (c) => {
     c.req.query("target"),
     c.req.header("user-agent"),
   );
-  const body = await subscriptionBody(c.env, c.req.param("token"), format);
+  const { body, title } = await subscriptionBody(
+    c.env,
+    c.req.param("token"),
+    format,
+  );
   const yaml = format === "clash";
   const contentType = yaml
     ? "text/yaml; charset=utf-8"
     : "text/plain; charset=utf-8";
-  return c.body(body, 200, {
+  const headers: Record<string, string> = {
     "Content-Type": contentType,
     "Cache-Control": "no-store",
-  });
+  };
+  if (title !== null) {
+    headers["profile-title"] = title;
+  }
+  return c.body(body, 200, headers);
 });

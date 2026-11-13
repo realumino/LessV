@@ -254,6 +254,12 @@ export type InboundLinkOut = z.infer<typeof InboundLinkOut>;
  */
 export const NamingUpdate = z.object({
   link_name_template: z.string().trim().max(200).nullable().default(null),
+  subscription_title_template: z
+    .string()
+    .trim()
+    .max(200)
+    .nullable()
+    .default(null),
 });
 export type NamingUpdate = z.infer<typeof NamingUpdate>;
 

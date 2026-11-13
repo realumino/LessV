@@ -375,8 +375,17 @@ export interface NamingNode {
 
 /** GET /api/admin/naming and the response of its two writes. */
 export interface NamingOut {
-  templates: { link_name_template: string };
-  defaults: { link_name_template: string };
-  fields: { link_name: string[] };
+  templates: {
+    link_name_template: string;
+    subscription_title_template: string;
+  };
+  defaults: {
+    link_name_template: string;
+    subscription_title_template: string;
+  };
+  fields: {
+    link_name: string[];
+    subscription_title: string[];
+  };
   nodes: NamingNode[];
 }

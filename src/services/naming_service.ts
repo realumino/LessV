@@ -23,7 +23,11 @@ import {
   type LinkNameParts,
 } from "./labels";
 import { loadRegistry, type Registry } from "./registry_service";
-import { loadPlaneSettings, type PlaneSettings } from "./settings_service";
+import {
+  loadPlaneSettings,
+  SUBSCRIPTION_TITLE_FIELDS,
+  type PlaneSettings,
+} from "./settings_service";
 
 /** WHAT: one combination as the naming page shows it. */
 export type NamingCombination = {
@@ -52,9 +56,12 @@ export type NamingNode = {
 
 /** WHAT: the whole naming payload the admin page loads. */
 export type NamingView = {
-  templates: { link_name_template: string };
-  defaults: { link_name_template: string };
-  fields: { link_name: readonly string[] };
+  templates: { link_name_template: string; subscription_title_template: string };
+  defaults: { link_name_template: string; subscription_title_template: string };
+  fields: {
+    link_name: readonly string[];
+    subscription_title: readonly string[];
+  };
   nodes: NamingNode[];
 };
 
@@ -146,9 +153,18 @@ export async function namingView(conn: D1Database): Promise<NamingView> {
     });
   }
   return {
-    templates: { link_name_template: settings.link_name_template },
-    defaults: { link_name_template: DEFAULT_LINK_NAME_TEMPLATE },
-    fields: { link_name: [...LINK_NAME_FIELDS] },
+    templates: {
+      link_name_template: settings.link_name_template,
+      subscription_title_template: settings.subscription_title_template,
+    },
+    defaults: {
+      link_name_template: DEFAULT_LINK_NAME_TEMPLATE,
+      subscription_title_template: "",
+    },
+    fields: {
+      link_name: [...LINK_NAME_FIELDS],
+      subscription_title: [...SUBSCRIPTION_TITLE_FIELDS],
+    },
     nodes,
   };
 }

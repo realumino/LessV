@@ -393,8 +393,11 @@ export const getUserLinks = (username: string) =>
 /** WHAT: the naming view: templates, allowed fields, and every combination. */
 export const getNaming = () => request<NamingOut>("/naming");
 
-/** WHAT: update one naming template; the response is the re-rendered view. */
-export const saveNaming = (body: { link_name_template: string }) =>
+/** WHAT: update naming templates; the response is the re-rendered view. */
+export const saveNaming = (body: {
+  link_name_template?: string;
+  subscription_title_template?: string;
+}) =>
   request<NamingOut>("/naming", {
     method: "PUT",
     body: JSON.stringify(body),
