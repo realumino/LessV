@@ -4,7 +4,7 @@ version = "0.6.0"
 edition = "2021"
 rust-version = "1.80"
 description = "LessV node reconciler: pulls Xray config and certificates from the control plane"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 
 # One static binary, no runtime dependencies. TLS is rustls (pure Rust plus
 # ring's small C core); musl builds link statically so the artifact runs on
