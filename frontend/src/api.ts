@@ -34,6 +34,7 @@ import type {
   NodeCertsOut,
   NodeOut,
   NodeRuntimeOut,
+  NamingOut,
   NodeSyncOut,
   OutboundOut,
   PresetBuildOut,
@@ -389,6 +390,29 @@ export const getUserLinks = (username: string) =>
   request<UserLinksOut>(`/users/${encodeURIComponent(username)}/links`);
 
 /** POST /users/{username}/sub-token — the plaintext token, shown each time. */
+/** WHAT: the naming view: templates, allowed fields, and every combination. */
+export const getNaming = () => request<NamingOut>("/naming");
+
+/** WHAT: update one naming template; the response is the re-rendered view. */
+export const saveNaming = (body: { link_name_template: string }) =>
+  request<NamingOut>("/naming", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
+/** WHAT: set (or clear, with label: null) one combination's literal name. */
+export const saveLinkNameOverride = (body: {
+  node_id: string;
+  inbound_id: string;
+  link_id: string;
+  outbound_id: string;
+  label: string | null;
+}) =>
+  request<NamingOut>("/naming/overrides", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
 export const rotateSubToken = (username: string) =>
   request<SubTokenOut>(`/users/${encodeURIComponent(username)}/sub-token`, {
     method: "POST",

@@ -15,6 +15,7 @@ import { adminKey } from "./auth/admin_key";
 import { ApiError } from "./models";
 import { ADMIN_PREFIX, isAllowedPath } from "./route_groups";
 import { adminInboundLinks } from "./routers/admin_inbound_links";
+import { adminNames } from "./routers/admin_names";
 import { adminNodes } from "./routers/admin_nodes";
 import { adminReality } from "./routers/admin_reality";
 import { adminUsers } from "./routers/admin_users";
@@ -83,6 +84,7 @@ app.onError((error, c) => {
 app.route("/", health);
 app.route("/", adminNodes);
 app.route("/", adminInboundLinks);
+app.route("/", adminNames);
 app.route("/", adminUsers);
 app.route("/", adminReality);
 app.route("/", adminCerts);

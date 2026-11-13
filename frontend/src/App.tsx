@@ -25,6 +25,7 @@ import NodeConfigPage from "./pages/NodeConfigPage";
 import NodeKeysPage from "./pages/NodeKeysPage";
 import NodeLayout from "./pages/NodeLayout";
 import NodeLinksPage from "./pages/NodeLinksPage";
+import NamesPage from "./pages/NamesPage";
 import NodeUsersPage from "./pages/NodeUsersPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import UserEditPage from "./pages/UserEditPage";
@@ -54,6 +55,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Navigate to="/nodes" replace />} />
             <Route path="/certs" element={<CertificatesPage />} />
+            <Route path="/names" element={<NamesPage />} />
             <Route path="/nodes" element={<FleetPage />} />
             <Route path="/nodes/:nodeId" element={<NodeLayout />}>
               <Route index element={<Navigate to="config" replace />} />
@@ -111,6 +113,9 @@ function Sidebar() {
         <SidebarLink to="/certs" icon="shield-check" active={pathname.startsWith("/certs")}>
           Certificates
         </SidebarLink>
+        <SidebarLink to="/names" icon="pencil" active={pathname.startsWith("/names")}>
+          Names
+        </SidebarLink>
         <p className="cf-nav__label">Access</p>
         <SidebarLink to="/users" icon="users" active={pathname.startsWith("/users")}>
           Users
@@ -142,7 +147,7 @@ function SidebarLink({
   children,
 }: {
   to: string;
-  icon: "server" | "shield-check" | "users";
+  icon: "server" | "shield-check" | "users" | "pencil";
   active: boolean;
   children: string;
 }) {
@@ -205,5 +210,6 @@ function Topbar() {
 const SECTION_LABEL: Record<string, string> = {
   nodes: "Nodes",
   certs: "Certificates",
+  names: "Names",
   users: "Users",
 };

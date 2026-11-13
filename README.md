@@ -398,6 +398,8 @@ curl -I https://node1.example.com    # 200，证书有效（不用 -k）
 
 节点页 **Links** 标签按端点列出可用链接；同一 inbound 的额外变体（CDN 前置、另一个端口、不同 SNI）只覆盖 URI 参数，不进入运行时配置。节点没有 Domain 时不会生成链接。
 
+顶部 **Names** 页面用一条格式串统一命名所有生成的链接（默认 `{node} · {subject} → {outbound}`，可用字段 `{node}` `{node_id}` `{inbound}` `{inbound_tag}` `{link}` `{link_id}` `{outbound}` `{outbound_tag}` `{subject}` `{protocol}`）；某个组合需要特殊名字时在同一页单独覆盖，覆盖优先于格式。改名只影响客户端导入的链接，不会让节点重新渲染。
+
 ### 6. 日常运维与排障
 
 | 现象 | 先检查 | 处理 |
@@ -974,6 +976,13 @@ The node page **Links** tab lists the available links per endpoint; extra
 variants for the same inbound (CDN front, another port, different SNI)
 override only URI parameters and never enter the runtime config. A node
 without a Domain generates no links.
+
+The top-level **Names** page names every generated link from one format
+(default `{node} · {subject} → {outbound}`; fields `{node}`, `{node_id}`,
+`{inbound}`, `{inbound_tag}`, `{link}`, `{link_id}`, `{outbound}`,
+`{outbound_tag}`, `{subject}`, `{protocol}`). A single combination can
+override the format on the same page, and an override wins. Renaming only
+changes the links clients import — no node re-renders.
 
 ### 6. Operations and troubleshooting
 
@@ -1575,6 +1584,13 @@ UTC خودکار تمدید می‌شود و گره بدون تخصیص دوبا
 variantهای اضافی همان inbound (CDN، پورت دیگر، SNI متفاوت) فقط پارامترهای URI
 را عوض می‌کنند و هرگز وارد پیکربندی زمان اجرا نمی‌شوند. گرهٔ بدون Domain هیچ
 پیوندی نمی‌سازد.
+
+صفحهٔ **Names** همهٔ پیوندهای تولیدشده را با یک رشتهٔ قالب نام‌گذاری می‌کند
+(پیش‌فرض `{node} · {subject} → {outbound}`؛ فیلدها: `{node}`، `{node_id}`،
+`{inbound}`، `{inbound_tag}`، `{link}`، `{link_id}`، `{outbound}`،
+`{outbound_tag}`، `{subject}`، `{protocol}`). برای یک ترکیب می‌توان در همان
+صفحه نام جدا گذاشت و آن نام بر قالب اولویت دارد. تغییر نام فقط پیوندهایی را
+که کلاینت وارد می‌کند عوض می‌کند و گره دوباره رندر نمی‌شود.
 
 ### ۶. عملیات و عیب‌یابی
 
@@ -2186,6 +2202,13 @@ staging-сертификаты не продлеваются и удаляютс
 меняют только параметры URI и никогда не попадают в runtime-конфигурацию. Узел
 без Domain не создаёт ссылок.
 
+Страница **Names** задаёт имена всех сгенерированных ссылок одной строкой
+формата (по умолчанию `{node} · {subject} → {outbound}`; поля `{node}`,
+`{node_id}`, `{inbound}`, `{inbound_tag}`, `{link}`, `{link_id}`, `{outbound}`,
+`{outbound_tag}`, `{subject}`, `{protocol}`). Отдельной комбинации можно задать
+своё имя на той же странице, и оно важнее формата. Переименование меняет только
+ссылки, которые импортирует клиент; узел не перерендеривается.
+
 ### 6. Эксплуатация и устранение неисправностей
 
 | Симптом | Что проверить | Что делать |
@@ -2787,6 +2810,13 @@ UTC cron이 자동으로 갱신하며 마디는 다시 배정하지 않아도 �
 마디화면 **Links** 탭은 endpoint별로 쓸수 있는 련결을 보여줍니다. 같은
 inbound의 추가 변형(CDN 앞단, 다른 포트, 다른 SNI)은 URI 매개변수만 바꾸며
 실행설정에는 들어가지 않습니다. Domain이 없는 마디는 련결을 만들지 않습니다.
+
+**Names** 화면은 하나의 형식 문자열(기본 `{node} · {subject} → {outbound}`;
+필드 `{node}`, `{node_id}`, `{inbound}`, `{inbound_tag}`, `{link}`,
+`{link_id}`, `{outbound}`, `{outbound_tag}`, `{subject}`, `{protocol}`)로 모든
+련결의 이름을 정합니다. 특정 조합은 같은 화면에서 따로 이름을 지정할수 있고,
+그 이름이 형식보다 우선합니다. 이름 변경은 클라이언트가 가져가는 련결만
+바꾸며 마디를 다시 렌더하지 않습니다.
 
 ### 6. 운영과 고장수리
 
@@ -3392,6 +3422,13 @@ täze bellemäsiz yzarlaýar.
    curl https://api.ipify.org        # düwüniň çykyş IP-sini bermeli
    curl https://node1.example.com/   # 200 we dogry şahadatnama bolmaly
    ```
+
+   Düwüniň sahypasyndaky **Names** sahypasy ähli (inbound görnüşi, çykyş)
+   jübütlerini bir format bilen atlandyrýar (deslapky
+   `{node} · {subject} → {outbound}`; meýdanlar `{node}`, `{inbound}`,
+   `{link}`, `{outbound}`, `{protocol}` we başgalar). Islendik jübüt üçin aýratyn
+   at hem goýup bolýar we ol formatdan ileri tutulýar. At üýtgetmek diňe
+   klientiň alýan baglanyşyklaryna täsir edýär; düwün täzeden render edilmeýär.
 
    Tuneliň içinde we daşynda birmeňzeş `tlsserver` şahadatnamasy görünýär:
    REALITY REALITY däl trafigi nginx ýasama saýtyna geçirýär. Brauzerde

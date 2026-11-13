@@ -119,6 +119,22 @@ export type InboundLinkRow = {
   created_at: number;
 };
 
+/** WHAT: one literal name for an (inbound view, exit) combination. */
+export type LinkNameRow = {
+  node_id: string;
+  inbound_id: string;
+  link_id: string;
+  outbound_id: string;
+  label: string;
+  created_at: number;
+};
+
+/** WHAT: the plane's naming knobs, as stored (a missing row means default). */
+export type PlaneSettingsRow = {
+  link_name_template: string;
+  updated_at: number;
+};
+
 const ACCESS_JSON_COLS = ["allowed_inbounds", "allowed_outbounds", "uuids"];
 const LINK_JSON_COLS = ["overrides"];
 
@@ -282,6 +298,7 @@ export async function deleteNode(db: D1Database, nodeId: string): Promise<void> 
     "DELETE FROM user_node_access WHERE node_id = ?",
     "DELETE FROM reality_keys WHERE node_id = ?",
     "DELETE FROM inbound_links WHERE node_id = ?",
+    "DELETE FROM link_names WHERE node_id = ?",
     "DELETE FROM node_inbounds WHERE node_id = ?",
     "DELETE FROM node_outbounds WHERE node_id = ?",
     "DELETE FROM node_cert_domains WHERE node_id = ?",
@@ -820,6 +837,7 @@ export async function deleteNodeInbound(
     "DELETE FROM node_inbounds WHERE node_id = ? AND id = ?",
     [nodeId, inboundId],
   );
+  await deleteLinkNamesForInbound(db, nodeId, inboundId);
 }
 
 /** WHAT: return every registered outbound of one node, tag-ordered. */
@@ -876,6 +894,7 @@ export async function deleteNodeOutbound(
     "DELETE FROM node_outbounds WHERE node_id = ? AND id = ?",
     [nodeId, outboundId],
   );
+  await deleteLinkNamesForOutbound(db, nodeId, outboundId);
 }
 
 /** WHAT: return one node's link variants in deterministic display order. */
@@ -965,6 +984,138 @@ export async function deleteInboundLink(
     db,
     "DELETE FROM inbound_links WHERE node_id = ? AND id = ?",
     [nodeId, linkId],
+  );
+  await deleteLinkNamesForLink(db, nodeId, linkId);
+}
+
+/** WHAT: return one node's combination names in deterministic order. */
+export async function listLinkNames(
+  db: D1Database,
+  nodeId: string,
+): Promise<LinkNameRow[]> {
+  const rows = await selectRows(
+    db,
+    `
+        SELECT * FROM link_names
+        WHERE node_id = ?
+        ORDER BY inbound_id, link_id, outbound_id
+        `,
+    [nodeId],
+  );
+  return rows as unknown as LinkNameRow[];
+}
+
+/** WHAT: store (or replace) one combination's literal name. */
+export async function upsertLinkName(
+  db: D1Database,
+  row: LinkNameRow,
+): Promise<void> {
+  await executeWrite(
+    db,
+    `
+        INSERT INTO link_names
+            (node_id, inbound_id, link_id, outbound_id, label, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(node_id, inbound_id, link_id, outbound_id)
+        DO UPDATE SET label = excluded.label
+        `,
+    [
+      row.node_id,
+      row.inbound_id,
+      row.link_id,
+      row.outbound_id,
+      row.label,
+      row.created_at,
+    ],
+  );
+}
+
+/** WHAT: remove one combination's name; a missing row is not an error. */
+export async function deleteLinkName(
+  db: D1Database,
+  nodeId: string,
+  inboundId: string,
+  linkId: string,
+  outboundId: string,
+): Promise<void> {
+  await executeWrite(
+    db,
+    `
+        DELETE FROM link_names
+        WHERE node_id = ? AND inbound_id = ? AND link_id = ? AND outbound_id = ?
+        `,
+    [nodeId, inboundId, linkId, outboundId],
+  );
+}
+
+/**
+ * WHAT: drop the names of one link variant (all its exits).
+ *
+ * WHY the explicit cascades: the schema has no foreign keys by convention, so
+ * deleting the thing a row names is this module's job — same rule the
+ * registry applies to variants, keys, and access rows.
+ */
+export async function deleteLinkNamesForLink(
+  db: D1Database,
+  nodeId: string,
+  linkId: string,
+): Promise<void> {
+  await executeWrite(
+    db,
+    "DELETE FROM link_names WHERE node_id = ? AND link_id = ?",
+    [nodeId, linkId],
+  );
+}
+
+/** WHAT: drop the names of every view of one inbound. */
+export async function deleteLinkNamesForInbound(
+  db: D1Database,
+  nodeId: string,
+  inboundId: string,
+): Promise<void> {
+  await executeWrite(
+    db,
+    "DELETE FROM link_names WHERE node_id = ? AND inbound_id = ?",
+    [nodeId, inboundId],
+  );
+}
+
+/** WHAT: drop every name that targeted one exit. */
+export async function deleteLinkNamesForOutbound(
+  db: D1Database,
+  nodeId: string,
+  outboundId: string,
+): Promise<void> {
+  await executeWrite(
+    db,
+    "DELETE FROM link_names WHERE node_id = ? AND outbound_id = ?",
+    [nodeId, outboundId],
+  );
+}
+
+/** WHAT: read the plane's naming knobs; null means "never written". */
+export async function getPlaneSettings(
+  db: D1Database,
+): Promise<PlaneSettingsRow | null> {
+  const rows = await selectRows(db, "SELECT * FROM plane_settings WHERE id = 1");
+  return rows.length > 0 ? (rows[0] as unknown as PlaneSettingsRow) : null;
+}
+
+/** WHAT: store the plane's naming knobs (one row, inserted on first write). */
+export async function savePlaneSettings(
+  db: D1Database,
+  settings: PlaneSettingsRow,
+): Promise<void> {
+  await executeWrite(
+    db,
+    `
+        INSERT INTO plane_settings (id, link_name_template, updated_at)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            link_name_template = excluded.link_name_template,
+            updated_at = excluded.updated_at
+        `,
+    [settings.link_name_template, settings.updated_at],
   );
 }
 

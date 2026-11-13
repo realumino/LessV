@@ -142,6 +142,14 @@ admin-set `address` (`src/services/share_service.ts`,
 `src/services/link_service.ts`). Subscription bodies use the same link list as
 the admin UI, so the two presentations cannot disagree.
 
+A link's readable name is derived, never stored: a per-combination literal
+(`link_names`) wins, then the stored format (`plane_settings.link_name_template`),
+then the built-in `{node} · {subject} → {outbound}`, then
+`<inbound> → <outbound>` as the last resort. The naming page and the link /
+subscription renderers run the same `linkNameFields` / `resolveLinkName` pair,
+so what the admin sees is what the client imports; a rename never enters the
+runtime config.
+
 ### Subscriptions
 
 `src/services/subscription_service.ts` resolves the token to an entitled user,

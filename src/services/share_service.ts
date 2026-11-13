@@ -15,7 +15,13 @@
 import { compareCodePoints, pyStr } from "../core/python_json";
 import { pyQuote, pyUrlEncode } from "../core/python_uri";
 import { derivePublicKey } from "../core/x25519";
-import { linkLabel } from "./labels";
+import { type TemplateFields } from "../core/template";
+import {
+  DEFAULT_LINK_NAME_TEMPLATE,
+  linkNameFieldsFromLabels,
+  linkNameKey,
+  resolveLinkName,
+} from "./labels";
 
 /** WHAT: a JSON object carrying config or profile data. */
 type Dict = Record<string, unknown>;
@@ -49,6 +55,23 @@ type Variant = {
   overrides: Dict;
 };
 
+/**
+ * WHAT: the naming inputs for one node's links.
+ *
+ * WHY a separate object and not a few more parameters: the registry builds a
+ * field map per (view, exit) combination, and passing the template, the map,
+ * and the overrides together keeps the renderer able to answer "what is this
+ * link called" without knowing where they came from.
+ */
+export type LinkNaming = {
+  node_label: string | null;
+  template: string;
+  /** Field maps keyed by `linkNameKey(variant id, qualified outbound tag)`. */
+  fields: Record<string, TemplateFields>;
+  /** Literal combination names, same keys. */
+  overrides: Record<string, string>;
+};
+
 /** WHAT: the resolved inputs every link-building step shares. */
 type LinkInput = {
   configured_address: string;
@@ -56,6 +79,7 @@ type LinkInput = {
   profiles: Record<string, Dict[]>;
   node_label: string | null;
   labels: Record<string, string>;
+  naming: LinkNaming | null;
 };
 
 const WILDCARD_LISTENS = new Set(["", "0.0.0.0", "::"]);
@@ -433,19 +457,39 @@ function variantAddressPort(
  *
  * WHY null when no node label: a pure caller has no fleet context to name,
  * so no remark is invented.
+ *
+ * WHY the naming object wins and labels are the fallback: the registry knows
+ * ids, tags, and the protocol, while a pure caller only has tags and labels.
+ * Both paths resolve through the same template engine, so the default output
+ * is byte-identical either way.
  */
 function variantLabel(
   variant: Variant,
   inboundTag: string,
   outboundTag: string,
-  nodeLabel: string | null,
-  labels: Record<string, string>,
+  linkInput: LinkInput,
 ): string | null {
+  const nodeLabel = linkInput.naming?.node_label ?? linkInput.node_label;
   if (nodeLabel === null || nodeLabel === undefined) {
     return null;
   }
-  const subject = variant["label"] || labels[inboundTag] || inboundTag;
-  return linkLabel(nodeLabel, subject, labels[outboundTag] ?? outboundTag);
+  const key = linkNameKey(inboundTag, variant["profile_id"] ?? "", outboundTag);
+  const fields =
+    linkInput.naming?.fields[key] ??
+    linkNameFieldsFromLabels(
+      nodeLabel,
+      inboundTag,
+      outboundTag,
+      linkInput.labels,
+      variant["label"],
+    );
+  return resolveLinkName({
+    template: linkInput.naming?.template ?? DEFAULT_LINK_NAME_TEMPLATE,
+    fields,
+    override: linkInput.naming?.overrides[key],
+    inboundTag,
+    outboundTag,
+  });
 }
 
 /**
@@ -463,8 +507,7 @@ function variantLink(
   address: string | null,
   port: unknown,
   params: Dict,
-  nodeLabel: string | null,
-  labels: Record<string, string>,
+  linkInput: LinkInput,
 ): [ShareLink | null, string[]] {
   const overrides = variant["overrides"] ?? {};
   const [variantAddress, variantPort] = variantAddressPort(variant, address, port);
@@ -477,7 +520,7 @@ function variantLink(
       variantParams[key] = value;
     }
   }
-  const label = variantLabel(variant, inboundTag, outboundTag, nodeLabel, labels);
+  const label = variantLabel(variant, inboundTag, outboundTag, linkInput);
   const uri = buildUri(
     email,
     uuid,
@@ -537,8 +580,7 @@ function linksForInbound(
       address,
       port,
       params,
-      linkInput["node_label"],
-      linkInput["labels"],
+      linkInput,
     );
     warnings.push(...variantWarnings);
     if (link !== null) {
@@ -662,6 +704,7 @@ export function linksForUser(
   profiles: Record<string, Dict[]> | null = null,
   nodeLabel: string | null = null,
   labels: Record<string, string> | null = null,
+  naming: LinkNaming | null = null,
 ): [ShareLink[], string[]] {
   const [outboundTags, configInbounds] = indexConfig(config);
   const [requests, warnings] = exitRequests(user, outboundTags);
@@ -671,6 +714,7 @@ export function linksForUser(
     profiles: profiles ?? {},
     node_label: nodeLabel,
     labels: labels ?? {},
+    naming,
   };
   const [links, requestWarnings] = linksForRequests(
     requests,

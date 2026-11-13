@@ -63,6 +63,8 @@ export type Registry = {
   outbounds: OutboundView[];
   /** Variant rows; grouping them by inbound tag is the link builder's job. */
   links: db.InboundLinkRow[];
+  /** Literal combination names; the link builder keys them by view and exit. */
+  names: db.LinkNameRow[];
   inboundById: Map<string, InboundView>;
   outboundById: Map<string, OutboundView>;
   inboundByTag: Map<string, InboundView>;
@@ -295,6 +297,7 @@ export async function loadRegistry(
   const inboundRows = await db.listNodeInbounds(conn, node.id);
   const outboundRows = await db.listNodeOutbounds(conn, node.id);
   const links = await db.listInboundLinks(conn, node.id);
+  const names = await db.listLinkNames(conn, node.id);
 
   let summaries = new Map<string, ReturnType<typeof inboundSummaries>[number]>();
   if (inboundTags !== null) {
@@ -364,6 +367,7 @@ export async function loadRegistry(
     inbounds,
     outbounds,
     links,
+    names,
     inboundById,
     outboundById,
     inboundByTag,

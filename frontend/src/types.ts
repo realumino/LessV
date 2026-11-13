@@ -347,3 +347,36 @@ export interface NodeCertsOut {
   cert_synced_at: number | null;
   certs: NodeCertSummary[];
 }
+
+/** One (inbound view, exit) combination as the naming endpoint returns it. */
+export interface NamingCombination {
+  inbound_id: string;
+  inbound_tag: string;
+  inbound_label: string;
+  /** Empty for the inbound's default view. */
+  link_id: string;
+  link_label: string | null;
+  outbound_id: string;
+  outbound_tag: string;
+  outbound_label: string;
+  /** The name a client would see right now. */
+  name: string;
+  /** The stored literal name, or null when the template produces it. */
+  override: string | null;
+}
+
+/** One node's combinations. */
+export interface NamingNode {
+  id: string;
+  label: string;
+  has_config: boolean;
+  combinations: NamingCombination[];
+}
+
+/** GET /api/admin/naming and the response of its two writes. */
+export interface NamingOut {
+  templates: { link_name_template: string };
+  defaults: { link_name_template: string };
+  fields: { link_name: string[] };
+  nodes: NamingNode[];
+}

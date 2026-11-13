@@ -14,6 +14,7 @@
  */
 
 import { compareCodePoints } from "../core/python_json";
+import type { TemplateFields } from "../core/template";
 import * as db from "../db";
 import {
   qualifiedInboundTag,
@@ -22,11 +23,17 @@ import {
   qualifyKeys,
   qualifyUsers,
 } from "./qualify_service";
+import {
+  linkNameFields,
+  linkNameKey,
+} from "./labels";
 import { keyMap } from "./reality_service";
 import { userShape } from "./render_service";
 import { loadRegistry, type Registry } from "./registry_service";
+import { loadPlaneSettings, type PlaneSettings } from "./settings_service";
 import {
   hasUsableAddress,
+  type LinkNaming,
   type LinkUser,
   linksForUser,
   type ShareLink,
@@ -87,6 +94,65 @@ function qualifiedLabels(registry: Registry, nodeId: string): Record<string, str
     names[qualifiedOutboundTag(outbound.tag, nodeId) as string] = outbound.label;
   }
   return names;
+}
+
+/**
+ * WHAT: build the naming inputs for every (view, exit) combination of a node.
+ *
+ * WHY every combination and not just the user's: the field map is cheap, and
+ * a map complete for the whole node means the subscription renderer never has
+ * to explain "this combination had no fields" — a missing key can only come
+ * from a combination that does not exist.
+ */
+export function linkNaming(
+  node: db.NodeRow,
+  registry: Registry,
+  settings: PlaneSettings,
+): LinkNaming {
+  const fields: Record<string, TemplateFields> = {};
+  const overrides: Record<string, string> = {};
+  const outbounds = registry.outbounds.filter((entry) => entry.kind !== "block");
+  for (const inbound of registry.inbounds) {
+    const inboundTag = qualifiedInboundTag(inbound.tag, node.id) as string;
+    const variants = [
+      null,
+      ...registry.links
+        .filter((link) => link.inbound_id === inbound.id)
+        .sort((left, right) => compareCodePoints(left.id, right.id)),
+    ];
+    for (const variant of variants) {
+      const linkId = variant?.id ?? "";
+      for (const outbound of outbounds) {
+        const outboundTag = qualifiedOutboundTag(outbound.tag, node.id) as string;
+        fields[linkNameKey(inboundTag, linkId, outboundTag)] = linkNameFields({
+          node: { id: node.id, label: node.label },
+          inbound: {
+            tag: inboundTag,
+            label: inbound.label,
+            protocol: inbound.protocol,
+          },
+          link: variant === null ? null : { id: variant.id, label: variant.label },
+          outbound: { tag: outboundTag, label: outbound.label },
+        });
+      }
+    }
+  }
+  for (const name of registry.names) {
+    const inbound = registry.inboundById.get(name.inbound_id);
+    const outbound = registry.outboundById.get(name.outbound_id);
+    if (inbound === undefined || outbound === undefined || outbound.kind === "block") {
+      continue;
+    }
+    const inboundTag = qualifiedInboundTag(inbound.tag, node.id) as string;
+    const outboundTag = qualifiedOutboundTag(outbound.tag, node.id) as string;
+    overrides[linkNameKey(inboundTag, name.link_id, outboundTag)] = name.label;
+  }
+  return {
+    node_label: node.label,
+    template: settings.link_name_template,
+    fields,
+    overrides,
+  };
 }
 
 /**
@@ -181,6 +247,7 @@ export async function nodeLinks(
   accessRow: db.AccessRow,
   status: string,
   registry: Registry,
+  settings: PlaneSettings,
 ): Promise<[ShareLink[], string[]]> {
   const [shaped, shapeWarnings] = userShape(
     accessRow.username,
@@ -205,6 +272,7 @@ export async function nodeLinks(
     groupedVariants,
     node.label,
     linkLabels,
+    linkNaming(node, registry, settings),
   );
   warnings.push(...shapeWarnings, ...danglingVariantWarnings(registry));
   return [links, warnings];
@@ -294,6 +362,7 @@ async function collectLinks(
   env: Env,
   userStatus: string,
   entries: LinkEntry[],
+  settings: PlaneSettings,
 ): Promise<[LinkOut[], string[]]> {
   const links: LinkOut[] = [];
   const warnings: string[] = [];
@@ -304,6 +373,7 @@ async function collectLinks(
       row,
       userStatus,
       registry,
+      settings,
     );
     for (const link of generated) {
       links.push({ ...link, node: node.id });
@@ -331,7 +401,8 @@ export async function userLinks(
   const pairs = await accessPairs(env, username);
   const [skipped, withConfig] = splitConfigPairs(pairs);
   const entries = await addressableEntries(env, withConfig);
-  const [links, entryWarnings] = await collectLinks(env, status, entries);
+  const settings = await loadPlaneSettings(env.DB);
+  const [links, entryWarnings] = await collectLinks(env, status, entries, settings);
   const warnings = [
     ...skipped,
     ...entryWarnings,

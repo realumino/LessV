@@ -247,6 +247,41 @@ export const InboundLinkOut = z.object({
 export type InboundLinkOut = z.infer<typeof InboundLinkOut>;
 
 /**
+ * WHAT: the JSON body for PUT /api/admin/naming.
+ *
+ * WHY null means unchanged: the page may post one knob at a time, and a write
+ * must never blank the other one.
+ */
+export const NamingUpdate = z.object({
+  link_name_template: z.string().trim().max(200).nullable().default(null),
+});
+export type NamingUpdate = z.infer<typeof NamingUpdate>;
+
+/**
+ * WHAT: the JSON body for PUT /api/admin/naming/overrides.
+ *
+ * WHY `link_id` is optional-and-empty for the default view: that view has no
+ * `inbound_links` row, so "" is its identity in every combination key.
+ */
+export const LinkNameOverrideIn = z.object({
+  node_id: z
+    .string()
+    .trim()
+    .refine((value) => value !== "", { message: "value must not be empty" }),
+  inbound_id: z
+    .string()
+    .trim()
+    .refine((value) => value !== "", { message: "value must not be empty" }),
+  link_id: z.string().trim().default(""),
+  outbound_id: z
+    .string()
+    .trim()
+    .refine((value) => value !== "", { message: "value must not be empty" }),
+  label: z.string().trim().max(80).nullable().default(null),
+});
+export type LinkNameOverrideIn = z.infer<typeof LinkNameOverrideIn>;
+
+/**
  * WHAT: one node's section of a user's access payload.
  *
  * WHY lists of ids and not the uuid map: uuids are server-generated facts;

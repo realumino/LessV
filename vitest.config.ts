@@ -130,5 +130,10 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     setupFiles: ["./tests/setup.ts"],
+    // WHY files run one at a time: the tier shares one D1, and the plane has
+    // global rows (plane_settings) that a naming test must change to prove
+    // the render. Unique ids isolate everything else; a global row cannot be
+    // made unique, so overlapping files could observe each other's template.
+    fileParallelism: false,
   },
 });
