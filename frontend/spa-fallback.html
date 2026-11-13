@@ -1,0 +1,66 @@
+<!doctype html>
+<!--
+  WHAT: the document a navigation miss is served (Workers' SPA fallback always
+  returns the assets root index, whatever path was requested).
+
+  WHY this is not the admin shell: every URL outside /admin — the site root, a
+  mistyped path, a subscription URL opened in a browser — must not hand a
+  visitor the panel. This document names no bundle and renders nothing, so a
+  probe learns nothing beyond the mount path below.
+
+  WHY the shell is fetched instead of copied: a copy would carry the hashed
+  asset URLs, and then fetching / would reveal the bundle. Only /admin is
+  named here; the real shell (/admin/, served from dist/admin/index.html)
+  stays the single place that knows which assets exist, and loading it here is
+  what keeps /admin deep links refreshable.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title></title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      (function () {
+        var path = window.location.pathname;
+        if (
+          path !== "/admin" &&
+          path !== "/admin/" &&
+          path.indexOf("/admin/") !== 0
+        ) {
+          return;
+        }
+        var request = new XMLHttpRequest();
+        request.open("GET", "/admin/", true);
+        request.onload = function () {
+          if (request.status < 200 || request.status > 299) {
+            return;
+          }
+          var shell = new DOMParser().parseFromString(
+            request.responseText,
+            "text/html",
+          );
+          var sources = shell.querySelectorAll("script[src], link[rel=stylesheet]");
+          for (var index = 0; index < sources.length; index += 1) {
+            var source = sources[index];
+            var clone = document.createElement(source.tagName);
+            for (
+              var attribute = 0;
+              attribute < source.attributes.length;
+              attribute += 1
+            ) {
+              clone.setAttribute(
+                source.attributes[attribute].name,
+                source.attributes[attribute].value,
+              );
+            }
+            document.head.appendChild(clone);
+          }
+        };
+        request.send();
+      })();
+    </script>
+  </body>
+</html>

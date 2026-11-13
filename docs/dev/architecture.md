@@ -73,7 +73,18 @@ subscription renderer.
 - `/api/node/*` authenticates with a node bearer token (hash lookup) plus the
   `X-Lessv-Node` header; every mismatch is the same 401. `/sub/:token` is a
   capability URL: unknown, disabled, expired, and empty users all get an empty
-  200 body.
+  200 body, and the three answers are asserted byte-identical — a stale holder
+  must not learn that the token is merely dead rather than never minted.
+- Static assets are matched before the Worker. The built SPA lives under
+  `/admin/**`; every path that misses an asset and looks like a navigation is
+  answered with the assets root `index.html`, which `frontend/vite.config.ts`
+  writes from `frontend/spa-fallback.html`. That document is deliberately
+  inert: empty title, no product name, no bundle reference. It fetches the
+  real shell (`/admin/`) only when `location.pathname` is inside the mount,
+  which is what keeps `/admin` deep links refreshable without handing a panel
+  to the site root, a mistyped path, or a subscription URL opened in a
+  browser. The SPA repeats the rule in `main.tsx` (`isAdminMount`), so the
+  shell cannot paint itself outside `/admin` even when it is loaded directly.
 - Cloudflare Access is an optional edge layer in front of the hostname. The
   operator protects the whole host with one Access application and adds
   Bypass applications for `/sub/*`, `/api/node/*`, and `/api/health` so those

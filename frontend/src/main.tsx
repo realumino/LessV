@@ -12,16 +12,27 @@ import { BrowserRouter } from "react-router";
 
 import App from "./App";
 import "./index.css";
+import { ADMIN_TITLE, isAdminMount } from "./lib/mount";
 
-const container = document.getElementById("app");
-if (!container) {
-  throw new Error("index.html is missing the #app container");
+/*
+ * Outside /admin the document stays blank, and it stays blank on purpose: the
+ * edge serves this shell to a deep link under /admin and the inert fallback
+ * document everywhere else, and the fallback only loads the bundle inside the
+ * mount. Rendering nothing here is the second half of that rule, so a stray
+ * load of the shell (a stale tab, a copied asset URL) can never paint the
+ * panel at a path that is not the admin mount.
+ */
+if (isAdminMount(window.location.pathname)) {
+  const container = document.getElementById("app");
+  if (!container) {
+    throw new Error("index.html is missing the #app container");
+  }
+  document.title = ADMIN_TITLE;
+  createRoot(container).render(
+    <StrictMode>
+      <BrowserRouter basename="/admin">
+        <App />
+      </BrowserRouter>
+    </StrictMode>,
+  );
 }
-
-createRoot(container).render(
-  <StrictMode>
-    <BrowserRouter basename="/admin">
-      <App />
-    </BrowserRouter>
-  </StrictMode>,
-);

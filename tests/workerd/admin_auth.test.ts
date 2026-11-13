@@ -39,6 +39,26 @@ describe("admin key auth", () => {
     expect(await response.json()).toEqual({ detail: "admin key required" });
   });
 
+  // WHY byte identity: a caller that can tell "no key" from "wrong key" (or an
+  // unknown admin path from a known one) learns which guesses are getting
+  // closer. The three answers must be the same bytes, not merely the same
+  // status.
+  it("answers missing, wrong, and unknown-path requests identically", async () => {
+    const missing = await planeFetch("/api/admin/nodes", noKey());
+    const wrong = await planeFetch("/api/admin/nodes", {
+      headers: { Authorization: "Bearer wrong-key" },
+    });
+    const unknown = await planeFetch("/api/admin/nope", noKey());
+    const shape = async (response: Response) => ({
+      status: response.status,
+      type: response.headers.get("content-type"),
+      body: await response.text(),
+    });
+    const [a, b, c] = await Promise.all([shape(missing), shape(wrong), shape(unknown)]);
+    expect(a).toEqual(b);
+    expect(a).toEqual(c);
+  });
+
   it("answers 200 on a known path and 404 on an unknown one with the key", async () => {
     const known = await planeFetch("/api/admin/nodes", {
       headers: { Authorization: `Bearer ${TEST_ADMIN_KEY}` },

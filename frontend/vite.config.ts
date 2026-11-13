@@ -8,10 +8,15 @@
  * single-page-application.
  *
  * WHY the root-index fallback plugin: Workers' SPA fallback always serves
- * /index.html from the assets root, but outDir is dist/admin so the deep
- * links (e.g. /admin/nodes/tokyo01) would otherwise 404. The plugin
- * copies the built admin index to the assets root so the fallback serves
- * it, and clears any stale copy at build start.
+ * /index.html from the assets root, but outDir is dist/admin, so the deep
+ * links (e.g. /admin/nodes/tokyo01) would otherwise 404.
+ *
+ * WHY the root index is spa-fallback.html and not a copy of the built admin
+ * index: the fallback document answers every navigation miss, including the
+ * site root and arbitrary paths, so handing it the panel would identify the
+ * plane everywhere. The fallback is inert and names no bundle; it loads the
+ * real shell (dist/admin/index.html) only when the path is inside /admin.
+ * The plugin clears any stale copy at build start and writes the fallback.
  *
  * WHY the dev proxy targets :8787: the app runs only under workerd
  * (`npm run dev`, wrangler's default port), and the archived single-node
@@ -27,6 +32,8 @@ import type { Plugin } from "vite";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
+const FALLBACK_DOCUMENT = resolve(here, "spa-fallback.html");
+
 function spaFallback(): Plugin {
   return {
     name: "spa-fallback-root-index",
@@ -34,10 +41,7 @@ function spaFallback(): Plugin {
       rmSync(resolve(here, "dist/index.html"), { force: true });
     },
     closeBundle() {
-      copyFileSync(
-        resolve(here, "dist/admin/index.html"),
-        resolve(here, "dist/index.html"),
-      );
+      copyFileSync(FALLBACK_DOCUMENT, resolve(here, "dist/index.html"));
     },
   };
 }

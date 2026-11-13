@@ -266,6 +266,50 @@ describe("the subscription endpoint", () => {
     expect(await expired.text()).toBe("");
   });
 
+  // WHY one shape: a holder of a stale capability URL must not be able to tell
+  // an unknown token from a disabled user, an expired one, or a rotated-away
+  // one. Every state answers the same status, headers, and body.
+  it("does not distinguish unknown, disabled, expired, or rotated tokens", async () => {
+    const node = uid("n");
+    await makeNode(node, "funky.example.com", "alpha");
+    const past = Math.floor(Date.now() / 1000) - 60;
+    const disabled = await makeUser(uid("d"), accessFor(node), {
+      status: "disabled",
+    });
+    const expired = await makeUser(uid("e"), accessFor(node), { expire: past });
+    const rotatedUser = await makeUser(uid("r"), accessFor(node));
+    await planeJson("POST", `/api/admin/users/${rotatedUser.username}/sub-token`);
+    const unknown = crypto.randomUUID().replaceAll("-", "").slice(0, 43);
+
+    const tokens = [
+      unknown,
+      disabled.sub_token!,
+      expired.sub_token!,
+      rotatedUser.sub_token!,
+    ];
+    const shapes = [];
+    for (const token of tokens) {
+      const response = await subGet(token);
+      shapes.push({
+        status: response.status,
+        type: response.headers.get("content-type"),
+        cache: response.headers.get("cache-control"),
+        title: response.headers.get("profile-title"),
+        body: await response.text(),
+      });
+    }
+    for (const shape of shapes) {
+      expect(shape).toEqual(shapes[0]);
+    }
+    expect(shapes[0]).toEqual({
+      status: 200,
+      type: "text/plain; charset=utf-8",
+      cache: "no-store",
+      title: null,
+      body: "",
+    });
+  });
+
   it("treats unknown and rotated-out tokens like any empty body", async () => {
     const never = crypto.randomUUID().replaceAll("-", "").slice(0, 43);
     const unknown = await subGet(never);
