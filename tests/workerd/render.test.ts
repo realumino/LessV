@@ -184,6 +184,36 @@ describe("render invariants", () => {
     expect(JSON.stringify(stored)).not.toContain(`reality-${node}`);
   });
 
+  it("normalises the rendered transport and leaves the authored document alone", async () => {
+    // WHY: Xray renamed the transport to `raw`; the plane emits the current
+    // name so the node's applied config does not depend on the synonym an
+    // operator pasted. The authored document is the operator's text — it must
+    // stay exactly as saved, and the hash must cover what is actually served.
+    const node = await makeNode();
+    const authored = config();
+    const inbound = (authored.inbounds as Record<string, unknown>[])[0]!;
+    const stream = inbound["streamSettings"] as Record<string, unknown>;
+    stream["network"] = "tcp";
+    await planeJson("PUT", `/api/admin/nodes/${node}/config`, authored);
+    await makeUser(node);
+
+    const stored = await body<{
+      inbounds: { streamSettings: { network: string } }[];
+    }>(await planeJson("GET", `/api/admin/nodes/${node}/config`));
+    expect(stored.inbounds[0]!.streamSettings.network).toBe("tcp");
+
+    const pane = await body<{
+      config: { inbounds: { streamSettings: { network: string } }[] };
+      hash: string;
+    }>(await planeJson("GET", `/api/admin/nodes/${node}/config/runtime`));
+    expect(pane.config.inbounds[0]!.streamSettings.network).toBe("raw");
+
+    const sync = await body<NodeSyncOut>(
+      await planeJson("GET", `/api/admin/nodes/${node}/sync`),
+    );
+    expect(sync.desired_hash).toBe(pane.hash);
+  });
+
   it("renders the same hash for the same state", async () => {
     const node = await makeNode();
     await planeJson("PUT", `/api/admin/nodes/${node}/config`, config());

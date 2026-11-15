@@ -143,6 +143,24 @@ describe("linksForUser", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("emits one URI whether the network is authored tcp or raw", () => {
+    // WHY: the plane normalises the transport name at render time, so a link
+    // must not depend on which synonym an operator typed. URIs are compared
+    // byte for byte because clients parse them byte for byte.
+    const authored = shareConfig();
+    const inbound = (authored.inbounds as Record<string, unknown>[])[0]!;
+    const stream = inbound["streamSettings"] as Record<string, unknown>;
+    stream["network"] = "tcp";
+    const configured = (config: Record<string, unknown>) =>
+      linksForUser(shareUser(["REALITY_IN"]), config, "example.com")[0][0][
+        "uri"
+      ];
+    const fromTcp = configured(authored);
+    stream["network"] = "raw";
+    expect(configured(authored)).toBe(fromTcp);
+    expect(fromTcp).toContain("type=tcp");
+  });
+
   it("forces the chrome fingerprint and says so when the config disagrees", () => {
     // A REALITY client's uTLS profile decides whether the hybrid
     // post-quantum group is offered; anything but chrome can fail the

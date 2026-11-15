@@ -234,6 +234,38 @@ export function ensureBlockFirst(outbounds: Dict[]): Dict[] {
 }
 
 /**
+ * WHAT: rename the `tcp` transport to its current name, `raw`.
+ *
+ * WHY: Xray accepts both names for the same transport (`raw` since 24.9.30),
+ * and `tcp` is the deprecated one. The plane emits the current name so the
+ * rendered document does not depend on which synonym an operator pasted;
+ * `tcpSettings` stays where it is because Xray still reads it next to
+ * `rawSettings`. Every other network name is left untouched.
+ *
+ * WHY a copy and not in-place: `runtime` is the caller's working document
+ * and the pure function contract here is "returns a new document".
+ */
+export function normalizeTransportNetwork(config: Dict): Dict {
+  const normalized = structuredClone(config);
+  for (const key of ["inbounds", "outbounds"]) {
+    const list = normalized[key];
+    if (!Array.isArray(list)) {
+      continue;
+    }
+    for (const entry of list) {
+      if (!isDict(entry) || !isDict(entry["streamSettings"])) {
+        continue;
+      }
+      const stream = entry["streamSettings"] as Dict;
+      if (stream["network"] === "tcp") {
+        stream["network"] = "raw";
+      }
+    }
+  }
+  return normalized;
+}
+
+/**
  * WHAT: return a deep copy of the config with clients and routing filled in.
  *
  * WHY a deep copy: the caller's config dict must stay untouched — it is

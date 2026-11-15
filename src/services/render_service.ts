@@ -21,6 +21,7 @@ import * as db from "../db";
 import {
   applyRealityKeys,
   buildConfig,
+  normalizeTransportNetwork,
   type User,
 } from "./config_service";
 import {
@@ -225,8 +226,11 @@ export async function desiredConfig(
     const qualifiedConfig = qualifyConfig(config, nodeId) as Dict;
     const qualifiedUsers = qualifyUsers(users, nodeId) as User[];
     const qualifiedKeys = qualifyKeys(tagKeys, nodeId) as Record<string, string>;
-    const [runtime, warnings] = buildConfig(qualifiedConfig, qualifiedUsers);
-    const realityWarnings = applyRealityKeys(runtime, qualifiedKeys);
+    const [built, warnings] = buildConfig(qualifiedConfig, qualifiedUsers);
+    const realityWarnings = applyRealityKeys(built, qualifiedKeys);
+    // Normalisation sits between the last mutation and the return value, so
+    // the hash and the delivered bytes are computed from the same document.
+    const runtime = normalizeTransportNetwork(built);
     return [
       runtime,
       [...registry.warnings, ...userWarnings, ...warnings, ...realityWarnings],

@@ -52,6 +52,13 @@ describe("clashProfile", () => {
     );
   });
 
+  it("renders the same proxy for a tcp and a raw link", () => {
+    // WHY: the plane emits `raw`, but hand-written and older links say
+    // `tcp`; both name the same transport and must produce identical YAML.
+    const raw = REALITY.replace("type=tcp", "type=raw");
+    expect(clashProfile([{ uri: raw }])).toBe(clashProfile([{ uri: REALITY }]));
+  });
+
   it("keeps PQ on when a hand-written link omits the flag", () => {
     const bare = REALITY.replace("&support-x25519mlkem768=true", "");
     expect(clashProfile([{ uri: bare }])).toContain(

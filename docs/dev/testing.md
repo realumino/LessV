@@ -77,7 +77,7 @@ curl -X PUT -H "Authorization: Bearer $AK" -H 'Content-Type: application/json' \
   "inbounds": [{
     "tag": "reality", "listen": "0.0.0.0", "port": 443, "protocol": "vless",
     "settings": {"clients": [], "decryption": "none", "flow": "xtls-rprx-vision"},
-    "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {
+    "streamSettings": {"network": "raw", "security": "reality", "realitySettings": {
       "dest": "/dev/shm/lessv-decoy.sock", "serverNames": ["decoy.example.test"],
       "privateKey": "<32-byte url-safe base64>", "shortIds": ["0a1b2c3d"],
       "settings": {"fingerprint": "chrome", "spiderX": "/"}}}

@@ -234,7 +234,7 @@ export function realityInboundFragment(
       protocol: "vless",
       settings: { clients: [], decryption: "none", flow },
       streamSettings: {
-        network: "tcp",
+        network: "raw",
         security: "reality",
         realitySettings: {
           dest: socket,
