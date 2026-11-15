@@ -177,6 +177,15 @@ document targets Alpine/OpenRC images with cloud-init; any host with Docker can
 run the same compose file by hand. There is no SSH and no Tailscale: the plane
 is the management interface and the provider console is the rescue path.
 
+**Check the image, not just the provider.** A document that is never consumed
+looks exactly like a node that never enrolled. On a first boot that produces no
+enrollment, confirm the data source before debugging anything else:
+`cloud-init status`, `cloud-init query datasource`, or
+`/var/log/cloud-init-output.log`. A datasource of `DataSourceNone` means the
+provider handed the instance no metadata (observed on Linode's stock Alpine
+image) and the cloud-config was never run — use an image whose cloud-init is
+wired to the provider's metadata service, or apply the document yourself.
+
 First boot sets:
 
 - `/etc/sysctl.d/99-vela.conf` — BBR/fq, `fs.file-max`, socket backlog,
