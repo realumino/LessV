@@ -312,22 +312,12 @@ docker compose -f /etc/vela/compose.yaml logs -n 50
 
 #### 5.3 方式二：cloud-init
 
-仓库提供 [`scripts/vela_node_cloud_init.yaml`](scripts/vela_node_cloud_init.yaml)，适用于 Alpine 3.22+ / OpenRC、且镜像自带 cloud-init 的 VPS。它是一次性首启配置：设置 BBR 与 fd 上限、安装 Docker 与 nftables（只开 80/443）、禁用并移除 sshd、写 compose 文件、执行一次 enroll 并启动服务。首次启动后节点没有 SSH，后续全部通过面板管理；故障按不可变基础设施处理，销毁重建。
+cloud-config 由面板生成：它是给 Alpine 3.22+ / OpenRC 且带 cloud-init 的镜像用的一次性文档，不需要手改。它会设置 BBR 与 fd 上限、安装 Docker 与 nftables（只开 80/443）、禁用并移除 sshd、写 compose 文件、执行一次 enroll 并启动服务。首次启动后节点没有 SSH，后续全部通过面板管理；故障按不可变基础设施处理，销毁重建。
 
 步骤：
 
-1. 按 5.1 建好节点、Domain、DNS 和 token。
-2. 把模板复制到仓库外的临时文件（例如 `/tmp/node1.yaml`），只改 `write_files` 顶部标注的 `/root/vela.env` 块：
-
-   ```yaml
-   NODE_ID="node1"
-   CP_URL="https://cp.example.com"
-   TOKEN="<粘贴节点 token>"
-   IMAGE="ghcr.io/example/vela-server:latest"
-   BINARY="/usr/local/bin/vela-server"
-   ```
-
-   `CP_URL` 不要带末尾斜杠；`IMAGE` 是带 tag 的完整引用，主机拉取的就是它。其余内容不要改。
+1. 按 5.1 建好节点、Domain 和 DNS。
+2. 生成 token（5.1）。对话框里 token 旁边就是已经填好的 cloud-config——节点 id、面板地址、镜像和入口都已就位，token 只在这里出现一次。复制它。
 3. 在 VPS 服务商处创建 Alpine 3.22+ 实例，把该文件作为 **user-data** 传入；防火墙放行入站 TCP 80/443（22 不需要，模板会禁用 sshd）。
 4. 等待首启完成。面板上节点的 `Health` 变为 `healthy`、`Applied` 追上 `Desired` 即成功；失败时通过服务商控制台看 `/var/log/cloud-init-output.log`。
 5. 首启失败不要原地修：销毁实例，用新的 node id 和 token 重建。`cloud-init` 只跑一次。
@@ -843,31 +833,19 @@ refreshed from the panel (**Maintenance → Refresh Geodata**).
 
 #### 5.3 Option B: cloud-init
 
-The repository ships [`scripts/vela_node_cloud_init.yaml`](scripts/vela_node_cloud_init.yaml),
-a one-shot cloud-config for Alpine 3.22+ / OpenRC images that run cloud-init.
-It raises BBR and fd limits, installs Docker and nftables (80/443 only),
-disables and removes sshd, writes the compose file, enrolls once, and starts
-the service. After first boot the node has no SSH; manage it from the panel.
-Treat a broken node as immutable: destroy and rebuild.
+The plane writes the cloud-config for you: it is a one-shot document for an
+Alpine 3.22+ / OpenRC image that runs cloud-init, and it needs no edits. It
+raises BBR and fd limits, installs Docker and nftables (80/443 only), disables
+and removes sshd, writes the compose file, enrolls once, and starts the
+service. After first boot the node has no SSH; manage it from the panel. Treat
+a broken node as immutable: destroy and rebuild.
 
 Steps:
 
-1. Create the node, Domain, DNS, and token as in 5.1.
-2. Copy the template to a temporary file outside the repository (for example
-   `/tmp/node1.yaml`). Edit only the `/root/vela.env` block at the top of
-   `write_files`:
-
-   ```yaml
-   NODE_ID="node1"
-   CP_URL="https://cp.example.com"
-   TOKEN="<paste node token>"
-   IMAGE="ghcr.io/example/vela-server:latest"
-   BINARY="/usr/local/bin/vela-server"
-   ```
-
-   No trailing slash on `CP_URL`; `IMAGE` is a full reference including its
-   tag, and that exact reference is what the host pulls. Do not change
-   anything else.
+1. Create the node, Domain and DNS as in 5.1.
+2. Mint the token (5.1). The dialog shows the finished cloud-config beside the
+token — the node id, the control-plane URL, the image and the entrypoint are
+already filled in, and the token appears there only once. Copy it.
 3. Create an Alpine 3.22+ instance at the VPS provider and pass the file as
    **user-data**. Allow inbound TCP 80/443 in the provider firewall (22 is not
    needed; the template disables sshd).
@@ -1469,29 +1447,19 @@ docker compose -f /etc/vela/compose.yaml logs -n 50
 
 #### ۵.۳ روش ب: cloud-init
 
-مخزن فایل [`scripts/vela_node_cloud_init.yaml`](scripts/vela_node_cloud_init.yaml)
-را دارد؛ یک cloud-config یک‌بارمصرف برای Alpine 3.22+ / OpenRC با cloud-init.
-سقف‌های BBR و fd را بالا می‌برد، Docker و nftables را نصب می‌کند (فقط
-80/443)، sshd را غیرفعال و حذف می‌کند، فایل compose را می‌نویسد، یک‌بار
-enroll می‌کند و سرویس را بالا می‌آورد. پس از اولین بوت، گره SSH ندارد؛ مدیریت
-از پنل است. گرهٔ خراب را immutable بدانید: نابود و بازسازی کنید.
+پنل خود cloud-config را می‌سازد: سندی یک‌بارمصرف برای Alpine 3.22+ / OpenRC با
+cloud-init که نیازی به ویرایش ندارد. سقف‌های BBR و fd را بالا می‌برد، Docker و
+nftables را نصب می‌کند (فقط 80/443)، sshd را غیرفعال و حذف می‌کند، فایل compose
+را می‌نویسد، یک‌بار enroll می‌کند و سرویس را بالا می‌آورد. پس از اولین بوت،
+گره SSH ندارد؛ مدیریت از پنل است. گرهٔ خراب را immutable بدانید: نابود و
+بازسازی کنید.
 
 مراحل:
 
-1. طبق ۵.۱ گره، Domain، DNS و توکن را بسازید.
-2. قالب را به فایلی موقت بیرون مخزن کپی کنید (مثلاً `/tmp/node1.yaml`). فقط
-   بلوک `/root/vela.env` در بالای `write_files` را تغییر دهید:
-
-   ```yaml
-   NODE_ID="node1"
-   CP_URL="https://cp.example.com"
-   TOKEN="<paste node token>"
-   IMAGE="ghcr.io/example/vela-server:latest"
-   BINARY="/usr/local/bin/vela-server"
-   ```
-
-   `CP_URL` بدون اسلش پایانی؛ `IMAGE` یک ارجاع کامل با tag است و همان چیزی
-   است که میزبان می‌کشد. بقیه را تغییر ندهید.
+1. طبق ۵.۱ گره، Domain و DNS را بسازید.
+2. توکن را بسازید (۵.۱). پنجره، cloud-config آماده را کنار توکن نشان می‌دهد —
+   شناسهٔ گره، نشانی پنل، تصویر و entrypoint از پیش پر شده‌اند و توکن فقط
+   همان‌جا یک‌بار دیده می‌شود. آن را کپی کنید.
 3. در ارائه‌دهندهٔ VPS یک نمونهٔ Alpine 3.22+ بسازید و فایل را به‌عنوان
    **user-data** بدهید. در فایروال ارائه‌دهنده ورودی TCP 80/443 را باز کنید
    (22 لازم نیست؛ قالب sshd را غیرفعال می‌کند).
@@ -2097,30 +2065,19 @@ docker compose -f /etc/vela/compose.yaml logs -n 50
 
 #### 5.3 Вариант B: cloud-init
 
-В репозитории есть [`scripts/vela_node_cloud_init.yaml`](scripts/vela_node_cloud_init.yaml) —
-одноразовый cloud-config для Alpine 3.22+ / OpenRC с cloud-init. Он поднимает
-лимиты BBR и fd, ставит Docker и nftables (только 80/443), отключает и
-удаляет sshd, пишет compose-файл, один раз выполняет enroll и запускает
-сервис. После первого запуска SSH на узле нет; управление идёт из панели.
-Сломанный узел считается неизменяемым: уничтожить и пересоздать.
+cloud-config пишет панель: это одноразовый документ для образа Alpine 3.22+ /
+OpenRC с cloud-init, и править в нём нечего. Он поднимает лимиты BBR и fd,
+ставит Docker и nftables (только 80/443), отключает и удаляет sshd, пишет
+compose-файл, один раз выполняет enroll и запускает сервис. После первого
+запуска SSH на узле нет; управление идёт из панели. Сломанный узел считается
+неизменяемым: уничтожить и пересоздать.
 
 Шаги:
 
-1. Создайте узел, Domain, DNS и токен по 5.1.
-2. Скопируйте шаблон во временный файл вне репозитория (например
-   `/tmp/node1.yaml`). Меняйте только блок `/root/vela.env` в начале
-   `write_files`:
-
-   ```yaml
-   NODE_ID="node1"
-   CP_URL="https://cp.example.com"
-   TOKEN="<paste node token>"
-   IMAGE="ghcr.io/example/vela-server:latest"
-   BINARY="/usr/local/bin/vela-server"
-   ```
-
-   `CP_URL` без завершающего слэша; `IMAGE` — полная ссылка с tag, и именно её
-   тянет хост. Остальное не меняйте.
+1. Создайте узел, Domain и DNS по 5.1.
+2. Выпустите токен (5.1). В окне рядом с токеном лежит готовый cloud-config —
+   id узла, адрес панели, образ и entrypoint уже подставлены, а токен виден
+   только здесь и только один раз. Скопируйте его.
 3. У провайдера VPS создайте инстанс Alpine 3.22+ и передайте файл как
    **user-data**. В брандмауэре провайдера откройте входящие TCP 80/443 (22 не
    нужен; шаблон отключает sshd).
@@ -2727,29 +2684,19 @@ watchtower 같은 자동갱신기에 맡기십시오. 홀씨그림은 흐름전�
 
 #### 5.3 방식 B: cloud-init
 
-자료고에는 [`scripts/vela_node_cloud_init.yaml`](scripts/vela_node_cloud_init.yaml)이
-있습니다. cloud-init이 도는 Alpine 3.22+ / OpenRC 화상에 쓰는 한번실행
-cloud-config입니다. BBR과 fd 한계를 올리고, Docker와 nftables(80/443만)를
-설치하고, sshd를 끄고 지우며, compose 파일을 쓰고, 한번 enroll한 다음 봉사를
-시작합니다. 첫 시작 뒤 마디에는 SSH가 없습니다. 관리화면에서 다스립니다.
-고장난 마디는 고치지 않고 없애고 다시 만듭니다.
+cloud-config는 관리평면이 만듭니다. cloud-init이 도는 Alpine 3.22+ / OpenRC
+화상에 쓰는 한번실행 문서이며 고칠곳이 없습니다. BBR과 fd 한계를 올리고,
+Docker와 nftables(80/443만)를 설치하고, sshd를 끄고 지우며, compose 파일을
+쓰고, 한번 enroll한 다음 봉사를 시작합니다. 첫 시작 뒤 마디에는 SSH가
+없습니다. 관리화면에서 다스립니다. 고장난 마디는 고치지 않고 없애고 다시
+만듭니다.
 
 절차:
 
-1. 5.1대로 마디, Domain, DNS, 토큰을 만드십시오.
-2. 본보기를 자료고밖의 림시파일(례: `/tmp/node1.yaml`)에 복사하십시오.
-   `write_files` 우의 `/root/vela.env` 부분만 고치십시오:
-
-   ```yaml
-   NODE_ID="node1"
-   CP_URL="https://cp.example.com"
-   TOKEN="<paste node token>"
-   IMAGE="ghcr.io/example/vela-server:latest"
-   BINARY="/usr/local/bin/vela-server"
-   ```
-
-   `CP_URL` 끝에 슬레쉬를 넣지 마십시오. `IMAGE`는 tag를 포함한 완전한
-   지시이며, 주계산기는 바로 그 지시를 당겨옵니다. 나머지는 고치지 마십시오.
+1. 5.1대로 마디, Domain, DNS를 만드십시오.
+2. 토큰을 만드십시오(5.1). 창에는 토큰 옆에 이미 완성된 cloud-config가
+   있습니다 — 마디 id, 관리평면 주소, 홀씨그림, entrypoint가 채워져 있고
+   토큰은 여기서 한번만 보입니다. 그것을 복사하십시오.
 3. VPS 봉사자에서 Alpine 3.22+ 실례를 만들고 그 파일을 **user-data**로
    넘기십시오. 봉사자 방화벽에서 들어오는 TCP 80/443을 려십시오(22는 필요
    없음; 본보기가 sshd를 끔).
@@ -3353,31 +3300,19 @@ täzelenýär.
 
 #### 5.3 B usuly: cloud-init
 
-Ammar [`scripts/vela_node_cloud_init.yaml`](scripts/vela_node_cloud_init.yaml)
-faýlyny saklaýar — cloud-init işleýän Alpine 3.22+ / OpenRC obrazlary üçin
-bir gezeklik cloud-config. Ol BBR we fd çäklerini ýokarlandyrýar, Docker we
-nftables (diňe 80/443) gurýar, sshd-ni öçürýär we aýyrýar, compose faýlyny
-ýazýar, bir gezek enroll edýär we serwisi başlaýar. Ilkinji açylyşdan soň
-düwünde SSH ýok; dolandyryş panelden bolýar. Bozulan düwüni üýtgedip
-bejermäň: ýok ediň we täzeden dörediň.
+cloud-config-y panel ýazýar: cloud-init işleýän Alpine 3.22+ / OpenRC obrazy
+üçin bir gezeklik resminama we ony üýtgetmek gerek däl. Ol BBR we fd çäklerini
+ýokarlandyrýar, Docker we nftables (diňe 80/443) gurýar, sshd-ni öçürýär we
+aýyrýar, compose faýlyny ýazýar, bir gezek enroll edýär we serwisi başlaýar.
+Ilkinji açylyşdan soň düwünde SSH ýok; dolandyryş panelden bolýar. Bozulan
+düwüni üýtgedip bejermäň: ýok ediň we täzeden dörediň.
 
 Ädimler:
 
-1. 5.1-e görä düwüni, Domain-i, DNS-i we tokeni dörediň.
-2. Şablony ammaryň daşyndaky wagtlaýyn faýla göçüriň (mysal üçin
-   `/tmp/node1.yaml`). Diňe `write_files`-iň ýokarsyndaky
-   `/root/vela.env` bölümini üýtgediň:
-
-   ```yaml
-   NODE_ID="node1"
-   CP_URL="https://cp.example.com"
-   TOKEN="<paste node token>"
-   IMAGE="ghcr.io/example/vela-server:latest"
-   BINARY="/usr/local/bin/vela-server"
-   ```
-
-   `CP_URL`-iň soňunda slaş bolmaly däl; `IMAGE` tagy bilen doly salgylanma we
-   serweriň çekýän zady hut şoldur. Galan zady üýtgetmäň.
+1. 5.1-e görä düwüni, Domain-i we DNS-i dörediň.
+2. Tokeni dörediň (5.1). Penjirede tokeniň gapdalynda taýýar cloud-config bar —
+   düwün id-si, panel salgysy, obraz we entrypoint eýýäm doldurylan, token bolsa
+   diňe şu ýerde bir gezek görünýär. Ony göçüriň.
 3. VPS üpjün edijisinde Alpine 3.22+ instansyny dörediň we faýly
    **user-data** hökmünde beriň. Gorag diwarynda giriş TCP 80/443 açyň (22
    gerek däl; şablon sshd-ni öçürýär).

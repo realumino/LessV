@@ -13,12 +13,20 @@ export interface NodeOut {
   label: string;
   /** The admin-set share-link domain (optional; blank until set). */
   address: string;
-  /** What the node reported about itself at enroll — display only. */
-  reported_address: string | null;
   /** Which ACME environment's current certificates this node receives. */
   cert_environment: "production" | "staging";
   created_at: number;
   has_config: boolean;
+}
+
+/** POST /api/admin/nodes/{id}/token — the one-time mint response. */
+export interface NodeTokenOut {
+  node_id: string;
+  token: string;
+  cloud_init: string;
+  image: string;
+  binary: string;
+  created_at: number;
 }
 
 /** GET /api/admin/nodes/{id}/config/runtime — the live render. */

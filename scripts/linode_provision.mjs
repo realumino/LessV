@@ -11,11 +11,10 @@
  *
  * The `node` command is a Linode-specific convenience: it creates the plane
  * node row (with the REALITY preset unless disabled), mints its token, boots
- * an Alpine Linode whose cloud-init user data is
- * `scripts/vela_node_cloud_init.yaml`, waits for enrollment, and writes the
- * inventory (0600; holds the LISH root password). It is not the documented
- * installation path; the operator manual describes the generic cloud-init
- * and manual SSH paths instead.
+ * an Alpine Linode with the cloud-init the plane returns with that token,
+ * waits for enrollment, and writes the inventory (0600; holds the LISH root
+ * password). It is not the documented installation path; the operator manual
+ * describes the cloud-config copy and the manual container paths instead.
  *
  * The node runs the server image, so the one artifact this script needs is
  * an image reference — not a release version. Nothing here resolves "the
@@ -55,7 +54,6 @@ import { join } from "node:path";
 
 const API = "https://api.linode.com/v4";
 const BOOT_TIMEOUT_S = 300;
-const CLOUD_INIT_TEMPLATE = new URL("vela_node_cloud_init.yaml", import.meta.url);
 const DEFAULT_SERVER_IMAGE = "ghcr.io/realumino/vela-server:latest";
 const DEFAULT_SERVER_BINARY = "/usr/local/bin/vela-server";
 
@@ -217,31 +215,6 @@ async function planeApi(cp, adminKey, method, path, body) {
     );
   }
   return data;
-}
-
-/**
- * WHAT: substitute the template placeholders and refuse to boot on a typo.
- *
- * WHY it fails loudly: an unresolved placeholder in user data would produce
- * a node that enrolls with the literal string and cannot be debugged over
- * SSH.
- */
-function renderCloudInit(template, values) {
-  // A Windows checkout can carry CRLF; the embedded bootstrap is POSIX sh.
-  const source = template.replace(/\r\n/g, "\n");
-  const missing = [...source.matchAll(/__([A-Z0-9_]+)__/g)]
-    .map((match) => match[1])
-    .filter((key) => !(key in values));
-  if (missing.length > 0) {
-    throw new Error(
-      `cloud-init template has unresolved placeholders: ${[...new Set(missing)].join(", ")}`,
-    );
-  }
-  let rendered = source;
-  for (const [key, value] of Object.entries(values)) {
-    rendered = rendered.split(`__${key}__`).join(value);
-  }
-  return rendered;
 }
 
 /** WHAT: poll the plane until the node has enrolled (first heartbeat). */
@@ -488,7 +461,6 @@ async function cmdNode(args) {
     fail(`invalid --binary: ${serverBinary}`);
   }
   const noConfig = args["no-config"] === "true";
-  const template = readFileSync(CLOUD_INIT_TEMPLATE, "utf8");
 
   let createdNode = false;
   let createAttempted = false;
@@ -521,24 +493,24 @@ async function cmdNode(args) {
       });
     }
 
+    // The plane renders the boot document together with the token: the token
+    // exists in plaintext only in this response, so there is nothing to merge
+    // locally and no template to keep in step.
+    const query = new URLSearchParams({ image: serverImage, binary: serverBinary });
     const minted = await planeApi(
       cp,
       adminKey,
       "POST",
-      `/api/admin/nodes/${nodeId}/token`,
+      `/api/admin/nodes/${nodeId}/token?${query.toString()}`,
     );
     const token = minted?.token;
     if (typeof token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(token)) {
       throw new Error("the plane returned an unexpected node token shape");
     }
-
-    const userData = renderCloudInit(template, {
-      NODE_ID: nodeId,
-      CP_URL: cp,
-      TOKEN: token,
-      IMAGE: serverImage,
-      BINARY: serverBinary,
-    });
+    const userData = minted?.cloud_init;
+    if (typeof userData !== "string" || !userData.startsWith("#cloud-config")) {
+      throw new Error("the plane returned no cloud-init with the token");
+    }
 
     const rootPass = randomRootPassword();
     // Persist the LISH password before the instance exists: a failed create

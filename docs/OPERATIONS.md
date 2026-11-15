@@ -165,16 +165,17 @@ first place to look.
 
 ## Alpine cloud-init nodes
 
-`scripts/vela_node_cloud_init.yaml` is a complete cloud-config for a
-disposable Alpine 3.22+ node. The operator creates the plane row and token,
-fills the five values in the marked `/root/vela.env` block (`NODE_ID`,
-`CP_URL`, `TOKEN`, `IMAGE`, `BINARY`), and boots an Alpine image with
-cloud-init using the edited file as user data. `IMAGE` is a full reference
-including its tag; the bootstrap pulls exactly that reference and never
-resolves a tag on the operator's behalf. The template is Alpine/OpenRC
-specific; any host with Docker can run the same compose file by hand. There
-is no SSH and no Tailscale: the plane is the management interface and the
-provider console is the rescue path.
+`POST /api/admin/nodes/{id}/token` returns a finished cloud-config beside the
+token (`cloud_init` in the JSON, and in the token dialog). The operator copies
+that document as the provider's user data — there is no template to edit and no
+placeholder to fill: the node id, the control-plane origin, the token, the
+image and the entrypoint are already in it. `?image=` and `?binary=` override
+the image reference and entrypoint; both are validated, because they are
+interpolated into the compose file and a shell command. The bootstrap pulls
+exactly that reference and never resolves a tag on the operator's behalf. The
+document targets Alpine/OpenRC images with cloud-init; any host with Docker can
+run the same compose file by hand. There is no SSH and no Tailscale: the plane
+is the management interface and the provider console is the rescue path.
 
 First boot sets:
 

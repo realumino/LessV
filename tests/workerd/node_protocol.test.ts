@@ -252,8 +252,10 @@ describe("the node protocol", () => {
     expect((await body<EnrollOut>(response)).desired_hash).toBeNull();
   });
 
-  it("records the reported address beside the domain", async () => {
-    // The agent's detected_ip is display data; the domain is untouched.
+  it("ignores the address a server reports about itself", async () => {
+    // WHY: a server built before the field was retired still sends
+    // `detected_ip`; refusing it would break that build for no gain. The
+    // fleet view answers "when did it last report" from `last_seen`.
     await makeNode();
     const token = await mint();
 
@@ -263,61 +265,12 @@ describe("the node protocol", () => {
       { protocol: 3, detected_ip: "203.0.113.7" },
       auth(token),
     );
-    expect(response.status).toBe(200);
-
-    const created = await body<NodeOut>(
-      await planeJson("GET", `/api/admin/nodes/${node}`),
-    );
-    expect(created.address).toBe("funky.example.com");
-    expect(created.reported_address).toBe("203.0.113.7");
-  });
-
-  it("fills the reported address for an addressless node", async () => {
-    // A node created without a domain still shows where it is.
-    const created = await planeJson("POST", "/api/admin/nodes", {
-      id: node,
-      label: "Node",
-    });
-    expect(created.status).toBe(201);
-    const token = await mint();
-
-    await planeJson(
-      "POST",
-      "/api/node/enroll",
-      { protocol: 3, detected_ip: "203.0.113.7" },
-      auth(token),
-    );
+    expect(response.status, await response.clone().text()).toBe(200);
 
     const state = await body<NodeOut>(
       await planeJson("GET", `/api/admin/nodes/${node}`),
     );
-    expect(state.address).toBe("");
-    expect(state.reported_address).toBe("203.0.113.7");
-  });
-
-  it("updates only the reported address on re-enroll", async () => {
-    // The latest report wins; the admin-set domain never moves.
-    await makeNode();
-    const token = await mint();
-    const headers = auth(token);
-    await planeJson(
-      "POST",
-      "/api/node/enroll",
-      { protocol: 3, detected_ip: "203.0.113.7" },
-      headers,
-    );
-
-    await planeJson(
-      "POST",
-      "/api/node/enroll",
-      { protocol: 3, detected_ip: "198.51.100.9" },
-      headers,
-    );
-
-    const state = await body<NodeOut>(
-      await planeJson("GET", `/api/admin/nodes/${node}`),
-    );
-    expect(state.reported_address).toBe("198.51.100.9");
+    expect(state).not.toHaveProperty("reported_address");
     expect(state.address).toBe("funky.example.com");
   });
 

@@ -203,10 +203,14 @@ export const deleteNode = (nodeId: string) =>
   request<null>(`/nodes/${encodeURIComponent(nodeId)}`, { method: "DELETE" });
 
 export const mintNodeToken = (nodeId: string) =>
-  request<{ node_id: string; token: string; created_at: number }>(
-    `/nodes/${encodeURIComponent(nodeId)}/token`,
-    { method: "POST" },
-  );
+  request<{
+    node_id: string;
+    token: string;
+    cloud_init: string;
+    image: string;
+    binary: string;
+    created_at: number;
+  }>(`/nodes/${encodeURIComponent(nodeId)}/token`, { method: "POST" });
 
 // --- Node state and config -------------------------------------------------
 

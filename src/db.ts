@@ -31,7 +31,6 @@ export type NodeRow = {
   id: string;
   label: string;
   address: string;
-  reported_address: string | null;
   config_json: Record<string, unknown> | null;
   token_hash: string | null;
   applied_hash: string | null;
@@ -353,25 +352,6 @@ export async function setTokenHash(
 }
 
 /**
- * WHAT: store one node's agent-reported address (display only, never links).
- *
- * WHY a dedicated setter: the reported address is a fact the node states
- * about itself at enroll, not editable state like label and address.
- * Keeping it out of `replaceNode` makes the split impossible to blur — the
- * admin owns the share-link domain, the node owns its own report.
- */
-export async function setReportedAddress(
-  db: D1Database,
-  nodeId: string,
-  address: string | null,
-): Promise<void> {
-  await executeWrite(db, "UPDATE nodes SET reported_address = ? WHERE id = ?", [
-    address,
-    nodeId,
-  ]);
-}
-
-/**
  * WHAT: overwrite one node's agent-reported liveness columns in one statement.
  *
  * WHY one fixed statement: the service layer computes the complete desired
@@ -555,8 +535,7 @@ export async function getUserBySubToken(
  *
  * WHY a dedicated setter outside `replaceUser`: the profile edit path
  * overwrites the user's editable columns and must never clobber the token;
- * keeping the token out of that statement makes the blur impossible — the
- * same split as the node's `setReportedAddress`.
+ * keeping the token out of that statement makes the blur impossible.
  */
 export async function setSubToken(
   db: D1Database,

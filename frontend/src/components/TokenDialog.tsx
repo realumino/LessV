@@ -3,19 +3,23 @@
  *
  * WHY it exists: the server stores only a hash, so the plaintext is shown
  * exactly once at mint time. The dialog holds it in component state only —
- * never localStorage, never a log — and the admin is told to copy it into
- * node.toml now.
+ * never localStorage, never a log.
+ *
+ * WHY the boot document is here and not on a docs page: it embeds the token,
+ * so it exists only in this response. The operator copies one finished file
+ * into their provider's user-data instead of editing a template.
  */
 import CopyButton from "./CopyButton";
 import Modal from "./Modal";
+import type { NodeTokenOut } from "../types";
 
 export default function TokenDialog({
   nodeId,
-  token,
+  minted,
   onClose,
 }: {
   nodeId: string;
-  token: string;
+  minted: NodeTokenOut;
   onClose: () => void;
 }) {
   return (
@@ -23,13 +27,30 @@ export default function TokenDialog({
       title={`Token for ${nodeId}`}
       description="Shown once — the plane stores only its hash."
       onClose={onClose}
-      footer={<CopyButton text={token} label="Copy token" />}
+      wide
+      footer={
+        <>
+          <CopyButton text={minted.cloud_init} label="Copy cloud-init" />
+          <CopyButton text={minted.token} label="Copy token only" />
+        </>
+      }
     >
       <p className="cf-meta">
-        Copy this now — it is shown once and never stored in plaintext. Put it
-        in <code className="cf-mono">node.toml</code> (mode 0600) on the node.
+        Shown once; never stored in plaintext. Either paste the cloud-init as
+        your provider&apos;s user-data, or run the enrollment container yourself
+        with the token.
       </p>
-      <pre className="cf-code">{token}</pre>
+      <pre className="cf-code">{minted.token}</pre>
+      <div className="cf-stack">
+        <span className="cf-label">Cloud-init</span>
+        <p className="cf-hint">
+          One finished document for node <code className="cf-mono">{nodeId}</code>:
+          image <code className="cf-mono">{minted.image}</code>, entrypoint{" "}
+          <code className="cf-mono">{minted.binary}</code>. It contains the token,
+          so treat it as a secret.
+        </p>
+        <pre className="cf-code">{minted.cloud_init}</pre>
+      </div>
     </Modal>
   );
 }

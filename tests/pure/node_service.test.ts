@@ -1,104 +1,25 @@
 /**
- * Pure rules for node rows: the reported-address pick and the out shape.
+ * Pure rules for node rows: the out shape.
  *
- * Ported from tests/pure/test_node_service.py with its assertions intact.
- * Both functions are total over plain values — neither touches a database —
- * so they unit-test in milliseconds.
+ * WHY it is a unit test: the projection is total over plain values — it
+ * touches no database — so it runs in milliseconds and pins exactly which
+ * stored columns the API exposes.
  */
 
 import { describe, expect, it } from "vitest";
 
 import type { NodeRow } from "../../src/db";
-import { reportedAddressFor, toOut } from "../../src/services/node_service";
-
-describe("reportedAddressFor", () => {
-  it("prefers the agent report over the edge observation", () => {
-    expect(reportedAddressFor("203.0.113.7", "198.51.100.9")).toBe(
-      "203.0.113.7",
-    );
-  });
-
-  it("falls back to the edge header when the report is missing or blank", () => {
-    expect(reportedAddressFor(null, "198.51.100.9")).toBe("198.51.100.9");
-    expect(reportedAddressFor("   ", "198.51.100.9")).toBe("198.51.100.9");
-  });
-
-  it("returns null when no candidate is usable", () => {
-    expect(reportedAddressFor(null, null)).toBeNull();
-    expect(reportedAddressFor("", "   ")).toBeNull();
-  });
-
-  it("strips surrounding whitespace", () => {
-    expect(reportedAddressFor(" 203.0.113.7 ", null)).toBe("203.0.113.7");
-  });
-
-  it("rejects oversized reports", () => {
-    expect(reportedAddressFor("a".repeat(256), null)).toBeNull();
-  });
-
-  it("rejects values with embedded whitespace", () => {
-    // WHY: a value with embedded whitespace is garbage, not an address.
-    expect(reportedAddressFor("203.0.113.7\n198.51.100.9", null)).toBeNull();
-  });
-
-  it("ignores a private or loopback detection and uses the edge address", () => {
-    // WHY: a bridge-networked server detects its container address, and a
-    // NATed host can detect a private one; the edge already knows the public
-    // address the node reached it from.
-    for (const detected of [
-      "10.1.2.3",
-      "172.16.0.2",
-      "172.31.255.254",
-      "192.168.1.10",
-      "127.0.0.1",
-      "169.254.10.10",
-      "100.64.0.9",
-      "0.0.0.0",
-      "::1",
-      "fc00::1",
-      "fd12:3456::1",
-      "fe80::1",
-      "::ffff:172.17.0.2",
-      "::ffff:10.0.0.1",
-    ]) {
-      expect(reportedAddressFor(detected, "198.51.100.9"), detected).toBe(
-        "198.51.100.9",
-      );
-    }
-  });
-
-  it("adopts a public IPv4 or IPv6 detection", () => {
-    expect(reportedAddressFor("203.0.113.7", "198.51.100.9")).toBe(
-      "203.0.113.7",
-    );
-    expect(reportedAddressFor("2606:4700:4700::1111", "198.51.100.9")).toBe(
-      "2606:4700:4700::1111",
-    );
-    expect(reportedAddressFor("2001:db8::1", null)).toBe("2001:db8::1");
-  });
-
-  it("ignores a report that is not an IP literal", () => {
-    // WHY: the field is a literal by contract; a hostname there is either a
-    // bug or an attempt to put arbitrary text in the fleet view.
-    expect(reportedAddressFor("vpn.example.org", "198.51.100.9")).toBe(
-      "198.51.100.9",
-    );
-    expect(reportedAddressFor("not-an-ip", null)).toBeNull();
-    expect(reportedAddressFor("" + "1".repeat(255), null)).toBeNull();
-  });
-});
+import { toOut } from "../../src/services/node_service";
 
 describe("toOut", () => {
   /** WHAT: a complete stored node row with boring defaults. */
   function nodeRow(
     configJson: Record<string, unknown> | null = null,
-    reported: string | null = null,
   ): NodeRow {
     return {
       id: "tokyo01",
       label: "Tokyo 01",
       address: "funky.example.com",
-      reported_address: reported,
       config_json: configJson,
       token_hash: null,
       applied_hash: null,
@@ -117,18 +38,21 @@ describe("toOut", () => {
     };
   }
 
-  it("projects the reported address and has_config", () => {
-    const out = toOut(nodeRow({ inbounds: [] }, "203.0.113.7"));
+  it("projects identity and has_config", () => {
+    const out = toOut(nodeRow({ inbounds: [] }));
 
-    expect(out.reported_address).toBe("203.0.113.7");
-    expect(out.has_config).toBe(true);
+    expect(out).toEqual({
+      id: "tokyo01",
+      label: "Tokyo 01",
+      address: "funky.example.com",
+      cert_environment: "production",
+      created_at: 1,
+      has_config: true,
+    });
   });
 
-  it("reports null and false for an empty row", () => {
-    const out = toOut(nodeRow());
-
-    expect(out.reported_address).toBeNull();
-    expect(out.has_config).toBe(false);
+  it("reports has_config false for an empty row", () => {
+    expect(toOut(nodeRow()).has_config).toBe(false);
   });
 
   it("carries the cert environment through", () => {

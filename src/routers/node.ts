@@ -20,7 +20,6 @@ import {
   ReportIn,
   StatsIn,
 } from "../models";
-import * as nodeService from "../services/node_service";
 import * as nodeStateService from "../services/node_state_service";
 import * as nodeTokenService from "../services/node_token_service";
 import * as renderService from "../services/render_service";
@@ -98,22 +97,15 @@ function assertProtocol(payload: { protocol: number }): void {
  * correct recovery action — it records the same facts and returns the same
  * shape, converging rather than duplicating anything.
  *
- * WHY the reported address is recorded here: enroll is the one moment the
- * node states its own public address. It is display data for the admin's
- * fleet view, never a share-link host — that stays the admin-set domain in
- * `nodes.address`.
+ * WHY nothing about the caller's address is stored: the fleet view answers
+ * "when did it last report", and the share-link host stays the admin-set
+ * domain in `nodes.address`. A server's `detected_ip` is accepted and
+ * ignored so an older build is not rejected for sending it.
  */
 nodeApi.post("/api/node/enroll", async (c) => {
   const node = await requireNode(c.env, c.req.raw);
   const payload = await parseJsonBody(c.req.raw, EnrollIn);
   assertProtocol(payload);
-  const reported = nodeService.reportedAddressFor(
-    payload.detected_ip,
-    c.req.header("cf-connecting-ip"),
-  );
-  if (reported && reported !== node.reported_address) {
-    await db.setReportedAddress(c.env.DB, node.id, reported);
-  }
   const at = nodeStateService.now();
   await nodeStateService.touchFromValues(c.env.DB, node.id, {
     last_seen: at,

@@ -137,7 +137,6 @@ function FleetTable({ rows }: { rows: FleetRow[] }) {
         <tr>
           <th className="cf-table__first">Node</th>
           <th>Domain</th>
-          <th>Reported IP</th>
           <th>State</th>
           <th>Health</th>
           <th>TLS certificate</th>
@@ -159,7 +158,6 @@ function FleetTable({ rows }: { rows: FleetRow[] }) {
               </span>
             </td>
             <td>{node.address || "—"}</td>
-            <td className="cf-cell--mono">{node.reported_address || "—"}</td>
             <td>
               <span className="cf-inline">
                 <Badge tone={STATE_TONE[state]}>{STATE_LABEL[state]}</Badge>

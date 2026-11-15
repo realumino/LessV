@@ -13,135 +13,9 @@ import type { NodeCreate, NodeOut, NodeUpdate } from "../models";
 import { localTagErrors } from "./qualify_service";
 import { loadRegistry } from "./registry_service";
 
-const REPORTED_MAX_LEN = 255;
-
 /** WHAT: Unix seconds from the plane's clock (the time authority). */
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
-}
-
-/**
- * WHAT: true when `value` is an IPv4 literal that is not a private, loopback,
- * link-local, shared or unspecified range.
- *
- * WHY the narrow allow-list: `bytes()` already rejects anything that is not
- * four dotted decimal octets, so this only has to name the ranges a node
- * cannot legitimately own on the public internet.
- */
-function isGlobalIpv4(value: string): boolean {
-  const parts = value.split(".");
-  if (parts.length !== 4) return false;
-  const octets = parts.map((part) => (/^\d{1,3}$/.test(part) ? Number(part) : -1));
-  if (octets.some((octet) => octet < 0 || octet > 255)) return false;
-  const [a, b] = octets as [number, number, number, number];
-  if (a === 0 || a === 10 || a === 127) return false; // this-network, private, loopback
-  if (a === 100 && b >= 64 && b <= 127) return false; // CGNAT 100.64/10
-  if (a === 169 && b === 254) return false; // link-local
-  if (a === 172 && b >= 16 && b <= 31) return false; // private 172.16/12
-  if (a === 192 && b === 168) return false; // private 192.168/16
-  return true;
-}
-
-/**
- * WHAT: expand one IPv6 literal into its eight 16-bit groups, or null when it
- * is not a literal.
- *
- * WHY hand-parsed: there is no IP-literal helper in workerd, and the plane
- * only needs "is this an address, and which range" — a full address type
- * would be a dependency for one display field.
- */
-function ipv6Groups(value: string): number[] | null {
-  if (value.includes("%")) return null; // a zone id means link-local
-  const doubleColons = value.split("::").length - 1;
-  if (doubleColons > 1) return null;
-  const [head, tail] = doubleColons === 1 ? value.split("::") : [value, null];
-  const parse = (text: string): number[] | null => {
-    if (text === "") return [];
-    const groups: number[] = [];
-    const pieces = text.split(":");
-    for (const [index, piece] of pieces.entries()) {
-      if (index === pieces.length - 1 && piece.includes(".")) {
-        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(piece)) return null;
-        const octets = piece.split(".").map(Number);
-        if (octets.some((octet) => octet > 255)) return null;
-        const [a, b, c, d] = octets as [number, number, number, number];
-        groups.push((a << 8) | b, (c << 8) | d);
-        continue;
-      }
-      if (!/^[0-9a-fA-F]{1,4}$/.test(piece)) return null;
-      groups.push(parseInt(piece, 16));
-    }
-    return groups;
-  };
-  const headGroups = parse(head ?? "");
-  const tailGroups = tail === null ? [] : parse(tail);
-  if (headGroups === null || tailGroups === null) return null;
-  const total = headGroups.length + tailGroups.length;
-  if (doubleColons === 1) {
-    if (total > 7) return null;
-    return [...headGroups, ...new Array(8 - total).fill(0), ...tailGroups];
-  }
-  return total === 8 ? headGroups : null;
-}
-
-/**
- * WHAT: true when the report is a globally routable IP literal.
- *
- * WHY: a bridge-networked server detects its container address
- * (`172.17.0.2`), and a NATed host can detect a private one. The plane already
- * receives the public address from the edge, so a private literal is noise,
- * not a fact — falling back keeps the fleet view honest without a server
- * change.
- */
-export function isGlobalAddressLiteral(value: string): boolean {
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(value)) return isGlobalIpv4(value);
-  const groups = ipv6Groups(value);
-  if (groups === null) return false;
-  const first = groups[0] as number;
-  const allZero = groups.every((group) => group === 0);
-  if (allZero) return false; // unspecified
-  if (groups.every((group, index) => group === (index === 7 ? 1 : 0))) return false; // ::1
-  if ((first & 0xff00) === 0xff00) return false; // multicast
-  if ((first & 0xfe00) === 0xfc00) return false; // unique local fc00::/7
-  if ((first & 0xffc0) === 0xfe80) return false; // link-local fe80::/10
-  // IPv4-mapped (::ffff:a.b.c.d) carries an IPv4 judgement.
-  if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff) {
-    const embedded = `${groups[6]! >> 8}.${groups[6]! & 0xff}.${groups[7]! >> 8}.${groups[7]! & 0xff}`;
-    return isGlobalIpv4(embedded);
-  }
-  return true;
-}
-
-/** WHAT: the old sanitization: present, bounded, no embedded whitespace. */
-function usableAddress(candidate: string | null | undefined): string | null {
-  if (!candidate) return null;
-  const value = candidate.trim();
-  if (value && value.length <= REPORTED_MAX_LEN && !/\s/.test(value)) {
-    return value;
-  }
-  return null;
-}
-
-/**
- * WHAT: pick the reported address to store: the agent's claim when it is a
- * public literal, else the edge observation.
- *
- * WHY the agent's detected_ip usually wins: PROTOCOL.md defines it as the
- * node's own best guess at its public address, and the edge is the fallback
- * for servers that send nothing usable. WHY only a public literal is
- * accepted: under bridge networking the server detects the container address
- * and reports it verbatim, which is not a fact about the node's reachability.
- * The edge header keeps the old sanitization only — it is not user input.
- */
-export function reportedAddressFor(
-  detectedIp: string | null | undefined,
-  connectingIp: string | null | undefined,
-): string | null {
-  const detected = usableAddress(detectedIp);
-  if (detected !== null && isGlobalAddressLiteral(detected)) {
-    return detected;
-  }
-  return usableAddress(connectingIp);
 }
 
 /**
@@ -155,7 +29,6 @@ export function toOut(node: db.NodeRow): NodeOut {
     id: node.id,
     label: node.label,
     address: node.address,
-    reported_address: node.reported_address,
     cert_environment: node.cert_environment,
     created_at: node.created_at,
     has_config: node.config_json !== null,

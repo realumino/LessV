@@ -55,17 +55,14 @@ Request:
   "protocol": 3,
   "agent_version": "0.6.0",
   "xray_version": "26.11.9",
-  "detected_ip": "203.0.113.7",
   "platform": "linux/x86_64"
 }
 ```
 
-`detected_ip` is display data for the fleet view (who reported in from
-where); it never feeds share links. The plane accepts it only when it is a
-globally routable IP literal and otherwise falls back to `cf-connecting-ip` —
-a bridge-networked or NATed server detects a private address, which says
-nothing about how the node is reached. Sending the field is optional; sending
-a hostname or a private address is not an error, it is ignored.
+`detected_ip` is retired. The plane neither stores nor displays it, and the
+fleet view answers "when did this node last report" from the heartbeat's
+`last_seen` stamp. A server that still sends the field is not rejected — it is
+accepted and ignored — and a server that stops sending it loses nothing.
 
 Response:
 

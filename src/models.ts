@@ -131,7 +131,6 @@ export const NodeOut = z.object({
   id: z.string(),
   label: z.string(),
   address: z.string(),
-  reported_address: z.string().nullable(),
   cert_environment: z.enum(CERT_ENVIRONMENTS),
   created_at: z.int(),
   has_config: z.boolean(),
@@ -414,6 +413,8 @@ export const EnrollIn = z.object({
   agent_version: z.string().default(""),
   xray_version: z.string().default(""),
   platform: z.string().default(""),
+  // Accepted and ignored: a server built before the field was retired still
+  // sends it, and the fleet view only needs the `last_seen` stamp.
   detected_ip: z.string().nullable().default(null),
 });
 export type EnrollIn = z.infer<typeof EnrollIn>;

@@ -262,15 +262,6 @@ port except the two it serves traffic on.
 A server is upgraded by replacing its image. The plane cannot and does not
 update Xray, nginx or the reconciler on a running host.
 
-## Reported addresses
-
-`reported_address` is display data: the fleet view's answer to "where is this
-node". The plane prefers the server's `detected_ip` only when it is a globally
-routable IP literal, and otherwise falls back to `cf-connecting-ip`. A
-container reports its bridge address and a NATed host can report a private one;
-neither is a fact about how the node is reached, while the edge header is.
-Nothing else reads the field.
-
 ## Secrets
 
 `KEY_SECRET` is a Worker secret, not a Secrets Store binding. The store is an

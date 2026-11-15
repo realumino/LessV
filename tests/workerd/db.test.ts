@@ -103,12 +103,10 @@ describe("the D1 data layer", () => {
       address: "new.example.com",
       cert_environment: created!.cert_environment,
     });
-    await db.setReportedAddress(conn, nodeId, "203.0.113.7");
 
     const node = await db.getNode(conn, nodeId);
     expect(node?.label).toBe("Tokyo 01 (new)");
     expect(node?.address).toBe("new.example.com");
-    expect(node?.reported_address).toBe("203.0.113.7");
     expect(node?.config_json).toBeNull();
   });
 

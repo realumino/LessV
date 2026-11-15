@@ -1,4 +1,70 @@
-#cloud-config
+/**
+ * WHAT: the Alpine cloud-init one node boots with, rendered per enrollment.
+ *
+ * WHY this lives in the Worker: the file contains the node token, which exists
+ * in plaintext only for the moment the token is minted. Rendering it here
+ * means the operator never edits a template with a placeholder — they copy
+ * one finished document from the token dialog.
+ *
+ * WHY the template is a string and not a file: a Worker bundles modules, not
+ * loose assets, and a second copy of this document somewhere in the tree
+ * would drift from the one the plane actually hands out.
+ */
+
+/** WHAT: the values one rendered document substitutes. */
+export interface CloudInitValues {
+  nodeId: string;
+  /** Control-plane origin, no trailing slash (the request's own origin). */
+  cpUrl: string;
+  token: string;
+  /** Container image reference, tag included. */
+  image: string;
+  /** The server binary inside that image, used as the enrollment entrypoint. */
+  binary: string;
+}
+
+/** WHAT: the shipped defaults, overridable per request. */
+export const CLOUD_INIT_DEFAULTS = {
+  image: "ghcr.io/realumino/vela-server:latest",
+  binary: "/usr/local/bin/vela-server",
+} as const;
+
+/**
+ * WHAT: one image reference that cannot leave the YAML or the docker command.
+ *
+ * WHY the shape check: the value is interpolated into a compose file and a
+ * shell command on the node, so whitespace or shell metacharacters would be a
+ * command injection through the plane's own admin API.
+ */
+export function isImageReference(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._/-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?$/.test(value) && !value.includes("..");
+}
+
+/** WHAT: an absolute path inside the image. */
+export function isBinaryPath(value: string): boolean {
+  return /^\/[A-Za-z0-9._/-]+$/.test(value) && !value.includes("..");
+}
+
+/**
+ * WHAT: render the document, refusing to emit an unresolved placeholder.
+ *
+ * WHY refuse: a document with `__TOKEN__` left in it looks like a successful
+ * enrollment whose token is literal text, and the failure would surface on the
+ * node's first heartbeat instead of here.
+ */
+export function renderCloudInit(values: CloudInitValues): string {
+  const rendered = CLOUD_INIT_TEMPLATE.replaceAll("__NODE_ID__", values.nodeId)
+    .replaceAll("__CP_URL__", values.cpUrl)
+    .replaceAll("__TOKEN__", values.token)
+    .replaceAll("__IMAGE__", values.image)
+    .replaceAll("__BINARY__", values.binary);
+  if (/__[A-Z0-9_]+__/.test(rendered)) {
+    throw new Error("cloud-init template has an unresolved placeholder");
+  }
+  return rendered;
+}
+
+const CLOUD_INIT_TEMPLATE = `#cloud-config
 # WHAT: first boot for a disposable Alpine (OpenRC) Vela node. The same file
 # works on any provider whose Alpine 3.22+ image runs cloud-init.
 # WHY: a node is cattle. This file raises the socket/fd ceilings, installs
@@ -7,12 +73,11 @@
 # agent, and no package upgrade step: a host that drifts or breaks is
 # destroyed and rebuilt from this file plus the plane.
 #
-# The five values in the marked vela.env block below are the only per-node
-# edits (NODE_ID, CP_URL, TOKEN, IMAGE, BINARY). The token is intentionally in
-# user data (the operator's current trade-off): the plane can revoke it by
-# deleting the node row, and the host has no SSH listener after first boot.
-# The Linode-specific helper `scripts/linode_provision.mjs` can render this
-# file, but it is not required; the operator manual documents the manual paste.
+# WHAT: rendered by the plane when a node token is minted — one document per
+# node, with the id, the control-plane URL and the token already in place.
+# WHY the token is in user data: the plane revokes it by deleting the node row,
+# and the host has no SSH listener after first boot. The provider's metadata
+# keeps it, so render this only for a provider you trust.
 #
 # The image carries Xray, nginx, the server binary and its supervisor; the
 # host owns Docker, the firewall and the two published ports. The volume
@@ -31,15 +96,9 @@ packages:
   - nftables-openrc
 
 write_files:
-  # ===================== EDIT THIS BLOCK =====================
-  # NODE_ID  plane node id (1-32 lowercase letters/digits)
-  # CP_URL   control-plane base URL, no trailing slash
-  # TOKEN    value returned once by POST /api/admin/nodes/<NODE_ID>/token
-  # IMAGE    container image, registry and tag included
-  # BINARY   the server binary inside the image (the enrollment entrypoint);
-  #          /usr/local/bin/vela-server for the published image
-  # Everything below this block is generic and should not be edited.
-  # ===========================================================
+  # Rendered by the plane for this one node: the id, the control-plane URL and
+  # the token are already filled in, and the token exists in plaintext only in
+  # this document. Copy it unchanged.
   - path: /root/vela.env
     owner: root:root
     permissions: '0600'
@@ -51,7 +110,7 @@ write_files:
       BINARY="__BINARY__"
 
   # sshd is not merely stopped: cloud-init's own cc_ssh module calls
-  # `rc-service sshd restart`, and a default-runlevel start can race the
+  # \`rc-service sshd restart\`, and a default-runlevel start can race the
   # cleanup below. A no-op init script makes every path a no-op.
   - path: /etc/init.d/sshd
     owner: root:root
@@ -154,11 +213,11 @@ write_files:
       # the token is not left on disk; user data still holds it (see above).
       . /root/vela.env
       rm -f /root/vela.env
-      : "${NODE_ID:?NODE_ID is empty in the vela.env block}"
-      : "${CP_URL:?CP_URL is empty in the vela.env block}"
-      : "${TOKEN:?TOKEN is empty in the vela.env block}"
-      : "${IMAGE:?IMAGE is empty in the vela.env block}"
-      : "${BINARY:?BINARY is empty in the vela.env block}"
+      : "\${NODE_ID:?NODE_ID is empty in the vela.env block}"
+      : "\${CP_URL:?CP_URL is empty in the vela.env block}"
+      : "\${TOKEN:?TOKEN is empty in the vela.env block}"
+      : "\${IMAGE:?IMAGE is empty in the vela.env block}"
+      : "\${BINARY:?BINARY is empty in the vela.env block}"
       # Quoted pieces keep the renderer from substituting this guard along
       # with the env block above.
       case "$NODE_ID$CP_URL$TOKEN$IMAGE$BINARY" in
@@ -168,7 +227,7 @@ write_files:
               ;;
       esac
       hostname "$NODE_ID" 2>/dev/null || true
-      printf '%s\n' "$NODE_ID" > /etc/hostname
+      printf '%s\\n' "$NODE_ID" > /etc/hostname
 
       mkdir -p /etc/modules-load.d
       rc-update add sysctl boot >/dev/null 2>&1 || true
@@ -240,13 +299,13 @@ write_files:
           echo "# plane takes the public address from the edge instead."
           echo "services:"
           echo "  vela-server:"
-          echo "    image: \"${IMAGE}\""
+          echo "    image: \\"\${IMAGE}\\""
           echo "    container_name: vela-server"
           echo "    restart: unless-stopped"
           echo "    network_mode: bridge"
           echo "    ports:"
-          echo "      - \"80:80\""
-          echo "      - \"443:443/tcp\""
+          echo "      - \\"80:80\\""
+          echo "      - \\"443:443/tcp\\""
           echo "    stop_grace_period: 90s"
           echo "    security_opt:"
           echo "      - no-new-privileges:true"
@@ -265,10 +324,10 @@ write_files:
 
       # One-shot enrollment: the token arrives on stdin and never reaches a
       # shell history or an argument list on the host.
-      printf '%s\n' "$TOKEN" | docker run --rm -i \
-          --entrypoint "$BINARY" \
-          -v vela-etc:/etc/vela \
-          "$IMAGE" enroll --cp "$CP_URL" --node "$NODE_ID" \
+      printf '%s\\n' "$TOKEN" | docker run --rm -i \\
+          --entrypoint "$BINARY" \\
+          -v vela-etc:/etc/vela \\
+          "$IMAGE" enroll --cp "$CP_URL" --node "$NODE_ID" \\
           --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
       echo "enrolled $NODE_ID"
 
@@ -282,7 +341,8 @@ write_files:
           docker compose -f /etc/vela/compose.yaml logs --tail 50 >&2 || true
           exit 1
       fi
-      echo "vela-server running on ${NODE_ID}; the plane shows its first heartbeat"
+      echo "vela-server running on \${NODE_ID}; the plane shows its first heartbeat"
 
 runcmd:
   - [ /bin/sh, /root/vela-bootstrap.sh ]
+`;

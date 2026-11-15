@@ -23,6 +23,7 @@ import {
 } from "../models";
 import * as nodeService from "../services/node_service";
 import * as nodeStateService from "../services/node_state_service";
+import * as cloudInit from "../services/cloud_init";
 import * as nodeTokenService from "../services/node_token_service";
 import {
   BASE_CONFIG,
@@ -123,17 +124,32 @@ adminNodes.delete("/api/admin/nodes/:node_id", async (c) => {
 });
 
 /**
- * WHAT: mint (or rotate) one node's bearer token; plaintext shown once.
+ * WHAT: mint (or rotate) one node's bearer token and its boot document.
  *
  * WHY re-POST rotates with immediate invalidation: the new hash replaces
  * the old in one statement, so there is exactly one valid token per node.
- * The admin copies the plaintext into `agent.toml` (mode 0600) — it is
- * never stored and never returned again.
+ * The plaintext is shown once — here, and inside the rendered cloud-init.
+ *
+ * WHY the cloud-init rides on this response: the document embeds the token,
+ * and this is the only moment the token exists in plaintext. A separate
+ * "render" call could only re-render a credential the plane no longer holds.
+ *
+ * WHY `image` and `binary` are query parameters: the document names the
+ * container the node runs, and which image is current is the operator's
+ * business, not the plane's.
  */
 adminNodes.post("/api/admin/nodes/:node_id/token", async (c) => {
   const nodeId = c.req.param("node_id");
   if ((await db.getNode(c.env.DB, nodeId)) === null) {
     throw new ApiError(404, "node not found");
+  }
+  const image = c.req.query("image") ?? cloudInit.CLOUD_INIT_DEFAULTS.image;
+  const binary = c.req.query("binary") ?? cloudInit.CLOUD_INIT_DEFAULTS.binary;
+  if (!cloudInit.isImageReference(image)) {
+    throw new ApiError(422, `invalid image reference '${image}'`);
+  }
+  if (!cloudInit.isBinaryPath(binary)) {
+    throw new ApiError(422, `invalid binary path '${binary}'`);
   }
   const token = nodeTokenService.mintToken();
   await db.setTokenHash(
@@ -141,10 +157,20 @@ adminNodes.post("/api/admin/nodes/:node_id/token", async (c) => {
     nodeId,
     await nodeTokenService.tokenHash(token),
   );
+  const cloudInitText = cloudInit.renderCloudInit({
+    nodeId,
+    cpUrl: new URL(c.req.url).origin,
+    token,
+    image,
+    binary,
+  });
   return c.json(
     {
       node_id: nodeId,
       token,
+      cloud_init: cloudInitText,
+      image,
+      binary,
       created_at: nodeStateService.now(),
     },
     201,

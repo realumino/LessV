@@ -183,7 +183,7 @@ The plane-side rules that make tier D safe:
    works unmodified.
 
 Ephemeral beats permanent. A node can be created, enrolled, tested and destroyed
-inside one release cycle (`scripts/vela_node_cloud_init.yaml` is the existing
+inside one release cycle (the cloud-config from the token dialog is the existing
 environment-as-code starting point); a permanent test node is only worth it when
 it is also the canary that runs every release first.
 

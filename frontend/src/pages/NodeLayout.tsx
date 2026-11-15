@@ -30,7 +30,7 @@ import TokenDialog from "../components/TokenDialog";
 import { inputClass } from "../components/styles";
 import { STATE_LABEL, STATE_TONE, fleetState } from "../lib/fleet";
 import { relativeTime } from "../lib/format";
-import type { NodeOut, NodeSyncOut } from "../types";
+import type { NodeOut, NodeSyncOut, NodeTokenOut } from "../types";
 
 /** What every node tab gets from the layout: identity, a refetch, and
  * the node plus its last sync snapshot. */
@@ -48,7 +48,7 @@ export default function NodeLayout() {
   const [node, setNode] = useState<NodeOut | null>(null);
   const [sync, setSync] = useState<NodeSyncOut | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [minted, setMinted] = useState<NodeTokenOut | null>(null);
   // One mint at a time: a double-fire would rotate twice and the admin
   // would copy a plaintext that is already dead.
   const [minting, setMinting] = useState(false);
@@ -88,7 +88,7 @@ export default function NodeLayout() {
         setError(result.error);
         return;
       }
-      setToken(result.data?.token ?? null);
+      setMinted(result.data ?? null);
     } finally {
       setMinting(false);
     }
@@ -137,8 +137,8 @@ export default function NodeLayout() {
           } satisfies NodeOutletContext}
         />
       </div>
-      {token && (
-        <TokenDialog nodeId={nodeId} token={token} onClose={() => setToken(null)} />
+      {minted && (
+        <TokenDialog nodeId={nodeId} minted={minted} onClose={() => setMinted(null)} />
       )}
     </div>
   );
@@ -211,7 +211,6 @@ function NodeHeader({
         >
           <EditableDomain node={node} onSaved={onRefresh} />
         </Fact>
-        <Fact label="Reported IP">{node.reported_address ?? "—"}</Fact>
         <Fact label="Health">
           <HealthBadge health={sync?.health ?? null} />
         </Fact>
