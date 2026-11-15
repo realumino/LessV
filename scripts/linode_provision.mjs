@@ -349,7 +349,7 @@ function writeSshConfigBlock(inventory, sshKeyPath, tag) {
   }
   const pattern = new RegExp(`${BEGIN}[\\s\\S]*?${END}\\n?`, "g");
   const replacement =
-    `${BEGIN}\n${block("lessv-server", inventory.server)}${block("lessv-client", inventory.client)}${END}\n`;
+    `${BEGIN}\n${block("vela-server", inventory.server)}${block("vela-client", inventory.client)}${END}\n`;
   const next = existing.match(pattern)
     ? existing.replace(pattern, replacement)
     : `${existing.replace(/\n*$/, "\n\n")}${replacement}`;
@@ -372,7 +372,7 @@ async function cmdCreate(args) {
   const image = args.image ?? "linode/debian12";
   const serverRegion = args["server-region"] ?? "jp-tyo-3";
   const clientRegion = args["client-region"] ?? "sg-sin-2";
-  const tag = args.tag ?? "lessv";
+  const tag = args.tag ?? "vela";
   // Some runs need exactly one node; creating a second would be an
   // unrequested cost. Value-style flag keeps parseArgs (which always
   // expects `--key value` pairs) unchanged.
@@ -380,7 +380,7 @@ async function cmdCreate(args) {
 
   // Sequential on purpose: parallel creates can hit the API rate limit.
   const server = await createInstance(token, {
-    region: serverRegion, type, image, label: "lessv-server", sshKey, tag,
+    region: serverRegion, type, image, label: "vela-server", sshKey, tag,
   });
   let client;
   if (serverOnly) {
@@ -388,12 +388,12 @@ async function cmdCreate(args) {
   } else {
     try {
       client = await createInstance(token, {
-        region: clientRegion, type, image, label: "lessv-client", sshKey, tag,
+        region: clientRegion, type, image, label: "vela-client", sshKey, tag,
       });
     } catch (error) {
       console.error(
         `warning: server created but client failed (${error.message}); ` +
-          `clean up with: node scripts/linode_provision.mjs delete --token-file ${args["token-file"]} --label lessv-server`,
+          `clean up with: node scripts/linode_provision.mjs delete --token-file ${args["token-file"]} --label vela-server`,
       );
       process.exit(1);
     }
@@ -411,7 +411,7 @@ async function cmdCreate(args) {
  * WHY the plane objects are created here first: the node's cloud-init needs
  * its token before the Linode exists, and the REALITY preset needs the
  * node's address. Doing both here removes the copy-paste step that used to
- * sit between minting a token and handing it to install.sh.
+ * sit between minting a token and handing it to the enrollment container.
  *
  * WHY no rollback after the Linode exists: a failed first boot is evidence,
  * and the operator decides whether to inspect it over LISH or destroy it.
@@ -466,7 +466,7 @@ async function cmdNode(args) {
   if (!/alpine/i.test(image)) {
     console.warn(`warning: ${image} is not an Alpine image; the cloud-init template uses apk/OpenRC`);
   }
-  const tag = args.tag ?? "lessv";
+  const tag = args.tag ?? "vela";
   const certEnvironment = args["cert-environment"];
   if (
     certEnvironment !== undefined &&
@@ -639,7 +639,7 @@ async function cmdList(args) {
   if (status !== 200) {
     fail(`GET instances -> ${status}`);
   }
-  const tag = args.tag ?? "lessv";
+  const tag = args.tag ?? "vela";
   const mine = data.data.filter((i) => (i.tags ?? []).includes(tag));
   if (mine.length === 0) {
     console.log(`no instances tagged ${tag}`);
@@ -659,7 +659,7 @@ async function cmdDelete(args) {
   if (status !== 200) {
     fail(`GET instances -> ${status}`);
   }
-  const tag = args.tag ?? "lessv";
+  const tag = args.tag ?? "vela";
   const match = data.data.find(
     (i) => i.label === label && (i.tags ?? []).includes(tag),
   );

@@ -1,4 +1,4 @@
-# AGENTS.md — LessV
+# AGENTS.md — Vela
 
 Working rules for coding agents in this repository. Layers on top of the
 operator's global agent instructions; where they overlap, the stricter rule
@@ -6,14 +6,15 @@ wins.
 
 ## What this repo is
 
-Self-hosted Xray management plane on Cloudflare Workers (Hono + D1 + R2 +
-Workflows), a React admin SPA served by the same Worker, and `lessv-node`, a
-static Rust reconciler managed by systemd or OpenRC. Monorepo, single
-deployable unit.
+Self-hosted Xray management plane on Cloudflare Workers (Hono + D1 +
+Workflows) with a React admin SPA served by the same Worker. The node-side
+software, `vela-server`, is a container image built in
+[LessV-Node](https://github.com/realumino/LessV-Node); it is not in this tree.
+Single deployable unit.
 
 Entry docs, in order: `README.md` (operator manual: Workers, Access, nodes),
 `docs/dev/architecture.md` (system design and invariants), `docs/PROTOCOL.md`
-(node↔plane contract), `docs/OPERATIONS.md` (certificates/nginx/ops). Read
+(server↔plane contract), `docs/OPERATIONS.md` (certificates/nginx/ops). Read
 the one covering the area you are changing, and keep every doc true in the
 same commit as the change.
 
@@ -21,8 +22,6 @@ same commit as the change.
 
 - `src/` — Worker: Hono routers + services; `src/cert/` is the ACME subsystem
 - `frontend/` — admin SPA (React + Vite), own package.json
-- `node/` — Rust crate `lessv-node` (one static binary), `install.sh`,
-  systemd/OpenRC units, Rust unit tests; released through Gitee Releases
 - `migrations/` — append-only D1 SQL; no foreign keys by convention
 - `tests/` — `pure/` (hermetic unit), `cert/` (ACME against a mock CA),
   `workerd/` (integration via the Cloudflare vitest plugin), `fixtures/`
@@ -48,8 +47,7 @@ same commit as the change.
 - `.dev.vars`, `.env.production` — real secrets (templates `*.example` are
   committed with placeholder values only)
 
-Generated, never edit or commit: `.wrangler/`, `dist/`, `frontend/dist/`,
-`node/target/`.
+Generated, never edit or commit: `.wrangler/`, `dist/`, `frontend/dist/`.
 
 ## Public/local separation
 
@@ -73,8 +71,8 @@ The remote is public. The tracked tree carries current truth only:
   files anywhere else in the tree.
 - Comments state invariants and reasons, self-contained — no references to
   plans, sessions, or files that do not exist in the tree.
-- `docs/PROTOCOL.md`, `PROTOCOL_VERSION` (`src/routers/node.ts`), and the
-  node version (`node/Cargo.toml`) change together in one commit; the
+- `docs/PROTOCOL.md` and `PROTOCOL_VERSION` (`src/routers/node.ts`) change
+  together in one commit, together with the crate version in LessV-Node; the
   protocol version is pinned by `tests/pure/protocol_freeze.test.ts`.
 
 ## Verification
@@ -86,7 +84,6 @@ npm test
 npm run typecheck
 npm --prefix frontend test
 npm --prefix frontend run build
-(cd node && cargo test)          # Linux host or a musl cross toolchain
 ```
 
 - The suite is hermetic: no `.dev.vars`, no network, no real DNS. ACME in
@@ -96,11 +93,9 @@ npm --prefix frontend run build
   limit: 5 production certificates per week per domain).
 - Deploys go through `npm run deploy` only — never bare `wrangler deploy`
   (the prebuild swaps `frontend/dist` for stubs).
-- The Rust crate is Linux-only (`std::os::unix`), so `cargo test` runs on a
-  Linux host; release artifacts are static musl binaries built with
-  `npm run release:node` and published to Gitee Releases. Scripts stay
-  cross-platform (Node stdlib, no shell assumptions) except the POSIX
-  installers they ship.
+- The server image is built and tested in LessV-Node; this tree never builds
+  it. Scripts stay cross-platform (Node stdlib, no shell assumptions) except
+  the POSIX shell they render into cloud-init.
 
 ## Standing invariants
 
@@ -110,11 +105,11 @@ npm --prefix frontend run build
   run; they must not persist them into tracked files.
 - `KEY_SECRET` is never rotated: it seals REALITY, certificate, and ACME
   account keys; rotation makes every sealed key unreadable.
-- `/var/lib/lessv/config.json` on nodes is `lessv-node`-owned; node
-  configuration changes go through the plane API, never by hand on the node.
-- `lessv-node` has no runtime dependencies beyond the static binary itself
-  (nginx and Xray are provisioned by `install.sh` from their vendors). Worker
-  dependencies stay minimal; each addition needs a concrete justification.
+- `/var/lib/lessv/config.json` inside a node container is server-owned; node
+  configuration changes go through the plane API, never by hand on the host.
+- The image carries the server, Xray and nginx, so a node has no runtime
+  dependency beyond Docker, the image and its two volumes. Worker dependencies
+  stay minimal; each addition needs a concrete justification.
 
 ## Working rules
 

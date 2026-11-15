@@ -1,8 +1,8 @@
-# LessV
+# Vela
 
-LessV is a self-hosted traffic-forwarding management plane on Cloudflare Workers. This file is the operator manual in Simplified Chinese, English, Persian, Russian, 조선어, and Türkmençe.
+Vela is a self-hosted traffic-forwarding management plane on Cloudflare Workers. This file is the operator manual in Simplified Chinese, English, Persian, Russian, 조선어, and Türkmençe.
 
-LessV 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare Workers 上，管理端是挂在 `/admin` 的 React SPA，节点端是 [LessV-Node](https://github.com/realumino/LessV-Node) 提供的节点服务。节点只从面板拉取配置与证书，面板不主动连接节点。
+Vela 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare Workers 上，管理端是挂在 `/admin` 的 React SPA，节点端是 [LessV-Node](https://github.com/realumino/LessV-Node) 提供的 `vela-server` 容器镜像。节点只从面板拉取配置与证书，面板不主动连接节点。
 
 本文件是面向部署与运维的**使用手册**，包含简体中文、English、فارسی、Русский、조선어、Türkmençe 六个版本。开发者文档在 [`docs/dev/`](docs/dev/README.md)：架构、开发、测试、发布。
 
@@ -21,11 +21,11 @@ LessV 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare
                                   │  /api/node/*   ← 节点 token
                                   │  /sub/{token}  ← 订阅 token
                                   ▼
-                                 D1（状态）· R2（证书）· Workflow（ACME）
+                                 D1（状态与证书）· Workflow（ACME）
 
 用户 ── /sub/{token} ──► 订阅 ──► 链接（由 D1 渲染）
 
-节点 ── 流量转发工具内核（REALITY :443）──► 节点服务（Rust）
+节点 ── 流量转发工具内核（REALITY :443）──► vela-server（容器镜像）
         ▲ nginx 假站点（Unix socket）│
         └── 证书文件 ◄── GET /api/node/certs ◄── ACME（DNS-01）
 ```
@@ -36,15 +36,15 @@ LessV 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare
 
 | 项目 | 要求 |
 |---|---|
-| Cloudflare | 一个已接入的域名（zone）；已启用 R2；Workers、D1、Workflows 可用 |
+| Cloudflare | 一个已接入的域名（zone）；Workers、D1、Workflows 可用 |
 | 本机 | Node.js 22 LTS+、npm |
 | 面板域名 | 例如 `cp.example.com`，必须使用 Cloudflare Custom Domain（由 Cloudflare 托管） |
 | 节点域名 | 例如 `node1.example.com`，**DNS only**（灰云），指向节点 IP |
-| 节点主机 | Debian 13+ / Ubuntu 25.10+ / Alpine 3.22+，root，80/443 空闲 |
-| 出站 | 节点可访问 80/443：发行版软件源、Gitee、GitHub、面板 HTTPS |
+| 节点主机 | 任何装有 Docker 及 compose 插件的 Linux，root，80/443 空闲 |
+| 出站 | 节点可访问 80/443：容器镜像仓库、面板 HTTPS |
 | 备份 | `KEY_SECRET`、`.env.production`、D1 备份、节点 token 的妥善保存 |
 
-节点主机必须满足 TLS 1.3 + 后量子混合组：nginx 链接的 OpenSSL 必须 ≥ 3.5，decoy 只提供 `X25519MLKEM768:X25519`，**没有经典密钥交换回退**。不满足的主机会被 `install.sh` 拒绝；已装节点会在 apply 时失败并在面板显示错误，而不是悄悄降级。
+节点主机只跑一个容器、只拉一个镜像。内核、nginx 与后量子 TLS 库都在镜像里，所以宿主机用什么发行版、OpenSSL 是哪个版本都不影响：decoy 只提供 `X25519MLKEM768:X25519`，**没有经典密钥交换回退**，做不到的镜像会在 apply 时失败，而不是悄悄降级。
 
 推荐顺序：先部署 Worker，再按需启用 Cloudflare Access，最后加节点。
 
@@ -71,7 +71,7 @@ cp wrangler.example.jsonc wrangler.jsonc
 "routes": [{ "pattern": "cp.example.com", "custom_domain": true }],
 ```
 
-模板已经包含 D1、R2、Workflow、每日 cron 和 SPA 资源绑定。保持 `workers_dev: false` 与 `preview_urls: false`：面板只应有一个公开主机名，否则 Cloudflare Access 可以被绕过。`wrangler.jsonc` 含真实域名和首次部署后写回的 D1 id，已被 gitignore。
+模板已经包含 D1、Workflow、每日 cron 和 SPA 资源绑定。保持 `workers_dev: false` 与 `preview_urls: false`：面板只应有一个公开主机名，否则 Cloudflare Access 可以被绕过。`wrangler.jsonc` 含真实域名和首次部署后写回的 D1 id，已被 gitignore。
 
 #### 3.3 生成三个密钥
 
@@ -105,16 +105,7 @@ Cloudflare 控制台 → My Profile → API Tokens → Create Token → Custom t
 
 把值填入 `.env.production` 的 `CF_DNS_API_TOKEN`。它只用于 Worker 创建/清理 `_acme-challenge` TXT 和读取 zone 列表，与 `wrangler login` 的凭据是两回事。
 
-#### 3.5 创建证书 bucket
-
-```bash
-npx wrangler login
-npx wrangler r2 bucket create lessv-certs
-```
-
-已存在时跳过；重复创建报 code 10004 无害。
-
-#### 3.6 部署
+#### 3.5 部署
 
 ```bash
 npm run deploy -- --secrets-file .env.production
@@ -122,7 +113,7 @@ npm run deploy -- --secrets-file .env.production
 
 `npm run deploy` 依次执行：构建 SPA → `wrangler deploy`（首次自动创建 D1 并写回 id，绑定 Custom Domain）→ 应用远程 D1 migrations → 请求 `https://<面板域名>/api/health` 必须 200。首次部署的 secret 只能通过 `--secrets-file` 提供，因为 `wrangler secret put` 不能作用于尚不存在的 Worker。
 
-#### 3.7 验证
+#### 3.6 验证
 
 ```bash
 curl -fsS https://cp.example.com/api/health
@@ -134,7 +125,7 @@ npx wrangler workflows list
 
 浏览器打开 `https://cp.example.com/admin`，粘贴 `ADMIN_KEY` 登录。页面能打开只说明 SPA 正常；还要能列出节点，才说明 D1 与 admin API 正常。
 
-#### 3.8 升级、回滚与 secret 变更
+#### 3.7 升级、回滚与 secret 变更
 
 ```bash
 git pull
@@ -158,7 +149,7 @@ Cloudflare Access 在 Cloudflare 边缘增加一层身份认证。它**不是** 
 |---|---|---|
 | `/admin*` | **是** | 管理 SPA、静态资源；只有人能登录 |
 | `/api/admin*` | **是** | 管理 API；浏览器用 Access 会话，脚本用 service token |
-| `/api/node/*` | **否** | `lessv-node` 只发 Bearer token，不支持 Access；保护后所有节点失联 |
+| `/api/node/*` | **否** | 节点服务只发 Bearer token，不支持 Access；保护后所有节点失联 |
 | `/sub/*` | **否** | 订阅客户端（v2rayN、Clash、Shadowrocket 等）不会走 Access；保护后订阅全断 |
 | `/api/health` | **否** | 部署脚本和 cloud-init 用它判断面板可达；返回值只是常量 |
 | 节点域名 `:443` | **不适用** | 节点 A 记录是 DNS only，流量不经过 Cloudflare；由节点防火墙只开 80/443 |
@@ -199,7 +190,7 @@ Service Auth 策略在第 4.4 步创建 service token 后加到这个应用。
 
 Zero Trust → Access controls → Service credentials → Service tokens → Create：
 
-1. 命名（例如 `lessv-ops`），复制 **Client ID** 与 **Client Secret**（secret 只显示一次）。
+1. 命名（例如 `vela-ops`），复制 **Client ID** 与 **Client Secret**（secret 只显示一次）。
 2. 回到**整站应用**（不是 Bypass 应用），新增策略：Action `Service Auth`，Include `Service Token` → 选择刚创建的名称。
 3. 脚本请求时同时带 Access 头和 Worker 的 Bearer：
 
@@ -265,72 +256,85 @@ curl -sS -X POST -H "Authorization: Bearer $ADMIN_KEY" \
 
 先建好 DNS：`node1.example.com` 的 A 记录指向节点 IP，**仅 DNS**（灰云）。REALITY 和 nginx 都必须直连 443；如果让记录经过 Cloudflare，隧道会坏。
 
-#### 5.2 方式一：SSH 手动安装
+#### 5.2 拉镜像并启动容器
 
-适用：任意 VPS，root SSH，Debian 13+ / Ubuntu 25.10+ / Alpine 3.22+。主机需要 `curl` 与 `tar`；缺少时先用包管理器安装。
+主机只需要 Docker 与 compose 插件，以及镜像本身；其余都在容器里。
 
 ```bash
 ssh root@203.0.113.10
 
-VERSION=0.6.0
-BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
-case "$(uname -m)" in
-  x86_64) ARCH=amd64 ;;
-  aarch64) ARCH=arm64 ;;
-  *) echo "unsupported arch"; exit 1 ;;
-esac
-NAME=lessv-node-$VERSION-linux-$ARCH
+IMAGE=ghcr.io/example/vela-server:latest
+BINARY=/usr/local/bin/vela-server
 
-curl -fsSLO $BASE/$NAME.tar.gz
-curl -fsSLO $BASE/SHA256SUMS
-grep " $NAME.tar.gz\$" SHA256SUMS | sha256sum -c -
-tar -xzf $NAME.tar.gz
-cd $NAME
+docker pull "$IMAGE"
+cat > /etc/vela/compose.yaml <<'COMPOSE'
+services:
+  vela-server:
+    image: "${IMAGE}"
+    container_name: vela-server
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443/tcp"
+    stop_grace_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    volumes:
+      - vela-etc:/etc/lessv
+      - vela-state:/var/lib/lessv
 
-./install.sh --cp https://cp.example.com --node node1
+volumes:
+  vela-etc:
+  vela-state:
+COMPOSE
+
+# 一次性 enroll：token 走 stdin，不进参数列表
+printf '%s\n' '<粘贴节点 token>' | docker run --rm -i \
+  --entrypoint "$BINARY" -v vela-etc:/etc/lessv "$IMAGE" \
+  enroll --cp https://cp.example.com --node node1 \
+  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+
+docker compose -f /etc/vela/compose.yaml up -d
 ```
 
-`VERSION` 换成 Gitee Releases 上的当前版本。`install.sh` 会提示输入节点 token（不回显），然后：
-
-- 安装 `ca-certificates`、`curl`、`tar`、`unzip`、nginx，以及流量转发工具内核（官方 release，校验 `.dgst`）；
-- 把 `lessv-node` 安装到 `/usr/local/bin/lessv-node`；
-- 创建 `/etc/lessv`、`/etc/lessv/certs`、`/var/lib/lessv`、`/var/lib/lessv/assets`、`/var/www/lessv-decoy`；
-- 写 systemd 或 OpenRC 单元（流量转发工具内核在 nginx 之后启动）；
-- 写 `/etc/lessv/node.toml`（0600）并 enroll，启用并启动服务。
-
-成功的最后一行是 `lessv-node installed and started`。日志：
+对外只发布两个端口，别的都不需要暴露。`vela-etc` 存放身份与证书目录，丢失要重新 enroll；`vela-state` 存放状态文件、运行配置与 geodata，丢失只需一次同步。日志：
 
 ```bash
-journalctl -u lessv-node -n 50          # systemd
-tail -n 50 /var/log/lessv-node.log      # OpenRC
+docker compose -f /etc/vela/compose.yaml ps
+docker compose -f /etc/vela/compose.yaml logs -n 50
 ```
 
-升级：下载新版本 tarball，重复上面命令；已有 `node.toml` 时 `install.sh` 复用 token，不会重新 enroll。节点端也可以由面板的 **Maintenance** 单独更新流量转发工具内核与 geodata（第一行是转发工具版本，第二行是 Geodata）。
+升级：改 compose 文件里的 tag 后 `docker compose up -d`，或者交给 watchtower 一类的自动更新器。镜像里带着内核、nginx 和服务端，升级三者一起换；容器里手工改过的文件会在下次重建时消失，这是刻意的。geodata 仍由面板 **Maintenance → Refresh Geodata** 刷新。
 
 #### 5.3 方式二：cloud-init
 
-仓库提供 [`scripts/alpine_cloud_init.yaml`](scripts/alpine_cloud_init.yaml)，适用于 Alpine 3.22+ / OpenRC、且镜像自带 cloud-init 的 VPS。它是一次性首启配置：设置 BBR 与 fd 上限、nftables（只开 80/443）、禁用并移除 sshd、下载 release、校验 `SHA256SUMS`、执行 `install.sh` 并 enroll。首次启动后节点没有 SSH，后续全部通过面板管理；故障按不可变基础设施处理，销毁重建。
+仓库提供 [`scripts/vela_node_cloud_init.yaml`](scripts/vela_node_cloud_init.yaml)，适用于 Alpine 3.22+ / OpenRC、且镜像自带 cloud-init 的 VPS。它是一次性首启配置：设置 BBR 与 fd 上限、安装 Docker 与 nftables（只开 80/443）、禁用并移除 sshd、写 compose 文件、执行一次 enroll 并启动服务。首次启动后节点没有 SSH，后续全部通过面板管理；故障按不可变基础设施处理，销毁重建。
 
 步骤：
 
 1. 按 5.1 建好节点、Domain、DNS 和 token。
-2. 把模板复制到仓库外的临时文件（例如 `/tmp/node1.yaml`），只改 `write_files` 顶部标注的 `/root/lessv.env` 块：
+2. 把模板复制到仓库外的临时文件（例如 `/tmp/node1.yaml`），只改 `write_files` 顶部标注的 `/root/vela.env` 块：
 
    ```yaml
    NODE_ID="node1"
    CP_URL="https://cp.example.com"
    TOKEN="<粘贴节点 token>"
-   VERSION="0.6.0"
+   IMAGE="ghcr.io/example/vela-server:latest"
+   BINARY="/usr/local/bin/vela-server"
    ```
 
-   `CP_URL` 不要带末尾斜杠；`VERSION` 用当前 release。其余内容不要改。
+   `CP_URL` 不要带末尾斜杠；`IMAGE` 是带 tag 的完整引用，主机拉取的就是它。其余内容不要改。
 3. 在 VPS 服务商处创建 Alpine 3.22+ 实例，把该文件作为 **user-data** 传入；防火墙放行入站 TCP 80/443（22 不需要，模板会禁用 sshd）。
 4. 等待首启完成。面板上节点的 `Health` 变为 `healthy`、`Applied` 追上 `Desired` 即成功；失败时通过服务商控制台看 `/var/log/cloud-init-output.log`。
 5. 首启失败不要原地修：销毁实例，用新的 node id 和 token 重建。`cloud-init` 只跑一次。
 
-安全注意：token 在 user-data 中，服务商的元数据会保留它；模板会删除主机上的 `/root/lessv.env` 和 bootstrap 文件，但删不掉服务商侧记录。只在可信服务商使用；吊销方式是删除面板节点行（token 立即失效）。渲染后的 user-data 不要提交到仓库。
+安全注意：token 在 user-data 中，服务商的元数据会保留它；模板会删除主机上的 `/root/vela.env` 和 bootstrap 文件，但删不掉服务商侧记录。只在可信服务商使用；吊销方式是删除面板节点行（token 立即失效）。渲染后的 user-data 不要提交到仓库。
 
-该模板是 Alpine/OpenRC 专用；Debian/Ubuntu 请走 5.2 的 SSH 路径，不要直接把 OpenRC 脚本套到 systemd 主机上。
+该模板是 Alpine/OpenRC 专用；其他发行版请自行安装 Docker 后按 5.2 操作，不要直接把 OpenRC 脚本套到 systemd 主机上。
 
 #### 5.4 写第一份流量转发工具内核配置
 
@@ -387,7 +391,7 @@ curl -I https://node1.example.com    # 200，证书有效（不用 -k）
    - Clash Verge / FlClash / mihomo：UA 含 `clash`/`mihomo`/`stash` 时返回 mihomo 配置；也可以强制 `?target=clash`；
    - `?target=uri` 强制回到 VLESS 列表。
 
-   **Names → Subscription title** 可给订阅加显示标题（例如 `LessV · {username}`，字段 `{username}` `{status}`）；服务器以 `profile-title: base64:…` 头下发，v2rayN、Clash Verge 这类客户端会显示它。留空则不下发该头，行为与之前完全一致。
+   **Names → Subscription title** 可给订阅加显示标题（例如 `Vela · {username}`，字段 `{username}` `{status}`）；服务器以 `profile-title: base64:…` 头下发，v2rayN、Clash Verge 这类客户端会显示它。留空则不下发该头，行为与之前完全一致。
 5. 探针：
 
    ```bash
@@ -406,10 +410,10 @@ curl -I https://node1.example.com    # 200，证书有效（不用 -k）
 
 | 现象 | 先检查 | 处理 |
 |---|---|---|
-| 节点一直不出现 | DNS 是否 DNS only、入站 80/443、出站 80/443、token 是否复制完整、主机时间 | 修网络/重建 token；`journalctl -u lessv-node -n 50` |
+| 节点一直不出现 | DNS 是否 DNS only、是否发布 80/443、出站 80/443 与镜像仓库、token 是否复制完整、主机时间 | 修网络/重建 token；`docker compose -f /etc/vela/compose.yaml logs -n 50` |
 | 面板有节点但 `health` 不对 | `last_error`、`applied_hash` 与 `desired_hash` | 看节点日志（节点在应用前会校验配置） |
 | 配置保存后不生效 | JSON 是否合法、REALITY `privateKey` 是否留空、`serverNames` 是否覆盖域名 | 修正配置并 Save；节点保留上一份可用配置 |
-| `nginx_ok=0` | `nginx_error`；宿主机 OpenSSL 是否 ≥ 3.5 | 换 Debian 13+/Ubuntu 25.10+/Alpine 3.22+；没有经典回退开关 |
+| `nginx_ok=0` | `nginx_error` | decoy 的 TLS 库在镜像里；确认跑的是哪个 tag 并重建镜像 |
 | 证书签发失败 | `issue_runs` 的 phase/error；DNS token 的 zone 权限；CAA；LE 限额 | 先用 Test issue；生产失败不要循环重试 |
 | 节点拿不到证书 | 是否在节点 Certs 页勾选、环境是否选对、`cert_etag` 是否卡住 | 重新保存 assignment；对比 manifest ETag |
 | 订阅为空 | 用户是否 disabled/过期、是否有 inbound/outbound 授权、节点是否配置了地址 | 修授权或状态；空 body 是 200，不是 404 |
@@ -418,32 +422,33 @@ curl -I https://node1.example.com    # 200，证书有效（不用 -k）
 
 节点维护：
 
-- **转发工具更新**：默认 `latest`，也可填固定 tag；节点校验 `.dgst`、测试当前配置、备份旧二进制、替换并重启，失败自动恢复。
 - **Refresh Geodata**：从上游 rules-dat 发布页下载 full 版 `geoip.dat`/`geosite.dat`，校验后重启流量转发工具内核；首次无条件安装，之后配置里出现 `geoip:`/`geosite:` 时每 7 天自动刷新。
-- 两个动作的状态都显示在节点 header，并可从 `/api/admin/nodes/<id>/sync` 的 `actions` 读取。
+- 动作状态显示在节点 header，并可从 `/api/admin/nodes/<id>/sync` 的 `actions` 读取。
+- **内核不由面板更新**：内核在镜像里，升级方式就是换镜像（见 5.2）。
 
 删除节点：节点页 **Delete** 会删除该节点的 token、配置、用户授权、端点注册表、REALITY 密钥和证书分配；证书域名与签发历史属于域级资源，不受影响。机器仍会运行最后一份配置，需要单独销毁。重新生成 token 会让旧 token 立即失效，已有节点必须更新 `node.toml` 才能重新连上。
 
-备份：至少备份 `KEY_SECRET`、`.env.production`、D1（Cloudflare 控制台的 D1 导出/时间点恢复）和 R2 certificate bucket。没有 `KEY_SECRET`，数据库里的 REALITY/证书/ACME 私钥都无法解密；R2 里的证书可以重签，但私钥不能。
+备份：至少备份 `KEY_SECRET`、`.env.production` 和 D1（Cloudflare 控制台的 D1 导出/时间点恢复）。D1 里既有状态也有证书产物。没有 `KEY_SECRET`，数据库里的 REALITY/证书/ACME 私钥都无法解密；证书可以重签，但私钥不能。
 
 ### 7. 安全边界与已知限制
 
 - `ADMIN_KEY` 等价 root；Cloudflare Access 是额外门槛，不是替代品。
 - `KEY_SECRET` 不可轮换；换掉它，历史节点密钥、证书私钥、ACME 账户全部不可读。
-- 节点 token 只存哈希、只显示一次；`/etc/lessv/node.toml` 必须保持 0600。
+- 节点 token 只存哈希、只显示一次；`vela-etc` 卷里的 token 文件（`/etc/lessv/node.toml`）必须保持 0600。
 - 订阅 URL 是能力凭据；泄漏即等于把该用户的订阅交给对方，及时 Rotate。
 - cloud-init 的 token 存在 user-data 和服务商元数据里；不可信服务商不要用。
 - `expire` 只影响订阅资格（过期用户拿到空订阅），`status=disabled` 才会从流量转发工具内核配置移除。
 - Clash 订阅只生成 `proxies`、一个 `SELECT` 组和 `MATCH` 规则；按目的地分流请在客户端自行添加。
 - REALITY 私钥若派生不出公钥（例如配置里留了占位符），链接没有 `pbk`，该链接无法完成 REALITY 握手。
 - 删除节点不会远程清空机器上的配置；节点仍需单独下线。
-- nginx decoy 配置与 `index.html` 由节点生成/托管；删掉 `index.html` 里的标记即可自定义，但升级会刷新未自定义的页面。
-- decoy 固定 TLS 1.3 + `X25519MLKEM768:X25519`，没有非 PQ 回退；宿主机 OpenSSL < 3.5 会在安装或 apply 时失败。
+- nginx decoy 配置与 `index.html` 由服务端生成/托管；删掉 `index.html` 里的标记即可自定义，但换镜像会刷新未自定义的页面。
+- decoy 固定 TLS 1.3 + `X25519MLKEM768:X25519`，没有非 PQ 回退；这一切只在镜像里配置。
+- `X-Lessv-Node` 是服务端身份头，`/dev/shm/lessv-decoy.sock` 是 REALITY 的 `dest`：两者都是冻结的协议值，不是产品名。
 - `BLOCK` 必须是大写；小写 `block` 会被当作可路由出口。
 - WARP 注册依赖 Cloudflare 的 app API，失败会显示 502，不会写半份配置；每次预览预设都会注册一个新设备，面板不保存设备凭据。
 - GeoIP 使用 rules-dat full 版；lite 版不能用于任意地区代码的 `geoip:` 规则。
 - staging 证书不续期，7 天后清扫；长期测试节点需要重新 Test issue。
-- 本文以 `lessv-node 0.6.0`、协议 3 为例；实际版本以 [Gitee Releases](https://gitee.com/realumino/lessv/releases) 为准。
+- 本文以协议 3 与 `vela-server` 镜像为例；具体镜像 tag 以服务端仓库为准。
 
 ### 8. 延伸文档
 
@@ -456,13 +461,14 @@ curl -I https://node1.example.com    # 200，证书有效（不用 -k）
 <a id="en"></a>
 ## English
 
-### 1. What LessV is
+### 1. What Vela is
 
-LessV is a self-hosted traffic-forwarding management plane. The control plane runs on
-Cloudflare Workers; the admin SPA is served under `/admin`; each node runs
-the node server maintained in [LessV-Node](https://github.com/realumino/LessV-Node). Nodes pull their
-desired configuration
-and certificates from the plane. The plane never connects to a node.
+Vela is a self-hosted traffic-forwarding management plane. The control plane
+runs on Cloudflare Workers; the admin SPA is served under `/admin`; each node
+runs `vela-server`, a container image from
+[LessV-Node](https://github.com/realumino/LessV-Node). Nodes pull their desired
+configuration and certificates from the plane. The plane never connects to a
+node.
 
 ```
 Browser ── /admin ─────────────► Worker (Hono + static SPA)
@@ -470,11 +476,11 @@ Browser ── /admin ─────────────► Worker (Hono + 
                                   │  /api/node/*   ← node token
                                   │  /sub/{token}  ← subscription token
                                   ▼
-                                 D1 (data) · R2 (certs) · Workflow (ACME)
+                                 D1 (state + certificates) · Workflow (ACME)
 
 User ── /sub/{token} ──► subscription ──► links (rendered from D1)
 
-Node ── traffic-forwarding engine (REALITY :443) ──► node server (Rust)
+Node ── traffic-forwarding engine (REALITY :443) ──► vela-server (image)
         ▲ nginx decoy (Unix socket) │
         └── certificate files ◄── GET /api/node/certs ◄── ACME (DNS-01)
 ```
@@ -491,19 +497,19 @@ on 443.
 
 | Item | Requirement |
 |---|---|
-| Cloudflare | A zone on the account; R2 enabled; Workers, D1, Workflows available |
+| Cloudflare | A zone on the account; Workers, D1, Workflows available |
 | Local machine | Node.js 22 LTS+, npm |
 | Plane hostname | e.g. `cp.example.com`, proxied by Cloudflare (Custom Domain) |
 | Node hostname | e.g. `node1.example.com`, **DNS only** (grey cloud), pointing at the node IP |
-| Node host | Debian 13+ / Ubuntu 25.10+ / Alpine 3.22+, root, ports 80 and 443 free |
-| Egress | The node can reach 80/443: distribution repositories, Gitee, GitHub, and the plane over HTTPS |
+| Node host | Any Linux with Docker and its compose plugin, root, ports 80 and 443 free |
+| Egress | The node can reach 80/443: its container registry, and the plane over HTTPS |
 | Backups | `KEY_SECRET`, `.env.production`, a D1 backup, and the node tokens |
 
-Node hosts must support TLS 1.3 and the post-quantum hybrid group: nginx must
-link OpenSSL >= 3.5. The decoy offers only `X25519MLKEM768:X25519` and has
-**no classical fallback**. `install.sh` rejects a host that cannot do it; an
-already-installed node fails the apply and shows the error in the panel
-instead of silently downgrading.
+The host runs one container and pulls one image. Xray, nginx and the
+post-quantum TLS library are inside that image, so the host's distribution and
+its OpenSSL version do not matter: the decoy only offers
+`X25519MLKEM768:X25519`, with **no classical fallback**, and an image that
+cannot do it fails the apply instead of quietly downgrading.
 
 Recommended order: deploy the Worker, enable Cloudflare Access if wanted, then
 add nodes.
@@ -531,7 +537,7 @@ Edit the `routes` entry in `wrangler.jsonc` to your plane hostname:
 "routes": [{ "pattern": "cp.example.com", "custom_domain": true }],
 ```
 
-The template already binds D1, R2, the Workflow, the daily cron, and the SPA
+The template already binds D1, the Workflow, the daily cron, and the SPA
 assets. Keep `workers_dev: false` and `preview_urls: false`: the plane must
 have exactly one public hostname, otherwise Cloudflare Access can be
 bypassed. `wrangler.jsonc` contains the real hostname and the D1 id written
@@ -577,16 +583,7 @@ Put the value in `CF_DNS_API_TOKEN` in `.env.production`. This token is used by
 the Worker to create/clean `_acme-challenge` TXT records and list zones; it is
 not the `wrangler login` credential.
 
-#### 3.5 Create the certificate bucket
-
-```bash
-npx wrangler login
-npx wrangler r2 bucket create lessv-certs
-```
-
-Skip if it exists; creating it again returns code 10004, which is harmless.
-
-#### 3.6 Deploy
+#### 3.5 Deploy
 
 ```bash
 npm run deploy -- --secrets-file .env.production
@@ -599,7 +596,7 @@ answer 200. The first deploy can only receive its secrets through
 `--secrets-file`, because `wrangler secret put` cannot address a Worker that
 does not exist yet.
 
-#### 3.7 Verify
+#### 3.6 Verify
 
 ```bash
 curl -fsS https://cp.example.com/api/health
@@ -612,7 +609,7 @@ npx wrangler workflows list
 Open `https://cp.example.com/admin` and paste `ADMIN_KEY`. The page loading
 only proves the SPA is served; listing nodes proves D1 and the admin API work.
 
-#### 3.8 Upgrade, rollback, and secret changes
+#### 3.7 Upgrade, rollback, and secret changes
 
 ```bash
 git pull
@@ -642,7 +639,7 @@ both need `/api/health`.
 |---|---|---|
 | `/admin*` | **Yes** | Admin SPA and static assets; only humans log in |
 | `/api/admin*` | **Yes** | Admin API; browsers use the Access session, scripts use a service token |
-| `/api/node/*` | **No** | `lessv-node` sends only its Bearer token and cannot do Access; protecting it disconnects every node |
+| `/api/node/*` | **No** | The node server sends only its Bearer token and cannot do Access; protecting it disconnects every node |
 | `/sub/*` | **No** | Subscription clients (v2rayN, Clash, Shadowrocket, etc.) cannot do Access; protecting it breaks every subscription |
 | `/api/health` | **No** | The deploy script and cloud-init use it to check reachability; it returns a constant |
 | Node hostname `:443` | **Not applicable** | The node A record is DNS only; traffic does not go through Cloudflare. The node firewall opens only 80/443 |
@@ -696,7 +693,7 @@ cloud-init both fail.
 
 Zero Trust → Access controls → Service credentials → Service tokens → Create:
 
-1. Name it (for example `lessv-ops`) and copy the **Client ID** and **Client
+1. Name it (for example `vela-ops`) and copy the **Client ID** and **Client
    Secret** (the secret is shown once).
 2. Return to the **whole-host application** (not a Bypass application) and add
    a policy: Action `Service Auth`, Include `Service Token` → the token you
@@ -782,79 +779,95 @@ Create DNS first: an A record for `node1.example.com` pointing at the node IP,
 **DNS only** (grey cloud). REALITY and nginx both require direct 443; a
 proxied record breaks the tunnel.
 
-#### 5.2 Option A: manual SSH install
+#### 5.2 Pull the image and start the container
 
-Use this for any VPS with root SSH: Debian 13+ / Ubuntu 25.10+ / Alpine 3.22+. The host needs `curl` and `tar`; install them with the package manager first if missing.
+The host needs Docker with the compose plugin, and the image. Everything else
+runs inside it.
 
 ```bash
 ssh root@203.0.113.10
 
-VERSION=0.6.0
-BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
-case "$(uname -m)" in
-  x86_64) ARCH=amd64 ;;
-  aarch64) ARCH=arm64 ;;
-  *) echo "unsupported arch"; exit 1 ;;
-esac
-NAME=lessv-node-$VERSION-linux-$ARCH
+IMAGE=ghcr.io/example/vela-server:latest
+BINARY=/usr/local/bin/vela-server
 
-curl -fsSLO $BASE/$NAME.tar.gz
-curl -fsSLO $BASE/SHA256SUMS
-grep " $NAME.tar.gz\$" SHA256SUMS | sha256sum -c -
-tar -xzf $NAME.tar.gz
-cd $NAME
+docker pull "$IMAGE"
+cat > /etc/vela/compose.yaml <<'COMPOSE'
+services:
+  vela-server:
+    image: "${IMAGE}"
+    container_name: vela-server
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443/tcp"
+    stop_grace_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    volumes:
+      - vela-etc:/etc/lessv
+      - vela-state:/var/lib/lessv
 
-./install.sh --cp https://cp.example.com --node node1
+volumes:
+  vela-etc:
+  vela-state:
+COMPOSE
+
+# one-shot enrollment: the token arrives on stdin, never in an argument list
+printf '%s\n' '<paste node token>' | docker run --rm -i \
+  --entrypoint "$BINARY" -v vela-etc:/etc/lessv "$IMAGE" \
+  enroll --cp https://cp.example.com --node node1 \
+  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+
+docker compose -f /etc/vela/compose.yaml up -d
 ```
 
-Replace `VERSION` with the current Gitee Release. `install.sh` prompts for the node token with input hidden, then:
-
-- installs `ca-certificates`, `curl`, `tar`, `unzip`, nginx, and the
-  traffic-forwarding engine (official release, `.dgst` verified);
-- installs `lessv-node` to `/usr/local/bin/lessv-node`;
-- creates `/etc/lessv`, `/etc/lessv/certs`, `/var/lib/lessv`,
-  `/var/lib/lessv/assets`, `/var/www/lessv-decoy`;
-- writes the systemd or OpenRC units (the traffic-forwarding engine starts
-  after nginx);
-- writes `/etc/lessv/node.toml` (0600), enrolls, enables, and starts.
-
-The last line is `lessv-node installed and started`. Logs:
+Two ports are published and nothing else needs exposing. `vela-etc` holds the
+identity and the certificate tree; `vela-state` holds the state file, the live
+config and geodata. Losing `vela-etc` means re-enrolling; losing
+`vela-state` costs one reconcile. Logs:
 
 ```bash
-journalctl -u lessv-node -n 50          # systemd
-tail -n 50 /var/log/lessv-node.log      # OpenRC
+docker compose -f /etc/vela/compose.yaml ps
+docker compose -f /etc/vela/compose.yaml logs -n 50
 ```
 
-Upgrade: download the new tarball and repeat. With an existing `node.toml`,
-`install.sh` reuses the token and does not re-enroll. The traffic-forwarding
-engine and geodata can also be updated separately from the panel:
-**Maintenance** (the first row is the engine version, the second is Geodata).
+Upgrade: change the tag in the compose file and run `docker compose up -d`,
+or run a watchtower-style updater that does it. The image carries Xray, nginx
+and the server, so an upgrade replaces all three; a hand-edited file inside a
+container disappears on the next recreate, by design. Geodata is still
+refreshed from the panel (**Maintenance → Refresh Geodata**).
 
 #### 5.3 Option B: cloud-init
 
-The repository ships [`scripts/alpine_cloud_init.yaml`](scripts/alpine_cloud_init.yaml),
+The repository ships [`scripts/vela_node_cloud_init.yaml`](scripts/vela_node_cloud_init.yaml),
 a one-shot cloud-config for Alpine 3.22+ / OpenRC images that run cloud-init.
-It raises BBR and fd limits, installs nftables (80/443 only), disables and
-removes sshd, downloads the release, verifies `SHA256SUMS`, runs `install.sh`,
-and enrolls. After first boot the node has no SSH; manage it from the panel.
+It raises BBR and fd limits, installs Docker and nftables (80/443 only),
+disables and removes sshd, writes the compose file, enrolls once, and starts
+the service. After first boot the node has no SSH; manage it from the panel.
 Treat a broken node as immutable: destroy and rebuild.
 
 Steps:
 
 1. Create the node, Domain, DNS, and token as in 5.1.
 2. Copy the template to a temporary file outside the repository (for example
-   `/tmp/node1.yaml`). Edit only the `/root/lessv.env` block at the top of
+   `/tmp/node1.yaml`). Edit only the `/root/vela.env` block at the top of
    `write_files`:
 
    ```yaml
    NODE_ID="node1"
    CP_URL="https://cp.example.com"
    TOKEN="<paste node token>"
-   VERSION="0.6.0"
+   IMAGE="ghcr.io/example/vela-server:latest"
+   BINARY="/usr/local/bin/vela-server"
    ```
 
-   No trailing slash on `CP_URL`; `VERSION` is the current release. Do not
-   change anything else.
+   No trailing slash on `CP_URL`; `IMAGE` is a full reference including its
+   tag, and that exact reference is what the host pulls. Do not change
+   anything else.
 3. Create an Alpine 3.22+ instance at the VPS provider and pass the file as
    **user-data**. Allow inbound TCP 80/443 in the provider firewall (22 is not
    needed; the template disables sshd).
@@ -865,13 +878,13 @@ Steps:
    recreate it with a new node id and token. cloud-init runs once.
 
 Security note: the token is in user-data, and the provider's metadata keeps
-it. The template deletes `/root/lessv.env` and the bootstrap files on the host,
+it. The template deletes `/root/vela.env` and the bootstrap files on the host,
 but cannot delete the provider-side record. Use it only on a provider you
 trust; revoke by deleting the plane node row (the token stops working
 immediately). Never commit rendered user-data.
 
-The template is Alpine/OpenRC-specific. For Debian/Ubuntu use 5.2; do not put
-OpenRC scripts on a systemd host.
+The template is Alpine/OpenRC-specific. On any other distribution install
+Docker yourself and follow 5.2; do not put OpenRC scripts on a systemd host.
 
 #### 5.4 Write the first traffic-forwarding engine configuration
 
@@ -965,7 +978,7 @@ follows without a new assignment.
    - `?target=uri` forces the VLESS list.
 
    **Names → Subscription title** gives the profile a display name (for
-example `LessV · {username}`; fields `{username}`, `{status}`). It travels as
+example `Vela · {username}`; fields `{username}`, `{status}`). It travels as
 a `profile-title: base64:…` header, which v2rayN and Clash Verge display;
 leaving it empty sends no header and keeps the old bytes exactly.
 5. Probe from the client side:
@@ -996,10 +1009,10 @@ changes the links clients import — no node re-renders.
 
 | Symptom | Check first | Fix |
 |---|---|---|
-| Node never appears | DNS is DNS only; inbound 80/443; egress 80/443; token copied completely; host clock | Fix the network or mint a new token; `journalctl -u lessv-node -n 50` |
+| Node never appears | DNS is DNS only; published ports 80/443; egress 80/443 and the registry; token copied completely; host clock | Fix the network or mint a new token; `docker compose -f /etc/vela/compose.yaml logs -n 50` |
 | Node exists but `health` is wrong | `last_error`, `applied_hash` vs `desired_hash` | Read the node log; the node validates the config before applying it |
 | Saved config does not apply | JSON validity; REALITY `privateKey` left empty; `serverNames` covers the domain | Fix and save; the node keeps the previous working config |
-| `nginx_ok=0` | `nginx_error`; host OpenSSL >= 3.5 | Move to Debian 13+/Ubuntu 25.10+/Alpine 3.22+; there is no classical fallback switch |
+| `nginx_ok=0` | `nginx_error` | The decoy's TLS library is inside the image; check which tag runs and rebuild |
 | Certificate issuance fails | `issue_runs` phase/error; DNS token zone scope; CAA; LE rate limit | Run Test issue first; do not loop production failures |
 | Node never receives a certificate | Assignment checked; environment correct; `cert_etag` stuck | Re-save the assignment; compare the manifest ETag |
 | Empty subscription | User disabled/expired; no inbound/outbound access; node has no address | Fix access or status; an empty body is 200, not 404 |
@@ -1008,15 +1021,14 @@ changes the links clients import — no node re-renders.
 
 Node maintenance:
 
-- **Engine update**: default `latest`, or a fixed tag. The node verifies the
-  `.dgst`, tests the live config, backs up the old binary, replaces it,
-  restarts, and restores the old binary on any failure.
 - **Refresh Geodata**: downloads full `geoip.dat`/`geosite.dat` from the
   upstream rules-dat release, verifies, and restarts the traffic-forwarding
   engine. It installs once unconditionally, then every 7 days while the
   config uses `geoip:`/`geosite:`.
-- Both actions are visible in the node header and in
+- The action is visible in the node header and in
   `GET /api/admin/nodes/<id>/sync` under `actions`.
+- **The engine is not updated from the panel.** Xray ships inside the image;
+  upgrade by replacing the image (5.2).
 
 Deleting a node: **Delete** removes the node's token, config, user access,
 endpoint registry, REALITY keys, and certificate assignment. Certificate
@@ -1025,11 +1037,11 @@ keeps running its last config; destroy it separately. Re-generating a token
 invalidates the old one immediately; an existing node must update
 `node.toml` before it can reconnect.
 
-Backups: at minimum `KEY_SECRET`, `.env.production`, D1 (export or
-point-in-time restore in the Cloudflare dashboard), and the R2 certificate
-bucket. Without `KEY_SECRET`, the stored REALITY/certificate/ACME private
-keys cannot be decrypted. Certificates in R2 can be reissued; private keys
-cannot.
+Backups: at minimum `KEY_SECRET`, `.env.production`, and D1 (export or
+point-in-time restore in the Cloudflare dashboard). D1 holds the state and the
+certificate artifacts. Without `KEY_SECRET`, the stored
+REALITY/certificate/ACME private keys cannot be decrypted. Certificates can be
+reissued; private keys cannot.
 
 ### 7. Security boundaries and known limitations
 
@@ -1037,8 +1049,8 @@ cannot.
   replacement.
 - `KEY_SECRET` is not rotatable. Rotating it makes every stored node key,
   certificate key, and ACME account unreadable.
-- Node tokens are stored as hashes and shown once; `/etc/lessv/node.toml`
-  must stay 0600.
+- Node tokens are stored as hashes and shown once; the token file inside
+  the `vela-etc` volume (`/etc/lessv/node.toml`) must stay 0600.
 - A subscription URL is a capability credential; leaking it hands that user's
   subscription to the holder. Rotate promptly.
 - cloud-init puts the token in user-data and provider metadata; do not use an
@@ -1053,11 +1065,13 @@ cannot.
   complete the REALITY handshake.
 - Deleting a node does not wipe the machine's applied config; decommission
   the host separately.
-- The nginx decoy config and `index.html` are generated/managed by the node.
-  Removing the marker from `index.html` makes it custom, but upgrades refresh
-  unmodified pages.
-- The decoy is TLS 1.3 + `X25519MLKEM768:X25519` with no non-PQ fallback;
-  hosts with OpenSSL < 3.5 fail at install or apply.
+- The nginx decoy config and `index.html` are generated/managed by the
+  server. Removing the marker from `index.html` makes it custom, but image
+  upgrades refresh unmodified pages.
+- The decoy is TLS 1.3 + `X25519MLKEM768:X25519` with no non-PQ fallback, and
+  the image is the only place that is configured.
+- `X-Lessv-Node` is the server identity header and `/dev/shm/lessv-decoy.sock`
+  is REALITY's `dest`: both are frozen protocol values, not product names.
 - `BLOCK` must be uppercase; lowercase `block` is treated as a routable exit.
 - WARP registration uses Cloudflare's app API; a failure returns 502 and never
   writes half a config. Every preset preview registers a new device, and the
@@ -1066,9 +1080,8 @@ cannot.
   arbitrary `geoip:` region rules.
 - Staging certificates are not renewed and are swept after 7 days; a
   long-lived test node must run Test issue again.
-- This manual describes `lessv-node 0.6.0` and protocol 3; check
-  [Gitee Releases](https://gitee.com/realumino/lessv/releases) for the current
-  version.
+- This manual describes protocol 3 and the `vela-server` image; check the
+  server repository for the current image tags.
 
 ### 8. Further reading
 
@@ -1081,13 +1094,14 @@ cannot.
 <a id="fa"></a>
 ## فارسی
 
-### ۱. LessV چیست
+### ۱. Vela چیست
 
-LessV یک صفحهٔ مدیریت خودمیزبان برای سرویس هدایت ترافیک است. صفحهٔ کنترل
+Vela یک صفحهٔ مدیریت خودمیزبان برای سرویس هدایت ترافیک است. صفحهٔ کنترل
 روی Cloudflare Workers اجرا می‌شود؛ پنل مدیریت یک SPA React زیر `/admin`
-است؛ هر گره سرور گره را که در [LessV-Node](https://github.com/realumino/LessV-Node) نگهداری می‌شود اجرا می‌کند. گره‌ها
-پیکربندی و گواهی‌های موردنظر خود را از صفحهٔ کنترل می‌کشند. صفحهٔ کنترل
-هرگز به گره متصل نمی‌شود.
+است؛ هر گره تصویر `vela-server` را که در
+[LessV-Node](https://github.com/realumino/LessV-Node) نگهداری می‌شود اجرا
+می‌کند. گره‌ها پیکربندی و گواهی‌های موردنظر خود را از صفحهٔ کنترل می‌کشند.
+صفحهٔ کنترل هرگز به گره متصل نمی‌شود.
 
 ```
 مرورگر ── /admin ─────────────► Worker (Hono + SPA ایستا)
@@ -1095,11 +1109,11 @@ LessV یک صفحهٔ مدیریت خودمیزبان برای سرویس هدا
                                   │  /api/node/*   ← توکن گره
                                   │  /sub/{token}  ← توکن اشتراک
                                   ▼
-                                 D1 (وضعیت) · R2 (گواهی‌ها) · Workflow (ACME)
+                                 D1 (وضعیت و گواهی‌ها) · Workflow (ACME)
 
 کاربر ── /sub/{token} ──► اشتراک ──► پیوندها (رندر از D1)
 
-گره ── هستهٔ ابزار هدایت ترافیک (REALITY :443) ──► سرور گره (Rust)
+گره ── هستهٔ ابزار هدایت ترافیک (REALITY :443) ──► vela-server (تصویر)
        ▲ سایت فریبندهٔ nginx (سوکت یونیکس) │
        └── فایل‌های گواهی ◄── GET /api/node/certs ◄── ACME (DNS-01)
 ```
@@ -1115,19 +1129,19 @@ LessV یک صفحهٔ مدیریت خودمیزبان برای سرویس هدا
 
 | مورد | نیاز |
 |---|---|
-| Cloudflare | یک zone متصل؛ R2 فعال؛ Workers، D1 و Workflows در دسترس |
+| Cloudflare | یک zone متصل؛ Workers، D1 و Workflows در دسترس |
 | ماشین محلی | Node.js 22 LTS+ و npm |
 | میزبان صفحهٔ کنترل | مثلاً `cp.example.com`، با Cloudflare (Custom Domain) |
 | میزبان گره | مثلاً `node1.example.com`، فقط **DNS** (ابر خاکستری)، به IP گره |
-| ماشین گره | Debian 13+ / Ubuntu 25.10+ / Alpine 3.22+، دسترسی root، پورت 80 و 443 آزاد |
-| خروجی | گره به 80/443 دسترسی دارد: مخازن توزیع، Gitee، GitHub و HTTPS صفحهٔ کنترل |
+| ماشین گره | هر لینوکسی با Docker و افزونهٔ compose، دسترسی root، پورت 80 و 443 آزاد |
+| خروجی | گره به 80/443 دسترسی دارد: رجیستری تصویر و HTTPS صفحهٔ کنترل |
 | پشتیبان | `KEY_SECRET`، `.env.production`، پشتیبان D1 و توکن‌های گره |
 
-میزبان گره باید TLS 1.3 و گروه ترکیبی پساکوانتومی را پشتیبانی کند: nginx باید
-با OpenSSL >= 3.5 پیوند شده باشد. سایت فریبنده فقط
-`X25519MLKEM768:X25519` را ارائه می‌دهد و **هیچ بازگشت به تبادل کلید کلاسیک
-ندارد**. `install.sh` میزبانی را که این شرط را ندارد رد می‌کند؛ گرهٔ نصب‌شده
-در apply شکست می‌خورد و خطا را در پنل نشان می‌دهد، نه اینکه بی‌صدا تنزل کند.
+میزبان فقط یک کانتینر و یک تصویر دارد. هسته، nginx و کتابخانهٔ TLS پساکوانتومی
+داخل همان تصویر هستند، پس توزیع میزبان و نسخهٔ OpenSSL آن اهمیتی ندارد: سایت
+فریبنده فقط `X25519MLKEM768:X25519` را ارائه می‌دهد و **هیچ بازگشت به تبادل
+کلید کلاسیک ندارد**؛ تصویری که این کار را نمی‌تواند در apply شکست می‌خورد، نه
+اینکه بی‌صدا تنزل کند.
 
 ترتیب پیشنهادی: ابتدا Worker را مستقر کنید، سپس در صورت تمایل Cloudflare
 Access را فعال کنید، و در آخر گره اضافه کنید.
@@ -1155,7 +1169,7 @@ cp wrangler.example.jsonc wrangler.jsonc
 "routes": [{ "pattern": "cp.example.com", "custom_domain": true }],
 ```
 
-قالب از قبل D1، R2، Workflow، cron روزانه و دارایی‌های SPA را می‌بندد.
+قالب از قبل D1، Workflow، cron روزانه و دارایی‌های SPA را می‌بندد.
 `workers_dev: false` و `preview_urls: false` را حفظ کنید: پنل باید دقیقاً یک
 میزبان عمومی داشته باشد، وگرنه Cloudflare Access قابل دور زدن است.
 `wrangler.jsonc` میزبان واقعی و شناسهٔ D1 را دارد که پس از اولین استقرار
@@ -1201,16 +1215,7 @@ chmod 600 .env.production
 Worker برای ساخت/پاک‌سازی رکوردهای TXT `_acme-challenge` و فهرست zoneها
 استفاده می‌کند؛ با اعتبارنامهٔ `wrangler login` یکی نیست.
 
-#### ۳.۵ ساخت سطل گواهی
-
-```bash
-npx wrangler login
-npx wrangler r2 bucket create lessv-certs
-```
-
-اگر وجود دارد رد شوید؛ ساخت دوباره کد 10004 می‌دهد که بی‌ضرر است.
-
-#### ۳.۶ استقرار
+#### ۳.۵ استقرار
 
 ```bash
 npm run deploy -- --secrets-file .env.production
@@ -1222,7 +1227,7 @@ D1 راه دور را اعمال می‌کند → `https://<میزبان-پنل
 بدهد. اولین استقرار فقط می‌تواند رازها را از `--secrets-file` بگیرد، چون
 `wrangler secret put` به Worker ای که هنوز وجود ندارد دسترسی ندارد.
 
-#### ۳.۷ بررسی
+#### ۳.۶ بررسی
 
 ```bash
 curl -fsS https://cp.example.com/api/health
@@ -1236,7 +1241,7 @@ npx wrangler workflows list
 صفحه فقط یعنی SPA سرو می‌شود؛ فهرست شدن گره‌ها یعنی D1 و API مدیریت کار
 می‌کنند.
 
-#### ۳.۸ ارتقا، بازگشت و تغییر رازها
+#### ۳.۷ ارتقا، بازگشت و تغییر رازها
 
 ```bash
 git pull
@@ -1266,7 +1271,7 @@ Cloudflare Access یک لایهٔ هویت در لبهٔ Cloudflare اضافه �
 |---|---|---|
 | `/admin*` | **بله** | SPA مدیریت و دارایی‌های ایستا؛ فقط انسان وارد می‌شود |
 | `/api/admin*` | **بله** | API مدیریت؛ مرورگر از نشست Access و اسکریپت از service token استفاده می‌کند |
-| `/api/node/*` | **نه** | `lessv-node` فقط Bearer token می‌فرستد و Access را نمی‌فهمد؛ محافظت یعنی قطع همهٔ گره‌ها |
+| `/api/node/*` | **نه** | سرور گره فقط Bearer token می‌فرستد و Access را نمی‌فهمد؛ محافظت یعنی قطع همهٔ گره‌ها |
 | `/sub/*` | **نه** | کلاینت‌های اشتراک (v2rayN، Clash، Shadowrocket و…) Access را انجام نمی‌دهند؛ محافظت یعنی قطع همهٔ اشتراک‌ها |
 | `/api/health` | **نه** | اسکریپت استقرار و cloud-init برای بررسی دسترسی از آن استفاده می‌کنند؛ بدنه فقط یک ثابت است |
 | میزبان گره `:443` | **موضوعیت ندارد** | رکورد A گره DNS only است و ترافیک از Cloudflare نمی‌گذرد؛ فایروال گره فقط 80/443 را باز می‌کند |
@@ -1316,7 +1321,7 @@ Zero Trust → Access controls → Applications → Create new application →
 
 Zero Trust → Access controls → Service credentials → Service tokens → Create:
 
-1. نامی بدهید (مثلاً `lessv-ops`) و **Client ID** و **Client Secret** را
+1. نامی بدهید (مثلاً `vela-ops`) و **Client ID** و **Client Secret** را
    کپی کنید (secret فقط یک‌بار نشان داده می‌شود).
 2. به **برنامهٔ کل میزبان** برگردید (نه برنامهٔ Bypass) و سیاستی اضافه کنید:
    Action `Service Auth`، Include `Service Token` → همان توکن.
@@ -1399,78 +1404,93 @@ curl -sS -X POST -H "Authorization: Bearer $ADMIN_KEY" \
 **فقط DNS** (ابر خاکستری). REALITY و nginx هر دو به 443 مستقیم نیاز دارند؛
 رکوردی که از Cloudflare عبور کند تونل را خراب می‌کند.
 
-#### ۵.۲ روش الف: نصب دستی با SSH
+#### ۵.۲ گرفتن تصویر و اجرای کانتینر
 
-برای هر VPS با SSH روت: Debian 13+ / Ubuntu 25.10+ / Alpine 3.22+. میزبان به `curl` و `tar` نیاز دارد؛ اگر نیستند، اول با مدیر بسته نصب کنید.
+میزبان فقط Docker با افزونهٔ compose و خود تصویر را لازم دارد؛ بقیه داخل
+کانتینر است.
 
 ```bash
 ssh root@203.0.113.10
 
-VERSION=0.6.0
-BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
-case "$(uname -m)" in
-  x86_64) ARCH=amd64 ;;
-  aarch64) ARCH=arm64 ;;
-  *) echo "unsupported arch"; exit 1 ;;
-esac
-NAME=lessv-node-$VERSION-linux-$ARCH
+IMAGE=ghcr.io/example/vela-server:latest
+BINARY=/usr/local/bin/vela-server
 
-curl -fsSLO $BASE/$NAME.tar.gz
-curl -fsSLO $BASE/SHA256SUMS
-grep " $NAME.tar.gz\$" SHA256SUMS | sha256sum -c -
-tar -xzf $NAME.tar.gz
-cd $NAME
+docker pull "$IMAGE"
+cat > /etc/vela/compose.yaml <<'COMPOSE'
+services:
+  vela-server:
+    image: "${IMAGE}"
+    container_name: vela-server
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443/tcp"
+    stop_grace_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    volumes:
+      - vela-etc:/etc/lessv
+      - vela-state:/var/lib/lessv
 
-./install.sh --cp https://cp.example.com --node node1
+volumes:
+  vela-etc:
+  vela-state:
+COMPOSE
+
+# enroll یک‌باره: توکن از stdin می‌آید، نه از فهرست آرگومان‌ها
+printf '%s\n' '<paste node token>' | docker run --rm -i \
+  --entrypoint "$BINARY" -v vela-etc:/etc/lessv "$IMAGE" \
+  enroll --cp https://cp.example.com --node node1 \
+  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+
+docker compose -f /etc/vela/compose.yaml up -d
 ```
 
-`VERSION` را با نسخهٔ فعلی Gitee Releases عوض کنید. `install.sh` توکن گره را با ورودی پنهان می‌پرسد، سپس:
-
-- `ca-certificates`، `curl`، `tar`، `unzip`، nginx و هستهٔ ابزار هدایت
-  ترافیک را نصب می‌کند (نسخهٔ رسمی، با بررسی `.dgst`)؛
-- `lessv-node` را در `/usr/local/bin/lessv-node` می‌گذارد؛
-- `/etc/lessv`، `/etc/lessv/certs`، `/var/lib/lessv`،
-  `/var/lib/lessv/assets` و `/var/www/lessv-decoy` را می‌سازد؛
-- واحد systemd یا OpenRC را می‌نویسد (هستهٔ ابزار هدایت ترافیک بعد از nginx
-  بالا می‌آید)؛
-- `/etc/lessv/node.toml` (0600) را می‌نویسد، enroll می‌کند، فعال و شروع
-  می‌کند.
-
-آخرین خط `lessv-node installed and started` است. گزارش‌ها:
+فقط دو پورت منتشر می‌شود و چیز دیگری لازم نیست باز شود. `vela-etc` هویت و
+درخت گواهی را دارد؛ `vela-state` فایل وضعیت، پیکربندی زنده و geodata را.
+از دست دادن `vela-etc` یعنی enroll دوباره؛ از دست دادن `vela-state` فقط یک
+همگام‌سازی هزینه دارد. گزارش‌ها:
 
 ```bash
-journalctl -u lessv-node -n 50          # systemd
-tail -n 50 /var/log/lessv-node.log      # OpenRC
+docker compose -f /etc/vela/compose.yaml ps
+docker compose -f /etc/vela/compose.yaml logs -n 50
 ```
 
-ارتقا: tarball جدید را بگیرید و همان دستورها را تکرار کنید. اگر
-`node.toml` وجود داشته باشد، `install.sh` توکن را دوباره استفاده می‌کند و
-enroll نمی‌کند. هستهٔ ابزار هدایت ترافیک و geodata را می‌توان جداگانه از پنل
-به‌روز کرد: **Maintenance** (سطر اول نسخهٔ هسته، سطر دوم Geodata است).
+ارتقا: tag را در فایل compose عوض کنید و `docker compose up -d` بزنید، یا
+یک به‌روزرسان از نوع watchtower این کار را بکند. تصویر هسته، nginx و سرور را
+با خود دارد، پس ارتقا هر سه را عوض می‌کند؛ فایلی که دستی داخل کانتینر عوض
+شده باشد در بازسازی بعدی ناپدید می‌شود و این عمدی است. geodata همچنان از پنل
+(**Maintenance → Refresh Geodata**) تازه می‌شود.
 
 #### ۵.۳ روش ب: cloud-init
 
-مخزن فایل [`scripts/alpine_cloud_init.yaml`](scripts/alpine_cloud_init.yaml)
+مخزن فایل [`scripts/vela_node_cloud_init.yaml`](scripts/vela_node_cloud_init.yaml)
 را دارد؛ یک cloud-config یک‌بارمصرف برای Alpine 3.22+ / OpenRC با cloud-init.
-سقف‌های BBR و fd را بالا می‌برد، nftables را نصب می‌کند (فقط 80/443)، sshd را
-غیرفعال و حذف می‌کند، release را دانلود و `SHA256SUMS` را بررسی می‌کند،
-`install.sh` را اجرا و enroll می‌کند. پس از اولین بوت، گره SSH ندارد؛ مدیریت
+سقف‌های BBR و fd را بالا می‌برد، Docker و nftables را نصب می‌کند (فقط
+80/443)، sshd را غیرفعال و حذف می‌کند، فایل compose را می‌نویسد، یک‌بار
+enroll می‌کند و سرویس را بالا می‌آورد. پس از اولین بوت، گره SSH ندارد؛ مدیریت
 از پنل است. گرهٔ خراب را immutable بدانید: نابود و بازسازی کنید.
 
 مراحل:
 
 1. طبق ۵.۱ گره، Domain، DNS و توکن را بسازید.
 2. قالب را به فایلی موقت بیرون مخزن کپی کنید (مثلاً `/tmp/node1.yaml`). فقط
-   بلوک `/root/lessv.env` در بالای `write_files` را تغییر دهید:
+   بلوک `/root/vela.env` در بالای `write_files` را تغییر دهید:
 
    ```yaml
    NODE_ID="node1"
    CP_URL="https://cp.example.com"
    TOKEN="<paste node token>"
-   VERSION="0.6.0"
+   IMAGE="ghcr.io/example/vela-server:latest"
+   BINARY="/usr/local/bin/vela-server"
    ```
 
-   `CP_URL` بدون اسلش پایانی؛ `VERSION` نسخهٔ فعلی. بقیه را تغییر ندهید.
+   `CP_URL` بدون اسلش پایانی؛ `IMAGE` یک ارجاع کامل با tag است و همان چیزی
+   است که میزبان می‌کشد. بقیه را تغییر ندهید.
 3. در ارائه‌دهندهٔ VPS یک نمونهٔ Alpine 3.22+ بسازید و فایل را به‌عنوان
    **user-data** بدهید. در فایروال ارائه‌دهنده ورودی TCP 80/443 را باز کنید
    (22 لازم نیست؛ قالب sshd را غیرفعال می‌کند).
@@ -1481,13 +1501,13 @@ enroll نمی‌کند. هستهٔ ابزار هدایت ترافیک و geodata
    جدید بازسازی کنید. cloud-init یک‌بار اجرا می‌شود.
 
 نکتهٔ امنیتی: توکن در user-data است و متادیتای ارائه‌دهنده آن را نگه می‌دارد.
-قالب `/root/lessv.env` و فایل‌های bootstrap را روی میزبان پاک می‌کند، ولی
+قالب `/root/vela.env` و فایل‌های bootstrap را روی میزبان پاک می‌کند، ولی
 رکورد سمت ارائه‌دهنده را نمی‌تواند پاک کند. فقط روی ارائه‌دهندهٔ مورد اعتماد
 استفاده کنید؛ ابطال با حذف ردیف گره در پنل است (توکن فوراً بی‌اعتبار می‌شود).
 user-data رندرشده را هرگز commit نکنید.
 
-این قالب مخصوص Alpine/OpenRC است. برای Debian/Ubuntu از ۵.۲ استفاده کنید؛
-اسکریپت‌های OpenRC را روی میزبان systemd نگذارید.
+این قالب مخصوص Alpine/OpenRC است. روی هر توزیع دیگری Docker را خودتان نصب
+کنید و ۵.۲ را دنبال کنید؛ اسکریپت‌های OpenRC را روی میزبان systemd نگذارید.
 
 #### ۵.۴ نوشتن اولین پیکربندی هستهٔ ابزار هدایت ترافیک
 
@@ -1579,7 +1599,7 @@ UTC خودکار تمدید می‌شود و گره بدون تخصیص دوبا
    - `?target=uri` فهرست VLESS را مجبور می‌کند.
 
    **Names → Subscription title** یک نام نمایشی به پروفایل می‌دهد (مثلاً
-   `LessV · {username}`؛ فیلدها `{username}`، `{status}`). این نام در هدر
+   `Vela · {username}`؛ فیلدها `{username}`، `{status}`). این نام در هدر
    `profile-title: base64:…` می‌آید که v2rayN و Clash Verge نشان می‌دهند؛
    خالی گذاشتن آن هیچ هدری نمی‌فرستد و پاسخ دقیقاً مثل قبل می‌ماند.
 5. آزمون از سمت کلاینت:
@@ -1609,10 +1629,10 @@ variantهای اضافی همان inbound (CDN، پورت دیگر، SNI متف�
 
 | نشانه | اول بررسی کنید | رفع |
 |---|---|---|
-| گره هرگز ظاهر نمی‌شود | DNS فقط DNS باشد؛ ورودی 80/443؛ خروجی 80/443؛ توکن کامل؛ ساعت میزبان | شبکه را درست کنید یا توکن جدید بسازید؛ `journalctl -u lessv-node -n 50` |
+| گره هرگز ظاهر نمی‌شود | DNS فقط DNS باشد؛ انتشار 80/443؛ خروجی 80/443 و رجیستری؛ توکن کامل؛ ساعت میزبان | شبکه را درست کنید یا توکن جدید بسازید؛ `docker compose -f /etc/vela/compose.yaml logs -n 50` |
 | گره هست ولی `health` درست نیست | `last_error`، `applied_hash` در برابر `desired_hash` | گزارش گره (گره پیش از اعمال، پیکربندی را بررسی می‌کند) |
 | پیکربندی ذخیره شد ولی اعمال نشد | اعتبار JSON؛ خالی بودن `privateKey`؛ پوشش `serverNames` | درست کنید و Save؛ گره پیکربندی سالم قبلی را نگه می‌دارد |
-| `nginx_ok=0` | `nginx_error`؛ OpenSSL میزبان >= 3.5 | به Debian 13+/Ubuntu 25.10+/Alpine 3.22+ بروید؛ کلید بازگشت کلاسیک وجود ندارد |
+| `nginx_ok=0` | `nginx_error` | کتابخانهٔ TLS سایت فریبنده داخل تصویر است؛ tag اجراشده را بررسی و تصویر را بازسازی کنید |
 | صدور گواهی شکست می‌خورد | phase/error در `issue_runs`؛ دامنهٔ zone توکن DNS؛ CAA؛ سهمیهٔ LE | اول Test issue؛ شکست تولید را در حلقه تکرار نکنید |
 | گره گواهی نمی‌گیرد | تیک تخصیص؛ محیط درست؛ گیر کردن `cert_etag` | assignment را دوباره ذخیره کنید؛ ETag manifest را مقایسه کنید |
 | اشتراک خالی است | کاربر disabled/منقضی؛ نبود دسترسی inbound/outbound؛ نبود address گره | دسترسی یا وضعیت را درست کنید؛ بدنهٔ خالی 200 است نه 404 |
@@ -1621,14 +1641,13 @@ variantهای اضافی همان inbound (CDN، پورت دیگر، SNI متف�
 
 نگهداری گره:
 
-- **به‌روزرسانی هسته**: پیش‌فرض `latest` یا یک tag ثابت. گره `.dgst` را بررسی،
-  پیکربندی زنده را تست، باینری قبلی را پشتیبان، جایگزین و restart می‌کند و در
-  هر شکست باینری قبلی را برمی‌گرداند.
 - **Refresh Geodata**: نسخهٔ full `geoip.dat`/`geosite.dat` را از
   انتشار rules-dat بالادست می‌گیرد، بررسی و هستهٔ ابزار هدایت ترافیک را
   restart می‌کند. بار اول بی‌قید نصب می‌شود، بعد تا وقتی پیکربندی `geoip:`/`geosite:` دارد هر ۷ روز.
-- وضعیت هر دو در header گره و در `actions` مسیر
+- وضعیت این کار در header گره و در `actions` مسیر
   `GET /api/admin/nodes/<id>/sync` دیده می‌شود.
+- **هسته از پنل به‌روز نمی‌شود**: هسته داخل تصویر است؛ ارتقا یعنی عوض کردن
+  تصویر (۵.۲).
 
 حذف گره: **Delete** توکن، پیکربندی، دسترسی کاربران، رجیستری endpoint، کلیدهای
 REALITY و تخصیص گواهی آن گره را حذف می‌کند. دامنه‌های گواهی و تاریخچهٔ صدور
@@ -1636,10 +1655,10 @@ REALITY و تخصیص گواهی آن گره را حذف می‌کند. دامن
 جداگانه نابودش کنید. تولید دوبارهٔ توکن، توکن قبلی را فوراً بی‌اعتبار می‌کند؛
 گرهٔ موجود باید `node.toml` را به‌روز کند تا دوباره وصل شود.
 
-پشتیبان: حداقل `KEY_SECRET`، `.env.production`، D1 (export یا
-point-in-time restore در داشبورد) و سطل گواهی R2. بدون `KEY_SECRET`،
-کلیدهای خصوصی REALITY/گواهی/ACME قابل رمزگشایی نیستند. گواهی‌های R2 را
-می‌توان دوباره صادر کرد؛ کلیدهای خصوصی را نه.
+پشتیبان: حداقل `KEY_SECRET`، `.env.production` و D1 (export یا
+point-in-time restore در داشبورد). D1 هم وضعیت و هم محصول گواهی را دارد.
+بدون `KEY_SECRET`، کلیدهای خصوصی REALITY/گواهی/ACME قابل رمزگشایی نیستند.
+گواهی‌ها را می‌توان دوباره صادر کرد؛ کلیدهای خصوصی را نه.
 
 ### ۷. مرزهای امنیتی و محدودیت‌های شناخته‌شده
 
@@ -1647,8 +1666,8 @@ point-in-time restore در داشبورد) و سطل گواهی R2. بدون `KE
   جایگزین.
 - `KEY_SECRET` قابل چرخش نیست. چرخش آن همهٔ کلیدهای گره، گواهی و حساب ACME
   را ناخوانا می‌کند.
-- توکن گره فقط هش ذخیره می‌شود و یک‌بار نمایش داده می‌شود؛
-  `/etc/lessv/node.toml` باید 0600 بماند.
+- توکن گره فقط هش ذخیره می‌شود و یک‌بار نمایش داده می‌شود؛ فایل توکن داخل
+  جلد `vela-etc` (`/etc/lessv/node.toml`) باید 0600 بماند.
 - URL اشتراک یک اعتبارنامهٔ capability است؛ افشای آن یعنی دادن اشتراک آن
   کاربر. سریع Rotate کنید.
 - cloud-init توکن را در user-data و متادیتای ارائه‌دهنده می‌گذارد؛ از
@@ -1662,11 +1681,13 @@ point-in-time restore در داشبورد) و سطل گواهی R2. بدون `KE
   پیکربندی مانده باشد)، پیوند `pbk` ندارد و handshake کامل نمی‌شود.
 - حذف گره پیکربندی اعمال‌شده روی ماشین را پاک نمی‌کند؛ میزبان را جداگانه
   از رده خارج کنید.
-- پیکربندی فریبنده و `index.html` توسط گره ساخته/مدیریت می‌شوند. حذف نشانگر
-  از `index.html` آن را سفارشی می‌کند، ولی ارتقا صفحه‌های اصلاح‌نشده را
-  تازه می‌کند.
+- پیکربندی فریبنده و `index.html` توسط سرور ساخته/مدیریت می‌شوند. حذف نشانگر
+  از `index.html` آن را سفارشی می‌کند، ولی ارتقای تصویر صفحه‌های
+  اصلاح‌نشده را تازه می‌کند.
 - سایت فریبنده TLS 1.3 + `X25519MLKEM768:X25519` است و بازگشت غیر PQ ندارد؛
-  میزبان با OpenSSL < 3.5 در نصب یا apply شکست می‌خورد.
+  این تنها جایی که تنظیم می‌شود خود تصویر است.
+- `X-Lessv-Node` هدر هویت سرور و `/dev/shm/lessv-decoy.sock` همان `dest`
+  REALITY است: هر دو مقدار ثابت پروتکل‌اند، نه نام محصول.
 - `BLOCK` باید بزرگ باشد؛ `block` کوچک به‌عنوان خروجی قابل مسیریابی رفتار
   می‌کند.
 - ثبت WARP از API اپ Cloudflare استفاده می‌کند؛ شکست 502 می‌دهد و هرگز
@@ -1676,8 +1697,8 @@ point-in-time restore در داشبورد) و سطل گواهی R2. بدون `KE
   هر منطقه‌ای کافی نیست.
 - گواهی staging تمدید نمی‌شود و بعد از ۷ روز پاک می‌شود؛ گرهٔ آزمایشی
   بلندمدت باید دوباره Test issue بگیرد.
-- این راهنما `lessv-node 0.6.0` و پروتکل ۳ را توصیف می‌کند؛ نسخهٔ فعلی را در
-  [Gitee Releases](https://gitee.com/realumino/lessv/releases) ببینید.
+- این راهنما پروتکل ۳ و تصویر `vela-server` را توصیف می‌کند؛ tagهای فعلی
+  تصویر را در مخزن سرور ببینید.
 
 ### ۸. مطالعهٔ بیشتر
 
@@ -1690,13 +1711,14 @@ point-in-time restore در داشبورد) و سطل گواهی R2. بدون `KE
 <a id="ru"></a>
 ## Русский
 
-### 1. Что такое LessV
+### 1. Что такое Vela
 
-LessV — саморазмещаемая панель управления сервисом пересылки трафика.
+Vela — саморазмещаемая панель управления сервисом пересылки трафика.
 Панель управления работает на Cloudflare Workers; административный SPA
-отдаётся по `/admin`; на каждом узле
-запущен сервер узла из [LessV-Node](https://github.com/realumino/LessV-Node). Узлы сами забирают желаемую
-конфигурацию и сертификаты с панели. Панель никогда не подключается к узлу.
+отдаётся по `/admin`; на каждом узле запущен образ `vela-server` из
+[LessV-Node](https://github.com/realumino/LessV-Node). Узлы сами забирают
+желаемую конфигурацию и сертификаты с панели. Панель никогда не подключается
+к узлу.
 
 ```
 Браузер ── /admin ─────────────► Worker (Hono + статический SPA)
@@ -1704,11 +1726,11 @@ LessV — саморазмещаемая панель управления се�
                                    │  /api/node/*   ← токен узла
                                    │  /sub/{token}  ← токен подписки
                                    ▼
-                                  D1 (состояние) · R2 (сертификаты) · Workflow (ACME)
+                                  D1 (состояние и сертификаты) · Workflow (ACME)
 
 Пользователь ── /sub/{token} ──► подписка ──► ссылки (рендер из D1)
 
-Узел ── ядро инструмента пересылки трафика (REALITY :443) ──► сервер узла (Rust)
+Узел ── ядро инструмента пересылки трафика (REALITY :443) ──► vela-server (образ)
         ▲ сайт-заглушка nginx (Unix-сокет) │
         └── файлы сертификатов ◄── GET /api/node/certs ◄── ACME (DNS-01)
 ```
@@ -1725,19 +1747,19 @@ LessV — саморазмещаемая панель управления се�
 
 | Компонент | Требование |
 |---|---|
-| Cloudflare | Подключённая зона; включён R2; доступны Workers, D1, Workflows |
+| Cloudflare | Подключённая зона; доступны Workers, D1, Workflows |
 | Локальная машина | Node.js 22 LTS+ и npm |
 | Имя панели | Например `cp.example.com`, находится за Cloudflare (Custom Domain) |
 | Имя узла | Например `node1.example.com`, **только DNS** (серое облако), на IP узла |
-| Хост узла | Debian 13+ / Ubuntu 25.10+ / Alpine 3.22+, root, порты 80 и 443 свободны |
-| Исходящий доступ | Узел достигает 80/443: репозитории дистрибутива, Gitee, GitHub и панели по HTTPS |
+| Хост узла | Любой Linux с Docker и плагином compose, root, порты 80 и 443 свободны |
+| Исходящий доступ | Узел достигает 80/443: реестр образов и панель по HTTPS |
 | Резервные копии | `KEY_SECRET`, `.env.production`, копия D1 и токены узлов |
 
-Хост узла должен поддерживать TLS 1.3 и постквантовую гибридную группу:
-nginx должен быть слинкован с OpenSSL >= 3.5. Заглушка предлагает только
-`X25519MLKEM768:X25519` и **не имеет классического отката**. `install.sh`
-отклонит неподходящий хост; уже установленный узел не сможет применить
-конфигурацию и покажет ошибку в панели вместо тихого понижения.
+Хост запускает один контейнер и тянет один образ. Ядро, nginx и
+постквантовая TLS-библиотека находятся внутри образа, поэтому дистрибутив
+хоста и версия его OpenSSL не важны: заглушка предлагает только
+`X25519MLKEM768:X25519` и **не имеет классического отката**, а образ, который
+этого не умеет, падает при apply вместо тихого понижения.
 
 Рекомендуемый порядок: развернуть Worker, при желании включить Cloudflare
 Access, затем добавлять узлы.
@@ -1765,7 +1787,7 @@ cp wrangler.example.jsonc wrangler.jsonc
 "routes": [{ "pattern": "cp.example.com", "custom_domain": true }],
 ```
 
-Шаблон уже привязывает D1, R2, Workflow, ежедневный cron и ресурсы SPA.
+Шаблон уже привязывает D1, Workflow, ежедневный cron и ресурсы SPA.
 Оставьте `workers_dev: false` и `preview_urls: false`: у панели должно быть
 ровно одно публичное имя, иначе Cloudflare Access можно обойти.
 `wrangler.jsonc` содержит реальное имя и id D1, который записывается после
@@ -1810,17 +1832,7 @@ chmod 600 .env.production
 использует для создания и очистки TXT-записей `_acme-challenge` и списка зон;
 это не учётные данные `wrangler login`.
 
-#### 3.5 Создать бакет сертификатов
-
-```bash
-npx wrangler login
-npx wrangler r2 bucket create lessv-certs
-```
-
-Если он уже есть, пропустите; повторное создание вернёт код 10004, это
-безвредно.
-
-#### 3.6 Развернуть
+#### 3.5 Развернуть
 
 ```bash
 npm run deploy -- --secrets-file .env.production
@@ -1833,7 +1845,7 @@ npm run deploy -- --secrets-file .env.production
 секреты можно передать только через `--secrets-file`, потому что
 `wrangler secret put` не работает с ещё не созданным Worker.
 
-#### 3.7 Проверить
+#### 3.6 Проверить
 
 ```bash
 curl -fsS https://cp.example.com/api/health
@@ -1847,7 +1859,7 @@ npx wrangler workflows list
 страницы доказывает только работу SPA; список узлов доказывает работу D1 и
 admin API.
 
-#### 3.8 Обновление, откат и смена секретов
+#### 3.7 Обновление, откат и смена секретов
 
 ```bash
 git pull
@@ -1877,7 +1889,7 @@ Worker, затем включайте Access, потому что скрипт �
 |---|---|---|
 | `/admin*` | **Да** | Административный SPA и статические ресурсы; вход только для людей |
 | `/api/admin*` | **Да** | Admin API; браузер использует сессию Access, скрипты — service token |
-| `/api/node/*` | **Нет** | `lessv-node` отправляет только Bearer-токен и не умеет Access; защита отключит все узлы |
+| `/api/node/*` | **Нет** | Сервер узла отправляет только Bearer-токен и не умеет Access; защита отключит все узлы |
 | `/sub/*` | **Нет** | Клиенты подписки (v2rayN, Clash, Shadowrocket и т. д.) не проходят Access; защита сломает все подписки |
 | `/api/health` | **Нет** | Скрипт развёртывания и cloud-init проверяют им доступность; ответ — константа |
 | Имя узла `:443` | **Не применимо** | A-запись узла — DNS only; трафик не идёт через Cloudflare. Брандмауэр узла открывает только 80/443 |
@@ -1931,7 +1943,7 @@ Bypass для `/api/health` отсутствует, проверка при ра
 
 Zero Trust → Access controls → Service credentials → Service tokens → Create:
 
-1. Задайте имя (например `lessv-ops`) и скопируйте **Client ID** и **Client
+1. Задайте имя (например `vela-ops`) и скопируйте **Client ID** и **Client
    Secret** (секрет показывается один раз).
 2. Вернитесь в **приложение для всего хоста** (не в Bypass-приложение) и
    добавьте политику: Action `Service Auth`, Include `Service Token` →
@@ -2018,80 +2030,95 @@ curl -sS -X POST -H "Authorization: Bearer $ADMIN_KEY" \
 **только DNS** (серое облако). REALITY и nginx требуют прямого 443;
 запись, проходящая через Cloudflare, ломает туннель.
 
-#### 5.2 Вариант A: ручная установка по SSH
+#### 5.2 Получить образ и запустить контейнер
 
-Для любого VPS с root SSH: Debian 13+ / Ubuntu 25.10+ / Alpine 3.22+. На хосте нужны `curl` и `tar`; если их нет, установите пакетным менеджером.
+Хосту нужны только Docker с плагином compose и сам образ; всё остальное
+работает внутри.
 
 ```bash
 ssh root@203.0.113.10
 
-VERSION=0.6.0
-BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
-case "$(uname -m)" in
-  x86_64) ARCH=amd64 ;;
-  aarch64) ARCH=arm64 ;;
-  *) echo "unsupported arch"; exit 1 ;;
-esac
-NAME=lessv-node-$VERSION-linux-$ARCH
+IMAGE=ghcr.io/example/vela-server:latest
+BINARY=/usr/local/bin/vela-server
 
-curl -fsSLO $BASE/$NAME.tar.gz
-curl -fsSLO $BASE/SHA256SUMS
-grep " $NAME.tar.gz\$" SHA256SUMS | sha256sum -c -
-tar -xzf $NAME.tar.gz
-cd $NAME
+docker pull "$IMAGE"
+cat > /etc/vela/compose.yaml <<'COMPOSE'
+services:
+  vela-server:
+    image: "${IMAGE}"
+    container_name: vela-server
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443/tcp"
+    stop_grace_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    volumes:
+      - vela-etc:/etc/lessv
+      - vela-state:/var/lib/lessv
 
-./install.sh --cp https://cp.example.com --node node1
+volumes:
+  vela-etc:
+  vela-state:
+COMPOSE
+
+# одноразовый enroll: токен приходит через stdin, а не в списке аргументов
+printf '%s\n' '<paste node token>' | docker run --rm -i \
+  --entrypoint "$BINARY" -v vela-etc:/etc/lessv "$IMAGE" \
+  enroll --cp https://cp.example.com --node node1 \
+  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+
+docker compose -f /etc/vela/compose.yaml up -d
 ```
 
-Замените `VERSION` на текущую версию Gitee Releases. `install.sh` запросит токен узла (ввод скрыт), затем:
-
-- устанавливает `ca-certificates`, `curl`, `tar`, `unzip`, nginx и ядро
-  инструмента пересылки трафика (официальный релиз, проверка `.dgst`);
-- ставит `lessv-node` в `/usr/local/bin/lessv-node`;
-- создаёт `/etc/lessv`, `/etc/lessv/certs`, `/var/lib/lessv`,
-  `/var/lib/lessv/assets`, `/var/www/lessv-decoy`;
-- пишет unit для systemd или OpenRC (ядро инструмента пересылки трафика
-  стартует после nginx);
-- пишет `/etc/lessv/node.toml` (0600), выполняет enroll, включает и
-  запускает сервис.
-
-Последняя строка — `lessv-node installed and started`. Логи:
+Наружу публикуются два порта, больше ничего открывать не нужно. `vela-etc`
+хранит идентичность и дерево сертификатов; `vela-state` — файл состояния,
+живую конфигурацию и geodata. Потеря `vela-etc` означает повторный enroll,
+потеря `vela-state` — одну синхронизацию. Логи:
 
 ```bash
-journalctl -u lessv-node -n 50          # systemd
-tail -n 50 /var/log/lessv-node.log      # OpenRC
+docker compose -f /etc/vela/compose.yaml ps
+docker compose -f /etc/vela/compose.yaml logs -n 50
 ```
 
-Обновление: скачайте новый tarball и повторите команды. Если `node.toml` уже
-есть, `install.sh` переиспользует токен и не выполняет enroll. Ядро
-инструмента пересылки трафика и geodata можно обновлять отдельно из панели:
-**Maintenance** (первая строка — версия ядра, вторая — Geodata).
+Обновление: смените tag в compose-файле и выполните `docker compose up -d`,
+либо поручите это обновлятору вроде watchtower. Образ содержит ядро, nginx и
+сам сервер, поэтому обновление заменяет все три; файл, отредактированный
+вручную внутри контейнера, исчезнет при следующем пересоздании — так и
+задумано. geodata по-прежнему обновляется из панели
+(**Maintenance → Refresh Geodata**).
 
 #### 5.3 Вариант B: cloud-init
 
-В репозитории есть [`scripts/alpine_cloud_init.yaml`](scripts/alpine_cloud_init.yaml) —
+В репозитории есть [`scripts/vela_node_cloud_init.yaml`](scripts/vela_node_cloud_init.yaml) —
 одноразовый cloud-config для Alpine 3.22+ / OpenRC с cloud-init. Он поднимает
-лимиты BBR и fd, ставит nftables (только 80/443), отключает и удаляет sshd,
-скачивает релиз, проверяет `SHA256SUMS`, запускает `install.sh` и enroll.
-После первого запуска SSH на узле нет; управление идёт из панели. Сломанный
-узел считается неизменяемым: уничтожить и пересоздать.
+лимиты BBR и fd, ставит Docker и nftables (только 80/443), отключает и
+удаляет sshd, пишет compose-файл, один раз выполняет enroll и запускает
+сервис. После первого запуска SSH на узле нет; управление идёт из панели.
+Сломанный узел считается неизменяемым: уничтожить и пересоздать.
 
 Шаги:
 
 1. Создайте узел, Domain, DNS и токен по 5.1.
 2. Скопируйте шаблон во временный файл вне репозитория (например
-   `/tmp/node1.yaml`). Меняйте только блок `/root/lessv.env` в начале
+   `/tmp/node1.yaml`). Меняйте только блок `/root/vela.env` в начале
    `write_files`:
 
    ```yaml
    NODE_ID="node1"
    CP_URL="https://cp.example.com"
    TOKEN="<paste node token>"
-   VERSION="0.6.0"
+   IMAGE="ghcr.io/example/vela-server:latest"
+   BINARY="/usr/local/bin/vela-server"
    ```
 
-   `CP_URL` без завершающего слэша; `VERSION` — текущий релиз. Остальное не
-   меняйте.
+   `CP_URL` без завершающего слэша; `IMAGE` — полная ссылка с tag, и именно её
+   тянет хост. Остальное не меняйте.
 3. У провайдера VPS создайте инстанс Alpine 3.22+ и передайте файл как
    **user-data**. В брандмауэре провайдера откройте входящие TCP 80/443 (22 не
    нужен; шаблон отключает sshd).
@@ -2102,13 +2129,14 @@ tail -n 50 /var/log/lessv-node.log      # OpenRC
    заново с новым id и токеном. cloud-init выполняется один раз.
 
 Безопасность: токен лежит в user-data и остаётся в метаданных провайдера.
-Шаблон удаляет `/root/lessv.env` и bootstrap-файлы на хосте, но не может
+Шаблон удаляет `/root/vela.env` и bootstrap-файлы на хосте, но не может
 удалить запись у провайдера. Используйте только доверенного провайдера;
 отзыв — удаление записи узла в панели (токен сразу перестаёт работать).
 Никогда не коммитьте отрендеренный user-data.
 
-Шаблон предназначен для Alpine/OpenRC. Для Debian/Ubuntu используйте 5.2; не
-ставьте OpenRC-скрипты на systemd-хост.
+Шаблон предназначен для Alpine/OpenRC. На любом другом дистрибутиве
+установите Docker сами и следуйте 5.2; не ставьте OpenRC-скрипты на
+systemd-хост.
 
 #### 5.4 Первая конфигурация ядра инструмента пересылки трафика
 
@@ -2201,7 +2229,7 @@ staging-сертификаты не продлеваются и удаляютс
    - `?target=uri` форсирует список VLESS.
 
    **Names → Subscription title** задаёт отображаемое имя профиля
-   (например `LessV · {username}`; поля `{username}`, `{status}`). Оно уходит
+   (например `Vela · {username}`; поля `{username}`, `{status}`). Оно уходит
    заголовком `profile-title: base64:…`, который показывают v2rayN и Clash
    Verge; пустое значение не отправляет заголовок вовсе и оставляет ответ
    прежним.
@@ -2232,10 +2260,10 @@ staging-сертификаты не продлеваются и удаляютс
 
 | Симптом | Что проверить | Что делать |
 |---|---|---|
-| Узел не появляется | DNS only; входящие 80/443; исходящий 80/443; токен скопирован полностью; часы хоста | Исправить сеть или создать новый токен; `journalctl -u lessv-node -n 50` |
+| Узел не появляется | DNS only; опубликованные 80/443; исходящий 80/443 и реестр; токен скопирован полностью; часы хоста | Исправить сеть или создать новый токен; `docker compose -f /etc/vela/compose.yaml logs -n 50` |
 | Узел есть, но `health` неверный | `last_error`, `applied_hash` против `desired_hash` | Лог узла (узел проверяет конфигурацию перед применением) |
 | Конфигурация сохранена, но не применяется | Валидность JSON; пустой `privateKey`; `serverNames` покрывает домен | Исправить и сохранить; узел держит предыдущую рабочую конфигурацию |
-| `nginx_ok=0` | `nginx_error`; OpenSSL хоста >= 3.5 | Перейти на Debian 13+/Ubuntu 25.10+/Alpine 3.22+; классического отката нет |
+| `nginx_ok=0` | `nginx_error` | TLS-библиотека заглушки внутри образа; проверьте, какой tag запущен, и пересоберите образ |
 | Выпуск сертификата не удался | phase/error в `issue_runs`; зона токена DNS; CAA; лимит LE | Сначала Test issue; не повторять production в цикле |
 | Узел не получает сертификат | Отметка назначения; правильное окружение; застрявший `cert_etag` | Пересохранить assignment; сравнить ETag манифеста |
 | Пустая подписка | Пользователь disabled/истёк; нет доступа inbound/outbound; у узла нет address | Исправить доступ или статус; пустое тело — это 200, не 404 |
@@ -2244,15 +2272,14 @@ staging-сертификаты не продлеваются и удаляютс
 
 Обслуживание узла:
 
-- **Обновление ядра**: по умолчанию `latest` или фиксированный tag. Узел проверяет
-  `.dgst`, тестирует живую конфигурацию, сохраняет старый бинарник, заменяет,
-  перезапускает и восстанавливает старый при любой ошибке.
 - **Refresh Geodata**: скачивает full `geoip.dat`/`geosite.dat` из
   публикации rules-dat, проверяет и перезапускает ядро инструмента пересылки
   трафика. Первый раз устанавливает безусловно, затем каждые 7 дней, пока в
   конфигурации есть `geoip:`/`geosite:`.
-- Статус обоих действий виден в заголовке узла и в `actions` ответа
+- Статус действия виден в заголовке узла и в `actions` ответа
   `GET /api/admin/nodes/<id>/sync`.
+- **Ядро не обновляется из панели.** Ядро входит в образ; обновление — это
+  замена образа (5.2).
 
 Удаление узла: **Delete** удаляет токен, конфигурацию, доступы пользователей,
 реестр endpoint, ключи REALITY и назначение сертификатов. Домены сертификатов
@@ -2261,10 +2288,11 @@ staging-сертификаты не продлеваются и удаляютс
 делает старый недействительным; существующий узел должен обновить
 `node.toml`, чтобы снова подключиться.
 
-Резервные копии: как минимум `KEY_SECRET`, `.env.production`, D1 (export или
-point-in-time restore в панели Cloudflare) и бакет сертификатов R2. Без
-`KEY_SECRET` приватные ключи REALITY/сертификатов/ACME не расшифровать.
-Сертификаты в R2 можно выпустить заново; приватные ключи — нет.
+Резервные копии: как минимум `KEY_SECRET`, `.env.production` и D1 (export или
+point-in-time restore в панели Cloudflare). В D1 лежат и состояние, и
+артефакты сертификатов. Без `KEY_SECRET` приватные ключи
+REALITY/сертификатов/ACME не расшифровать. Сертификаты можно выпустить
+заново; приватные ключи — нет.
 
 ### 7. Границы безопасности и известные ограничения
 
@@ -2272,8 +2300,8 @@ point-in-time restore в панели Cloudflare) и бакет сертифик
   не замена.
 - `KEY_SECRET` нельзя менять. Смена делает нечитаемыми все ключи узлов,
   сертификатов и аккаунтов ACME.
-- Токены узлов хранятся как хеши и показываются один раз;
-  `/etc/lessv/node.toml` должен оставаться 0600.
+- Токены узлов хранятся как хеши и показываются один раз; файл токена внутри
+  тома `vela-etc` (`/etc/lessv/node.toml`) должен оставаться 0600.
 - URL подписки — capability-credential; утечка отдаёт подписку пользователя.
   Сразу выполняйте Rotate.
 - cloud-init кладёт токен в user-data и метаданные провайдера; не используйте
@@ -2288,11 +2316,14 @@ point-in-time restore в панели Cloudflare) и бакет сертифик
   завершится.
 - Удаление узла не стирает применённую конфигурацию на машине; выводите хост
   из эксплуатации отдельно.
-- Конфиг заглушки nginx и `index.html` создаются/управляются узлом. Удаление
-  маркера из `index.html` делает страницу пользовательской, но обновления
-  освежают неизменённые страницы.
-- Заглушка — TLS 1.3 + `X25519MLKEM768:X25519` без не-PQ отката; хост с
-  OpenSSL < 3.5 падает при установке или apply.
+- Конфиг заглушки nginx и `index.html` создаются/управляются сервером.
+  Удаление маркера из `index.html` делает страницу пользовательской, но
+  обновление образа освежает неизменённые страницы.
+- Заглушка — TLS 1.3 + `X25519MLKEM768:X25519` без не-PQ отката, и
+  настраивается это только в образе.
+- `X-Lessv-Node` — заголовок идентичности сервера, а
+  `/dev/shm/lessv-decoy.sock` — это `dest` REALITY: оба значения заморожены
+  протоколом и не являются названиями продукта.
 - `BLOCK` должен быть в верхнем регистре; `block` в нижнем считается
   маршрутизируемым выходом.
 - Регистрация WARP использует app API Cloudflare; при сбое возвращается 502 и
@@ -2302,8 +2333,8 @@ point-in-time restore в панели Cloudflare) и бакет сертифик
   региональных правил `geoip:`.
 - Staging-сертификаты не продлеваются и удаляются через 7 дней; долгоживущему
   тестовому узлу нужен повторный Test issue.
-- Это руководство описывает `lessv-node 0.6.0` и протокол 3; актуальную
-  версию смотрите в [Gitee Releases](https://gitee.com/realumino/lessv/releases).
+- Это руководство описывает протокол 3 и образ `vela-server`; актуальные tag
+  образа смотрите в репозитории сервера.
 
 ### 8. Дополнительно
 
@@ -2316,12 +2347,13 @@ point-in-time restore в панели Cloudflare) и бакет сертифик
 <a id="ko"></a>
 ## 조선어
 
-### 1. LessV란 무엇인가
+### 1. Vela란 무엇인가
 
-LessV는 흐름전달봉사를 자체적으로 운영하기 위한 관리평면입니다. 관리평면은 Cloudflare
+Vela는 흐름전달봉사를 자체적으로 운영하기 위한 관리평면입니다. 관리평면은 Cloudflare
 Workers에서 실행되고, 관리용 SPA는 `/admin` 아래에서 봉사되며, 각 마디에서는
-[LessV-Node](https://github.com/realumino/LessV-Node)에서 관리하는 마디 서버가 돕니다. 마디는 원하는 설정과 증명서를
-관리평면에서 당겨옵니다. 관리평면은 마디에 먼저 련결하지 않습니다.
+[LessV-Node](https://github.com/realumino/LessV-Node)에서 관리하는 `vela-server`
+홀씨그림이 돕니다. 마디는 원하는 설정과 증명서를 관리평면에서 당겨옵니다.
+관리평면은 마디에 먼저 련결하지 않습니다.
 
 ```
 열람기 ── /admin ─────────────► Worker (Hono + 정적 SPA)
@@ -2329,11 +2361,11 @@ Workers에서 실행되고, 관리용 SPA는 `/admin` 아래에서 봉사되며,
                                    │  /api/node/*   ← 마디 토큰
                                    │  /sub/{token}  ← 구독 토큰
                                    ▼
-                                  D1 (상태) · R2 (증명서) · Workflow (ACME)
+                                  D1 (상태와 증명서) · Workflow (ACME)
 
 사용자 ── /sub/{token} ──► 구독 ──► 련결주소 (D1에서 생성)
 
-마디 ── 흐름전달도구핵심 (REALITY :443) ──► 마디 서버 (Rust)
+마디 ── 흐름전달도구핵심 (REALITY :443) ──► vela-server (홀씨그림)
         ▲ nginx 위장누리집 (Unix socket) │
         └── 증명서파일 ◄── GET /api/node/certs ◄── ACME (DNS-01)
 ```
@@ -2349,20 +2381,19 @@ Workers에서 실행되고, 관리용 SPA는 `/admin` 아래에서 봉사되며,
 
 | 항목 | 요구 |
 |---|---|
-| Cloudflare | 이미 련결된 zone; R2 활성; Workers, D1, Workflows 사용 가능 |
+| Cloudflare | 이미 련결된 zone; Workers, D1, Workflows 사용 가능 |
 | 본지 | Node.js 22 LTS+ 및 npm |
 | 관리평면 주소 | 례: `cp.example.com`, Cloudflare (Custom Domain)를 거쳐야 함 |
 | 마디 주소 | 례: `node1.example.com`, **DNS only**(회색구름), 마디 IP를 가리킴 |
-| 마디 주계산기 | Debian 13+ / Ubuntu 25.10+ / Alpine 3.22+, root, 80/443 비어있음 |
-| 바깥련결 | 마디가 80/443에 접속할수 있어야 함: 배포판 꾸러미자료고, Gitee, GitHub, 관리평면 HTTPS |
+| 마디 주계산기 | Docker와 compose 부속을 갖춘 임의의 Linux, root, 80/443 비어있음 |
+| 바깥련결 | 마디가 80/443에 접속할수 있어야 함: 홀씨그림 창고, 관리평면 HTTPS |
 | 예비복사 | `KEY_SECRET`, `.env.production`, D1 예비복사, 마디 토큰 |
 
-마디 주계산기는 TLS 1.3과 량자이후 혼합군을 지지하여야 합니다. nginx에
-련결된 OpenSSL은 3.5 이상이여야 합니다. 위장누리집은
-`X25519MLKEM768:X25519`만 내놓으며 **고전적열쇠교환으로 되돌아가지
-않습니다**. 조건에 맞지 않는 주계산기는 `install.sh`가 거절하며, 이미 설치된
-마디는 적용단계에서 실패하고 관리평면에 오유를 보여줍니다. 조용히 낮은
-수준으로 내려가지 않습니다.
+주계산기는 홀씨그림 하나를 쓰고 하나만 당겨옵니다. 흐름전달도구핵심, nginx,
+량자이후 TLS 라이브러리는 모두 그 홀씨그림안에 있으므로 주계산기의 배포판과
+OpenSSL 판본은 상관없습니다. 위장누리집은 `X25519MLKEM768:X25519`만 내놓으며
+**고전적열쇠교환으로 되돌아가지 않습니다**. 그를 못하는 홀씨그림은 조용히
+낮은 수준으로 내려가지 않고 적용단계에서 실패합니다.
 
 권장순서: 먼저 Worker를 전개하고, 필요하면 Cloudflare Access를 켜며, 마지막에
 마디를 추가합니다.
@@ -2390,7 +2421,7 @@ cp wrangler.example.jsonc wrangler.jsonc
 "routes": [{ "pattern": "cp.example.com", "custom_domain": true }],
 ```
 
-본보기에는 D1, R2, Workflow, 매일 cron, SPA 자원이 이미 묶여있습니다.
+본보기에는 D1, Workflow, 매일 cron, SPA 자원이 이미 묶여있습니다.
 `workers_dev: false`와 `preview_urls: false`를 그대로 두십시오. 관리평면은
 공개 주소가 하나만 있어야 하며, 그렇지 않으면 Cloudflare Access를 우회할수
 있습니다. `wrangler.jsonc`에는 실제 주소와 첫 전개 뒤에 기록되는 D1 id가
@@ -2435,16 +2466,7 @@ Cloudflare 관리화면 → My Profile → API Tokens → Create Token → Custo
 `_acme-challenge` TXT 레코드를 만들고 지우며 zone 목록을 읽을 때 쓰는
 토큰입니다. `wrangler login`의 인증정보와는 다른것입니다.
 
-#### 3.5 증명서 bucket 만들기
-
-```bash
-npx wrangler login
-npx wrangler r2 bucket create lessv-certs
-```
-
-이미 있으면 건너뜁니다. 다시 만들면 code 10004가 나오는데 해롭지 않습니다.
-
-#### 3.6 전개
+#### 3.5 전개
 
 ```bash
 npm run deploy -- --secrets-file .env.production
@@ -2456,7 +2478,7 @@ npm run deploy -- --secrets-file .env.production
 `--secrets-file`로만 비밀열쇠를 넣을수 있습니다. 아직 존재하지 않는 Worker에
 `wrangler secret put`을 쓸수 없기때문입니다.
 
-#### 3.7 검사
+#### 3.6 검사
 
 ```bash
 curl -fsS https://cp.example.com/api/health
@@ -2470,7 +2492,7 @@ npx wrangler workflows list
 열리는것은 SPA가 봉사된다는것만 뜻합니다. 마디목록이 보여야 D1과 관리 API가
 정상입니다.
 
-#### 3.8 판올림, 되돌리기, 비밀열쇠 변경
+#### 3.7 판올림, 되돌리기, 비밀열쇠 변경
 
 ```bash
 git pull
@@ -2500,7 +2522,7 @@ Worker를 전개한 다음 Access를 켜십시오. 전개 Script와 cloud-init�
 |---|---|---|
 | `/admin*` | **예** | 관리 SPA와 정적자원; 사람만 등록함 |
 | `/api/admin*` | **예** | 관리 API; 열람기는 Access 세션, Script는 봉사토큰을 씀 |
-| `/api/node/*` | **아니오** | `lessv-node`는 Bearer 토큰만 보내며 Access를 모름; 보호하면 모든 마디가 끊김 |
+| `/api/node/*` | **아니오** | 마디 서버는 Bearer 토큰만 보내며 Access를 모름; 보호하면 모든 마디가 끊김 |
 | `/sub/*` | **아니오** | 구독 클라이언트(v2rayN, Clash, Shadowrocket 등)는 Access를 거치지 못함; 보호하면 모든 구독이 끊김 |
 | `/api/health` | **아니오** | 전개 Script와 cloud-init이 도달성검사에 씀; 응답은 상수임 |
 | 마디 주소 `:443` | **해당없음** | 마디 A 레코드는 DNS only이며 흐름이 Cloudflare를 거치지 않음. 마디 방화벽은 80/443만 염 |
@@ -2552,7 +2574,7 @@ Include `Everyone` 정책을 가진 Self-hosted and private 응용프로그람�
 
 Zero Trust → Access controls → Service credentials → Service tokens → Create:
 
-1. 이름을 붙이고(례: `lessv-ops`) **Client ID**와 **Client Secret**를
+1. 이름을 붙이고(례: `vela-ops`) **Client ID**와 **Client Secret**를
    복사합니다(secret은 한번만 보임).
 2. **전체주소 응용프로그람**(Bypass가 아님)으로 돌아가 정책을 더합니다:
    Action `Service Auth`, Include `Service Token` → 방금 만든 토큰.
@@ -2638,79 +2660,93 @@ curl -sS -X POST -H "Authorization: Bearer $ADMIN_KEY" \
 **DNS only**(회색구름)이여야 합니다. REALITY와 nginx는 모두 443 직접련결을
 필요로 합니다. Cloudflare를 거치게 하면 통로가 망가집니다.
 
-#### 5.2 방식 A: SSH로 손수 설치
+#### 5.2 홀씨그림을 당겨오고 홀씨를 시작하기
 
-root SSH가 있는 임의의 VPS에 씁니다: Debian 13+ / Ubuntu 25.10+ / Alpine
-3.22+. 주계산기에는 `curl`과 `tar`가 필요합니다. 없으면 꾸러미관리기로 먼저
-설치하십시오.
+주계산기에는 compose 부속이 있는 Docker와 홀씨그림만 있으면 됩니다. 나머지는
+홀씨안에서 돕니다.
 
 ```bash
 ssh root@203.0.113.10
 
-VERSION=0.6.0
-BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
-case "$(uname -m)" in
-  x86_64) ARCH=amd64 ;;
-  aarch64) ARCH=arm64 ;;
-  *) echo "unsupported arch"; exit 1 ;;
-esac
-NAME=lessv-node-$VERSION-linux-$ARCH
+IMAGE=ghcr.io/example/vela-server:latest
+BINARY=/usr/local/bin/vela-server
 
-curl -fsSLO $BASE/$NAME.tar.gz
-curl -fsSLO $BASE/SHA256SUMS
-grep " $NAME.tar.gz\$" SHA256SUMS | sha256sum -c -
-tar -xzf $NAME.tar.gz
-cd $NAME
+docker pull "$IMAGE"
+cat > /etc/vela/compose.yaml <<'COMPOSE'
+services:
+  vela-server:
+    image: "${IMAGE}"
+    container_name: vela-server
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443/tcp"
+    stop_grace_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    volumes:
+      - vela-etc:/etc/lessv
+      - vela-state:/var/lib/lessv
 
-./install.sh --cp https://cp.example.com --node node1
+volumes:
+  vela-etc:
+  vela-state:
+COMPOSE
+
+# 한번 enroll: 토큰은 stdin으로 오고 인수목록에 남지 않습니다
+printf '%s\n' '<paste node token>' | docker run --rm -i \
+  --entrypoint "$BINARY" -v vela-etc:/etc/lessv "$IMAGE" \
+  enroll --cp https://cp.example.com --node node1 \
+  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+
+docker compose -f /etc/vela/compose.yaml up -d
 ```
 
-`VERSION`은 Gitee Releases의 현재 판본으로 바꾸십시오. `install.sh`는 마디 토큰을 가림입력으로 물은 다음:
-
-- `ca-certificates`, `curl`, `tar`, `unzip`, nginx와 흐름전달도구핵심을
-  설치합니다(공식 발표본, `.dgst` 검사);
-- `lessv-node`를 `/usr/local/bin/lessv-node`에 설치합니다;
-- `/etc/lessv`, `/etc/lessv/certs`, `/var/lib/lessv`,
-  `/var/lib/lessv/assets`, `/var/www/lessv-decoy`를 만듭니다;
-- systemd 또는 OpenRC 단위를 씁니다(흐름전달도구핵심은 nginx 다음에 시작);
-- `/etc/lessv/node.toml`(0600)을 쓰고 enroll하며 봉사를 켜고 시작합니다.
-
-마지막줄은 `lessv-node installed and started`입니다. 기록:
+바깥으로는 두 포트만 내놓으며 다른것은 열 필요가 없습니다. `vela-etc`는 신분과
+증명서 나무를, `vela-state`는 상태파일과 실행설정, geodata를 담습니다.
+`vela-etc`를 잃으면 다시 enroll해야 하고, `vela-state`를 잃으면 한번의
+동기화만 치르면 됩니다. 기록:
 
 ```bash
-journalctl -u lessv-node -n 50          # systemd
-tail -n 50 /var/log/lessv-node.log      # OpenRC
+docker compose -f /etc/vela/compose.yaml ps
+docker compose -f /etc/vela/compose.yaml logs -n 50
 ```
 
-판올림: 새 tarball을 받고 같은 명령을 다시 실행하십시오. `node.toml`이 이미
-있으면 `install.sh`는 토큰을 다시 쓰고 enroll하지 않습니다. 흐름전달도구핵심과
-geodata는 관리화면의 **Maintenance**로 따로 갱신할수 있습니다(첫째줄은
-전달도구 판본, 둘째줄은 Geodata).
+판올림: compose 파일의 tag를 바꾸고 `docker compose up -d`를 실행하거나,
+watchtower 같은 자동갱신기에 맡기십시오. 홀씨그림은 흐름전달도구핵심, nginx,
+서버를 함께 담으므로 판올림은 세가지를 함께 바꿉니다. 홀씨안에서 손으로 고친
+파일은 다음 재작성때 사라지며, 그것이 의도된것입니다. geodata는 여전히
+관리화면(**Maintenance → Refresh Geodata**)에서 갱신합니다.
 
 #### 5.3 방식 B: cloud-init
 
-자료고에는 [`scripts/alpine_cloud_init.yaml`](scripts/alpine_cloud_init.yaml)이
+자료고에는 [`scripts/vela_node_cloud_init.yaml`](scripts/vela_node_cloud_init.yaml)이
 있습니다. cloud-init이 도는 Alpine 3.22+ / OpenRC 화상에 쓰는 한번실행
-cloud-config입니다. BBR과 fd 한계를 올리고, nftables(80/443만)를 설치하고,
-sshd를 끄고 지우며, 발표본을 내리적재하고 `SHA256SUMS`를 검사한 다음
-`install.sh`를 실행하고 enroll합니다. 첫 시작 뒤 마디에는 SSH가 없습니다.
-관리화면에서 다스립니다. 고장난 마디는 고치지 않고 없애고 다시 만듭니다.
+cloud-config입니다. BBR과 fd 한계를 올리고, Docker와 nftables(80/443만)를
+설치하고, sshd를 끄고 지우며, compose 파일을 쓰고, 한번 enroll한 다음 봉사를
+시작합니다. 첫 시작 뒤 마디에는 SSH가 없습니다. 관리화면에서 다스립니다.
+고장난 마디는 고치지 않고 없애고 다시 만듭니다.
 
 절차:
 
 1. 5.1대로 마디, Domain, DNS, 토큰을 만드십시오.
 2. 본보기를 자료고밖의 림시파일(례: `/tmp/node1.yaml`)에 복사하십시오.
-   `write_files` 우의 `/root/lessv.env` 부분만 고치십시오:
+   `write_files` 우의 `/root/vela.env` 부분만 고치십시오:
 
    ```yaml
    NODE_ID="node1"
    CP_URL="https://cp.example.com"
    TOKEN="<paste node token>"
-   VERSION="0.6.0"
+   IMAGE="ghcr.io/example/vela-server:latest"
+   BINARY="/usr/local/bin/vela-server"
    ```
 
-   `CP_URL` 끝에 슬레쉬를 넣지 마십시오. `VERSION`은 현재 발표본입니다.
-   나머지는 고치지 마십시오.
+   `CP_URL` 끝에 슬레쉬를 넣지 마십시오. `IMAGE`는 tag를 포함한 완전한
+   지시이며, 주계산기는 바로 그 지시를 당겨옵니다. 나머지는 고치지 마십시오.
 3. VPS 봉사자에서 Alpine 3.22+ 실례를 만들고 그 파일을 **user-data**로
    넘기십시오. 봉사자 방화벽에서 들어오는 TCP 80/443을 려십시오(22는 필요
    없음; 본보기가 sshd를 끔).
@@ -2721,13 +2757,13 @@ sshd를 끄고 지우며, 발표본을 내리적재하고 `SHA256SUMS`를 검사
    토큰으로 다시 만드십시오. cloud-init은 한번만 돕니다.
 
 안전주의: 토큰은 user-data에 있고 봉사자의 메터자료에 남습니다. 본보기는
-주계산기의 `/root/lessv.env`와 bootstrap 파일을 지우지만 봉사자쪽 기록은
+주계산기의 `/root/vela.env`와 bootstrap 파일을 지우지만 봉사자쪽 기록은
 지울수 없습니다. 믿을수 있는 봉사자에서만 쓰십시오. 페기는 관리화면에서 마디
 레코드를 지우는것입니다(토큰은 즉시 무효). 생성된 user-data를 자료고에
 commit하지 마십시오.
 
-본보기는 Alpine/OpenRC 전용입니다. Debian/Ubuntu는 5.2를 쓰십시오. OpenRC
-Script를 systemd 주계산기에 넣지 마십시오.
+본보기는 Alpine/OpenRC 전용입니다. 다른 배포판에서는 Docker를 직접 설치하고
+5.2를 따르십시오. OpenRC Script를 systemd 주계산기에 넣지 마십시오.
 
 #### 5.4 첫 흐름전달도구핵심 설정 쓰기
 
@@ -2817,7 +2853,7 @@ UTC cron이 자동으로 갱신하며 마디는 다시 배정하지 않아도 �
    - `?target=uri`는 VLESS 목록을 강제합니다.
 
    **Names → Subscription title**은 프로필에 표시 이름을 붙입니다(예:
-   `LessV · {username}`, 필드 `{username}`, `{status}`). 이름은
+   `Vela · {username}`, 필드 `{username}`, `{status}`). 이름은
    `profile-title: base64:…` 헤더로 나가며 v2rayN, Clash Verge 같은
    클라이언트가 보여줍니다. 비워 두면 헤더를 보내지 않아 응답이 이전과
    똑같습니다.
@@ -2847,10 +2883,10 @@ inbound의 추가 변형(CDN 앞단, 다른 포트, 다른 SNI)은 URI 매개변
 
 | 증상 | 먼저 볼것 | 고치기 |
 |---|---|---|
-| 마디가 끝내 나타나지 않음 | DNS가 DNS only인가; 들어오는 80/443; 나가는 80/443; 토큰을 온전히 복사했는가; 주계산기 시계 | 망을 고치거나 새 토큰을 만드십시오; `journalctl -u lessv-node -n 50` |
+| 마디가 끝내 나타나지 않음 | DNS가 DNS only인가; 내놓은 80/443; 나가는 80/443과 홀씨그림 창고; 토큰을 온전히 복사했는가; 주계산기 시계 | 망을 고치거나 새 토큰을 만드십시오; `docker compose -f /etc/vela/compose.yaml logs -n 50` |
 | 마디는 있으나 `health`가 틀림 | `last_error`, `applied_hash`와 `desired_hash` | 마디 기록(마디가 적용 전에 설정을 검사합니다) |
 | 설정을 저장해도 적용되지 않음 | JSON 정확성; REALITY `privateKey`가 비였는가; `serverNames`가 도메인을 덮는가 | 고치고 Save; 마디는 이전의 쓸수 있는 설정을 지킴 |
-| `nginx_ok=0` | `nginx_error`; 주계산기 OpenSSL >= 3.5 | Debian 13+/Ubuntu 25.10+/Alpine 3.22+로 옮기십시오; 고전적 되돌림은 없음 |
+| `nginx_ok=0` | `nginx_error` | 위장누리집의 TLS 라이브러리는 홀씨그림안에 있습니다; 어느 tag가 도는지 보고 홀씨그림을 다시 만드십시오 |
 | 증명서 발급 실패 | `issue_runs`의 phase/error; DNS 토큰의 zone 범위; CAA; LE 한도 | 먼저 Test issue; 생산 실패를 고리로 되풀이하지 마십시오 |
 | 마디가 증명서를 받지 못함 | 배정표시; 환경이 맞는가; `cert_etag`가 걸렸는가 | 배정을 다시 저장하고 manifest ETag를 비교하십시오 |
 | 구독이 비여있음 | 사용자가 disabled/만료; inbound/outbound 권한없음; 마디 address 없음 | 권한이나 상태를 고치십시오; 빈 body는 200이며 404가 아님 |
@@ -2859,14 +2895,13 @@ inbound의 추가 변형(CDN 앞단, 다른 포트, 다른 SNI)은 URI 매개변
 
 마디 보수:
 
-- **전달도구 판올림**: 기본 `latest` 또는 고정 tag. 마디는 `.dgst`를 검사하고
-  현재 설정을 시험하며 옛 실행파일을 예비복사한 다음 바꾸고 다시 시작합니다.
-  어느 단계든 실패하면 옛 실행파일을 되돌립니다.
 - **Refresh Geodata**: 상류 rules-dat 발표본에서 full `geoip.dat`/
   `geosite.dat`를 받고 검사한 다음 흐름전달도구핵심을 다시 시작합니다. 처음에는
   조건없이 설치하고, 그 다음 설정에 `geoip:`/`geosite:`가 있는한 7일마다 갱신합니다.
-- 두 동작의 상태는 마디 머리부분과 `GET /api/admin/nodes/<id>/sync`의
+- 동작의 상태는 마디 머리부분과 `GET /api/admin/nodes/<id>/sync`의
   `actions`에 보입니다.
+- **흐름전달도구핵심은 관리화면에서 판올림하지 않습니다.** 홀씨그림안에 있으므로
+  판올림은 곧 홀씨그림 교체입니다(5.2).
 
 마디 삭제: **Delete**는 그 마디의 토큰, 설정, 사용자권한, endpoint 등록부,
 REALITY 열쇠, 증명서 배정을 지웁니다. 증명서 도메인과 발급력사는 도메인
@@ -2875,9 +2910,9 @@ REALITY 열쇠, 증명서 배정을 지웁니다. 증명서 도메인과 발급�
 마디는 `node.toml`을 고쳐야 다시 련결됩니다.
 
 예비복사: 적어도 `KEY_SECRET`, `.env.production`, D1(관리화면의 export 또는
-point-in-time restore), R2 증명서 bucket을 복사하십시오. `KEY_SECRET`이 없으면
-자료기지의 REALITY/증명서/ACME 비밀열쇠를 풀수 없습니다. R2의 증명서는 다시
-발급할수 있지만 비밀열쇠는 그럴수 없습니다.
+point-in-time restore)을 복사하십시오. D1에는 상태와 증명서 산물이 함께
+있습니다. `KEY_SECRET`이 없으면 자료기지의 REALITY/증명서/ACME 비밀열쇠를 풀수
+없습니다. 증명서는 다시 발급할수 있지만 비밀열쇠는 그럴수 없습니다.
 
 ### 7. 안전경계와 알려진 한계
 
@@ -2885,8 +2920,8 @@ point-in-time restore), R2 증명서 bucket을 복사하십시오. `KEY_SECRET`�
   대신하는것이 아닙니다.
 - `KEY_SECRET`은 돌릴수 없습니다. 돌리면 저장된 모든 마디열쇠, 증명서열쇠,
   ACME 계정을 읽을수 없습니다.
-- 마디 토큰은 해시로만 저장되고 한번만 보입니다. `/etc/lessv/node.toml`은
-  0600을 지켜야 합니다.
+- 마디 토큰은 해시로만 저장되고 한번만 보입니다. `vela-etc` 론안의 토큰
+  파일(`/etc/lessv/node.toml`)은 0600을 지켜야 합니다.
 - 구독 URL은 capability 증표입니다. 새면 그 사용자의 구독을 넘겨주는것과
   같습니다. 즉시 Rotate하십시오.
 - cloud-init은 토큰을 user-data와 봉사자 메터자료에 둡니다. 믿을수 없는
@@ -2899,11 +2934,13 @@ point-in-time restore), R2 증명서 bucket을 복사하십시오. `KEY_SECRET`�
   련결에 `pbk`가 없고 REALITY 악수가 끝나지 않습니다.
 - 마디를 지워도 주계산기의 적용된 설정은 지워지지 않습니다. 주계산기는 따로
   퇴역시키십시오.
-- nginx 위장설정과 `index.html`은 마디가 만들고 관리합니다. `index.html`의
-  표식을 지우면 사용자정의가 되지만, 판올림은 고치지 않은 화면을 새로
-  고칩니다.
+- nginx 위장설정과 `index.html`은 서버가 만들고 관리합니다. `index.html`의
+  표식을 지우면 사용자정의가 되지만, 홀씨그림 판올림은 고치지 않은 화면을
+  새로 고칩니다.
 - 위장누리집은 TLS 1.3 + `X25519MLKEM768:X25519`이며 비PQ 되돌림이 없습니다.
-  OpenSSL < 3.5 주계산기는 설치나 적용에서 실패합니다.
+  이것을 설정하는곳은 홀씨그림안뿐입니다.
+- `X-Lessv-Node`는 서버 신분 머리말이고 `/dev/shm/lessv-decoy.sock`은 REALITY의
+  `dest`입니다. 둘 다 제품이름이 아니라 굳어진 프로토콜값입니다.
 - `BLOCK`은 큰글자여야 합니다. 작은글자 `block`은 길이 있는 출구로
   취급됩니다.
 - WARP 등록은 Cloudflare app API를 씁니다. 실패하면 502를 돌려주며 절반설정을
@@ -2913,8 +2950,8 @@ point-in-time restore), R2 증명서 bucket을 복사하십시오. `KEY_SECRET`�
   부족합니다.
 - staging 증명서는 갱신되지 않고 7일 뒤 지워집니다. 오래 사는 시험마디는
   Test issue를 다시해야 합니다.
-- 이 설명서는 `lessv-node 0.6.0`과 프로토콜 3을 설명합니다. 현재 판본은
-  [Gitee Releases](https://gitee.com/realumino/lessv/releases)에서 보십시오.
+- 이 설명서는 프로토콜 3과 `vela-server` 홀씨그림을 설명합니다. 현재 tag는
+  서버 자료고에서 보십시오.
 
 ### 8. 더 읽을것
 
@@ -2927,12 +2964,13 @@ point-in-time restore), R2 증명서 bucket을 복사하십시오. `KEY_SECRET`�
 <a id="tk"></a>
 ## Türkmençe
 
-### 1. LessV näme?
+### 1. Vela näme?
 
-LessV — Cloudflare Workers-de işleýän, özüňiz dolandyrýan trafik geçiriji
+Vela — Cloudflare Workers-de işleýän, özüňiz dolandyrýan trafik geçiriji
 dolandyryş tekizligi. Dolandyryş tekizligi Cloudflare Workers-de işleýär;
-dolandyryş SPA-si `/admin` astynda berilýär; her düwünde [LessV-Node](https://github.com/realumino/LessV-Node)-da
-saklanýan düwün serweri işleýär. Düwünler islenýän konfigurasiýasyny we
+dolandyryş SPA-si `/admin` astynda berilýär; her düwünde
+[LessV-Node](https://github.com/realumino/LessV-Node)-da saklanýan
+`vela-server` konteýner obrazy işleýär. Düwünler islenýän konfigurasiýasyny we
 şahadatnamalaryny panelden çekýärler. Panel düwüne hiç wagt özi birikmeýär.
 
 ```
@@ -2941,11 +2979,11 @@ Brauzer ── /admin ─────────────► Worker (Hono + 
                                    │  /api/node/*   ← düwün tokeni
                                    │  /sub/{token}  ← abuna tokeni
                                    ▼
-                                  D1 (maglumat) · R2 (şahadatnamalar) · Workflow (ACME)
+                                  D1 (maglumat we şahadatnamalar) · Workflow (ACME)
 
 Ulanyjy ── /sub/{token} ──► abuna ──► baglanyşyklar (D1-den döredilýär)
 
-Düwün ── trafik geçiriji ýadro (REALITY :443) ──► düwün serweri (Rust)
+Düwün ── trafik geçiriji ýadro (REALITY :443) ──► vela-server (obraz)
         ▲ nginx ýasama saýt (Unix socket) │
         └── şahadatnama faýllary ◄── GET /api/node/certs ◄── ACME (DNS-01)
 ```
@@ -2961,20 +2999,19 @@ diňletmäň.
 
 | Zat | Talap |
 |---|---|
-| Cloudflare | Hasaba birikdirilen zona; R2 açyk; Workers, D1, Workflows elýeterli |
+| Cloudflare | Hasaba birikdirilen zona; Workers, D1, Workflows elýeterli |
 | Ýerli maşyn | Node.js 22 LTS+ we npm |
 | Panel domeni | Mysal üçin `cp.example.com`, Cloudflare Custom Domain arkaly |
 | Düwün domeni | Mysal üçin `node1.example.com`, **diňe DNS** (çar şemal), düwün IP-sine |
-| Düwün serweri | Debian 13+ / Ubuntu 25.10+ / Alpine 3.22+, root, 80/443 boş |
-| Çykyş | Düwün 80/443-e ýetýär: distributiw ammarlary, Gitee, GitHub, panel HTTPS |
+| Düwün serweri | Docker we compose goşundysy bolan islendik Linux, root, 80/443 boş |
+| Çykyş | Düwün 80/443-e ýetýär: obraz ammary, panel HTTPS |
 | Ätiýaçlyk | `KEY_SECRET`, `.env.production`, D1 ätiýaçlygy, düwün tokenleri |
 
-Düwün serweri TLS 1.3 we kwantdan soňky gibrid topary goldamaly: nginx
-OpenSSL >= 3.5 bilen baglanmaly. Ýasama saýt diňe
-`X25519MLKEM768:X25519`-i hödürleýär we **klassik açar çalşygyna yza
-gaýtmaýar**. Bu şerti ýerine ýetirmeýän serweri `install.sh` ret edýär;
-eýýäm gurlan düwün apply tapgyrynda şowsuz bolýar we ýalňyşlygy panelde
-görkezýär, ümsüm ýagdaýda peseltmeýär.
+Serwer bir konteýner we bir obraz ulanýar. Ýadro, nginx we kwantdan soňky TLS
+kitaphanasy şol obrazyň içindedir, şonuň üçin serweriň distributiwi we OpenSSL
+wersiýasy möhüm däl: ýasama saýt diňe `X25519MLKEM768:X25519`-i hödürleýär we
+**klassik açar çalşygyna yza gaýtmaýar**; muny edip bilmeýän obraz ümsüm
+peselmeýär-de, apply tapgyrynda şowsuz bolýar.
 
 Maslahat berilýän tertip: ilki Worker-i ýerleşdiriň, soň isleseňiz
 Cloudflare Access-i açyň, iň soňunda düwün goşuň.
@@ -3002,7 +3039,7 @@ cp wrangler.example.jsonc wrangler.jsonc
 "routes": [{ "pattern": "cp.example.com", "custom_domain": true }],
 ```
 
-Şablon D1, R2, Workflow, gündelik cron we SPA faýllaryny eýýäm baglaýar.
+Şablon D1, Workflow, gündelik cron we SPA faýllaryny eýýäm baglaýar.
 `workers_dev: false` we `preview_urls: false` bolmaly: paneliň diňe bir
 açyk domeni bolmaly, ýogsa Cloudflare Access-i aýlanyp geçip bolýar.
 `wrangler.jsonc` hakyky domeni we ilkinji ýerleşdirmeden soň ýazylýan D1
@@ -3047,16 +3084,7 @@ Bahany `.env.production` faýlyndaky `CF_DNS_API_TOKEN`-a goýuň. Bu tokeni
 Worker `_acme-challenge` TXT ýazgylaryny döretmek/öçürmek we zona sanawyny
 okamak üçin ulanýar; ol `wrangler login` maglumaty däl.
 
-#### 3.5 Şahadatnama buketini döretmek
-
-```bash
-npx wrangler login
-npx wrangler r2 bucket create lessv-certs
-```
-
-Eýýäm bar bolsa, geçiň; täzeden döretmek 10004 koduny berýär, bu zyýansyz.
-
-#### 3.6 Ýerleşdirmek
+#### 3.5 Ýerleşdirmek
 
 ```bash
 npm run deploy -- --secrets-file .env.production
@@ -3069,7 +3097,7 @@ Ilkinji ýerleşdirmede gizlinleri diňe `--secrets-file` arkaly bermek
 bolýar, sebäbi `wrangler secret put` entek döredilmedik Worker-e ýüzlenip
 bilmeýär.
 
-#### 3.7 Barlamak
+#### 3.6 Barlamak
 
 ```bash
 curl -fsS https://cp.example.com/api/health
@@ -3083,7 +3111,7 @@ npx wrangler workflows list
 açylmagy diňe SPA-nyň işleýändigini aňladýar; düwünleriň sanawy D1 we
 dolandyryş API-siniň işleýändigini aňladýar.
 
-#### 3.8 Täzelemek, yzyna gaýtarmak we gizlinleri üýtgetmek
+#### 3.7 Täzelemek, yzyna gaýtarmak we gizlinleri üýtgetmek
 
 ```bash
 git pull
@@ -3113,7 +3141,7 @@ cloud-init ikisi hem `/api/health`-e mätäç.
 |---|---|---|
 | `/admin*` | **Hawa** | Dolandyryş SPA we statik faýllar; diňe adamlar girýär |
 | `/api/admin*` | **Hawa** | Dolandyryş API; brauzer Access sessiýasyny, skriptler hyzmat tokenini ulanýar |
-| `/api/node/*` | **Ýok** | `lessv-node` diňe Bearer token iberýär we Access-i bilmeýär; gorasaňyz, ähli düwünler aýrylýar |
+| `/api/node/*` | **Ýok** | Düwün serweri diňe Bearer token iberýär we Access-i bilmeýär; gorasaňyz, ähli düwünler aýrylýar |
 | `/sub/*` | **Ýok** | Abuna klientleri (v2rayN, Clash, Shadowrocket we başgalar) Access-den geçip bilmeýär; gorasaňyz, ähli abunalar bozulýar |
 | `/api/health` | **Ýok** | Ýerleşdirme skripti we cloud-init onuň bilen elýeterliligi barlaýar; jogap hemişe birmeňzeş |
 | Düwün domeni `:443` | **Degişli däl** | Düwüniň A ýazgysy diňe DNS; trafik Cloudflare-den geçmeýär. Düwüniň gorag diwary diňe 80/443-i açýar |
@@ -3170,7 +3198,7 @@ hem şowsuz bolýar.
 
 Zero Trust → Access controls → Service credentials → Service tokens → Create:
 
-1. At beriň (mysal üçin `lessv-ops`) we **Client ID** bilen **Client
+1. At beriň (mysal üçin `vela-ops`) we **Client ID** bilen **Client
    Secret**-i göçüriň (secret diňe bir gezek görkezilýär).
 2. **Ähli hosty gurşap alýan programma** gaýdyp geliň (Bypass programa
    däl) we syýasat goşuň: Action `Service Auth`, Include `Service Token` →
@@ -3256,82 +3284,96 @@ Ilki DNS dörediň: `node1.example.com` üçin A ýazgysy düwüniň IP-sine,
 **diňe DNS** (çar şemal). REALITY we nginx ikisi hem göni 443 talap edýär;
 Cloudflare-den geçýän ýazgy tuneli bozýar.
 
-#### 5.2 A usuly: SSH bilen elde gurmak
+#### 5.2 Obrazy çekmek we konteýneri başlatmak
 
-Root SSH bar bolan islendik VPS üçin: Debian 13+ / Ubuntu 25.10+ / Alpine
-3.22+. Serwerde `curl` we `tar` bolmaly; ýok bolsa, ilki bilen paket
-dolandyrijysy bilen guruň.
+Serwere diňe compose goşundysy bilen Docker we obrazyň özi gerek; galan zat
+konteýneriň içinde işleýär.
 
 ```bash
 ssh root@203.0.113.10
 
-VERSION=0.6.0
-BASE=https://gitee.com/realumino/lessv/releases/download/node-v$VERSION
-case "$(uname -m)" in
-  x86_64) ARCH=amd64 ;;
-  aarch64) ARCH=arm64 ;;
-  *) echo "unsupported arch"; exit 1 ;;
-esac
-NAME=lessv-node-$VERSION-linux-$ARCH
+IMAGE=ghcr.io/example/vela-server:latest
+BINARY=/usr/local/bin/vela-server
 
-curl -fsSLO $BASE/$NAME.tar.gz
-curl -fsSLO $BASE/SHA256SUMS
-grep " $NAME.tar.gz\$" SHA256SUMS | sha256sum -c -
-tar -xzf $NAME.tar.gz
-cd $NAME
+docker pull "$IMAGE"
+cat > /etc/vela/compose.yaml <<'COMPOSE'
+services:
+  vela-server:
+    image: "${IMAGE}"
+    container_name: vela-server
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443/tcp"
+    stop_grace_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    volumes:
+      - vela-etc:/etc/lessv
+      - vela-state:/var/lib/lessv
 
-./install.sh --cp https://cp.example.com --node node1
+volumes:
+  vela-etc:
+  vela-state:
+COMPOSE
+
+# bir gezeklik enroll: token stdin-den gelýär, argument sanawyna düşmeýär
+printf '%s\n' '<paste node token>' | docker run --rm -i \
+  --entrypoint "$BINARY" -v vela-etc:/etc/lessv "$IMAGE" \
+  enroll --cp https://cp.example.com --node node1 \
+  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+
+docker compose -f /etc/vela/compose.yaml up -d
 ```
 
-`VERSION`-y Gitee Releases-daky häzirki wersiýa bilen çalyşyň. `install.sh`
-düwün tokenini gizlin giriş bilen soraýar, soň:
-
-- `ca-certificates`, `curl`, `tar`, `unzip`, nginx we trafik geçiriji
-  ýadro gurýar (resmi çykarylyş, `.dgst` barlanýar);
-- `lessv-node`-y `/usr/local/bin/lessv-node`-a gurýar;
-- `/etc/lessv`, `/etc/lessv/certs`, `/var/lib/lessv`,
-  `/var/lib/lessv/assets`, `/var/www/lessv-decoy` döredýär;
-- systemd ýa-da OpenRC unitini ýazýar (ýadro nginx-den soň başlaýar);
-- `/etc/lessv/node.toml` (0600) ýazýar, enroll edýär, açýar we başlaýar.
-
-Iň soňky setir `lessv-node installed and started`. Žurnallar:
+Daşyna diňe iki port çykarylýar, başga zat açylmaly däl. `vela-etc` şahsyýeti
+we şahadatnama agajyny saklaýar; `vela-state` ýagdaý faýlyny, işleýän
+konfigurasiýany we geodata-ny. `vela-etc` ýitse täzeden enroll etmeli; 
+`vela-state` ýitse bir sinhronlaşma ýeter. Žurnallar:
 
 ```bash
-journalctl -u lessv-node -n 50          # systemd
-tail -n 50 /var/log/lessv-node.log      # OpenRC
+docker compose -f /etc/vela/compose.yaml ps
+docker compose -f /etc/vela/compose.yaml logs -n 50
 ```
 
-Täzelemek: täze tarball-y ýükläp, şol buýruklary gaýtalaň. `node.toml` bar
-bolsa, `install.sh` tokeni gaýtadan ulanýar we enroll etmeýär. Ýadro we
-geodata paneliň **Maintenance** bölüminden aýratyn hem täzelenip bilner
-(birinji setir ýadro wersiýasy, ikinji setir Geodata).
+Täzelemek: compose faýlyndaky tagy üýtgedip `docker compose up -d` işlediň
+ýa-da watchtower ýaly awtomatik täzeläji muny etsin. Obraz ýadrony, nginx-i we
+serweri bilelikde saklaýar, şonuň üçin täzeleme üçüsini hem çalyşýar;
+konteýneriň içinde elde üýtgedilen faýl indiki täzeden döretmekde ýitýär we bu
+bilgeşleýin. geodata henizem panelden (**Maintenance → Refresh Geodata**)
+täzelenýär.
 
 #### 5.3 B usuly: cloud-init
 
-Ammar [`scripts/alpine_cloud_init.yaml`](scripts/alpine_cloud_init.yaml)
+Ammar [`scripts/vela_node_cloud_init.yaml`](scripts/vela_node_cloud_init.yaml)
 faýlyny saklaýar — cloud-init işleýän Alpine 3.22+ / OpenRC obrazlary üçin
-bir gezeklik cloud-config. Ol BBR we fd çäklerini ýokarlandyrýar, nftables
-(diňe 80/443) gurýar, sshd-ni öçürýär we aýyrýar, çykarylyşy ýükläp,
-`SHA256SUMS`-y barlaýar, `install.sh`-y işledýär we enroll edýär. Ilkinji
-açylyşdan soň düwünde SSH ýok; dolandyryş panelden bolýar. Bozulan düwüni
-üýtgedip bejermäň: ýok ediň we täzeden dörediň.
+bir gezeklik cloud-config. Ol BBR we fd çäklerini ýokarlandyrýar, Docker we
+nftables (diňe 80/443) gurýar, sshd-ni öçürýär we aýyrýar, compose faýlyny
+ýazýar, bir gezek enroll edýär we serwisi başlaýar. Ilkinji açylyşdan soň
+düwünde SSH ýok; dolandyryş panelden bolýar. Bozulan düwüni üýtgedip
+bejermäň: ýok ediň we täzeden dörediň.
 
 Ädimler:
 
 1. 5.1-e görä düwüni, Domain-i, DNS-i we tokeni dörediň.
 2. Şablony ammaryň daşyndaky wagtlaýyn faýla göçüriň (mysal üçin
    `/tmp/node1.yaml`). Diňe `write_files`-iň ýokarsyndaky
-   `/root/lessv.env` bölümini üýtgediň:
+   `/root/vela.env` bölümini üýtgediň:
 
    ```yaml
    NODE_ID="node1"
    CP_URL="https://cp.example.com"
    TOKEN="<paste node token>"
-   VERSION="0.6.0"
+   IMAGE="ghcr.io/example/vela-server:latest"
+   BINARY="/usr/local/bin/vela-server"
    ```
 
-   `CP_URL`-iň soňunda slaş bolmaly däl; `VERSION` häzirki çykarylyş.
-   Galan zady üýtgetmäň.
+   `CP_URL`-iň soňunda slaş bolmaly däl; `IMAGE` tagy bilen doly salgylanma we
+   serweriň çekýän zady hut şoldur. Galan zady üýtgetmäň.
 3. VPS üpjün edijisinde Alpine 3.22+ instansyny dörediň we faýly
    **user-data** hökmünde beriň. Gorag diwarynda giriş TCP 80/443 açyň (22
    gerek däl; şablon sshd-ni öçürýär).
@@ -3342,14 +3384,14 @@ açylyşdan soň düwünde SSH ýok; dolandyryş panelden bolýar. Bozulan düw�
    düwün ID-si we tokeni bilen täzeden dörediň. cloud-init bir gezek işleýär.
 
 Howpsuzlyk belligi: token user-data-da bolýar we üpjün edijiniň
-metamaglumatlary ony saklaýar. Şablon serwerdäki `/root/lessv.env` we
+metamaglumatlary ony saklaýar. Şablon serwerdäki `/root/vela.env` we
 bootstrap faýllaryny pozýar, ýöne üpjün edijiniň ýazgysyny pozup bilmeýär.
 Diňe ynamdar üpjün edijide ulanyň; ýatyrmak panelde düwün ýazgysyny
 öçürmekdir (token derrew işlemeýär). Işlenen user-data-ny ammara commit
 etmäň.
 
-Şablon Alpine/OpenRC üçin niýetlenen. Debian/Ubuntu üçin 5.2-ni ulanyň;
-OpenRC skriptlerini systemd serwerine goýmaň.
+Şablon Alpine/OpenRC üçin niýetlenen. Beýleki distributiwde Docker-i özüňiz
+guryň we 5.2-ä eýeriň; OpenRC skriptlerini systemd serwerine goýmaň.
 
 #### 5.4 Ilkinji konfigurasiýany ýazmak
 
@@ -3443,7 +3485,7 @@ täze bellemäsiz yzarlaýar.
    - `?target=uri` VLESS sanawyny mejbur edýär.
 
    **Names → Subscription title** profile görkezijä at berýär (meselem
-   `LessV · {username}`; meýdanlar `{username}`, `{status}`). Ol
+   `Vela · {username}`; meýdanlar `{username}`, `{status}`). Ol
    `profile-title: base64:…` sözbaşysy bilen gidýär we v2rayN, Clash Verge
    ýaly klientler ony görkezýär; boş goýsaň hiç hili sözbaşy iberilmeýär we
    jogap öňki ýaly bolýar.
@@ -3470,10 +3512,10 @@ täze bellemäsiz yzarlaýar.
 
 | Alamaty | Ilki barlaň | Düzediş |
 |---|---|---|
-| Düwün hiç görünmeýär | DNS diňe DNS-mi; giriş 80/443; çykyş 80/443; token doly göçürildimi; serwer sagadymy | Tora düzediş ediň ýa täze token dörediň; `journalctl -u lessv-node -n 50` |
+| Düwün hiç görünmeýär | DNS diňe DNS-mi; çykarylan 80/443; çykyş 80/443 we obraz ammary; token doly göçürildimi; serwer sagadymy | Tora düzediş ediň ýa täze token dörediň; `docker compose -f /etc/vela/compose.yaml logs -n 50` |
 | Düwün bar, `health` nädogry | `last_error`, `applied_hash` bilen `desired_hash` | Düwüniň žurnalyny okaň; düwün apply-dan öň konfigurasiýany barlaýar |
 | Konfigurasiýa saklandy, ýöne işlemeýär | JSON dogrumy; REALITY `privateKey` boşmy; `serverNames` domeni öz içine alýarmy | Düzediň we Save; düwün öňki işleýän konfigurasiýany saklaýar |
-| `nginx_ok=0` | `nginx_error`; serwerde OpenSSL >= 3.5 | Debian 13+/Ubuntu 25.10+/Alpine 3.22+ geçiň; klassik yza gaýtma ýok |
+| `nginx_ok=0` | `nginx_error` | Ýasama saýtyň TLS kitaphanasy obrazyň içinde; haýsy tagyň işleýändigini barlap, obrazy täzeden gurmaly |
 | Şahadatnama çykarylmaýar | `issue_runs` phase/error; DNS tokeniniň zona çägi; CAA; LE çägi | Ilki Test issue; önümçilik şowsuzylygyny aýlawda gaýtalamanyň |
 | Düwün şahadatnama almaýar | Belleniş barlanýarmy; gurşaw dogrumy; `cert_etag` düşüp galdymy | Assignment-y täzeden saklaň; manifest ETag bilen deňeşdiriň |
 | Abuna boş | Ulanyjy disabled/möhleti geçen; inbound/outbound hukugy ýok; düwünde address ýok | Hukugy ýa ýagdaýy düzediň; boş jogap 200, 404 däl |
@@ -3482,15 +3524,14 @@ täze bellemäsiz yzarlaýar.
 
 Düwüniň tehniki hyzmaty:
 
-- **Ýadro täzelesi**: deslapky `latest` ýa-da kesgitli tag. Düwün `.dgst`-i
-  barlaýar, häzirki konfigurasiýany synaýar, köne binary-ny ätiýaçlaýar,
-  çalyşýar, täzeden başlaýar we şowsuzylykda köne binary-ny yzyna gaýtarýar.
 - **Refresh Geodata**: `geoip.dat`/`geosite.dat`-yň full wersiýasyny
   ýokary akym rules-dat çykarylyşyndan ýükläp, barlaýar we ýadrony täzeden
   başlaýar. Ilkinji gezek şertsiz gurýar, soň konfigurasiýada
   `geoip:`/`geosite:` bar bolsa her 7 günde täzeläýär.
-- Iki hereketiň ýagdaýy düwüniň ýokarsynda we
+- Hereketiň ýagdaýy düwüniň ýokarsynda we
   `GET /api/admin/nodes/<id>/sync` jogabynyň `actions` bölüminde görünýär.
+- **Ýadro panelden täzelenmeýär.** Ol obrazyň içinde; täzeleme diýmek obrazy
+  çalyşmak diýmekdir (5.2).
 
 Düwüni öçürmek: **Delete** düwüniň tokenini, konfigurasiýasyny, ulanyjy
 hukuklaryny, endpoint registrini, REALITY açarlaryny we şahadatnama
@@ -3499,11 +3540,11 @@ bolup, täsir etmeýär. Maşyn soňky konfigurasiýasyny işledip durýar; ony
 aýratyn ýok ediň. Tokeni täzeden döretmek köne tokeni derrew ýatyryýar; bar
 bolan düwün `node.toml`-y täzeläp bilýär.
 
-Ätiýaçlyk: iň bolmanda `KEY_SECRET`, `.env.production`, D1 (Cloudflare
-panelinde export ýa point-in-time restore) we R2 şahadatnama buketi.
-`KEY_SECRET` bolmasa, REALITY/şahadatnama/ACME hususy açarlaryny açyp
-bolmaýar. R2-däki şahadatnamalary täzeden çykaryp bolýar; hususy açarlary
-bolmaýar.
+Ätiýaçlyk: iň bolmanda `KEY_SECRET`, `.env.production` we D1 (Cloudflare
+panelinde export ýa point-in-time restore). D1-de hem ýagdaý, hem
+şahadatnama önümleri saklanýar. `KEY_SECRET` bolmasa,
+REALITY/şahadatnama/ACME hususy açarlaryny açyp bolmaýar. Şahadatnamalary
+täzeden çykaryp bolýar; hususy açarlary bolmaýar.
 
 ### 7. Howpsuzlyk çäkleri we belli çäklendirmeler
 
@@ -3512,7 +3553,7 @@ bolmaýar.
 - `KEY_SECRET` çalşylmaýar. Çalşyrsaňyz, saklanýan ähli düwün açarlary,
   şahadatnama açarlary we ACME hasaby okalmaz bolýar.
 - Düwün tokenleri diňe hash görnüşinde saklanýar we bir gezek görkezilýär;
-  `/etc/lessv/node.toml` 0600 bolmaly.
+  `vela-etc` jiltindäki token faýly (`/etc/lessv/node.toml`) 0600 bolmaly.
 - Abuna URL-si kepil: syrsa, şol ulanyjynyň abunasyny başga birine
   berýärsiňiz. Derrew Rotate ediň.
 - cloud-init tokeni user-data-a we üpjün edijiniň metamaglumatlaryna
@@ -3527,11 +3568,14 @@ bolmaýar.
   gutarmýar.
 - Düwüni öçürmek maşyndaky işledilen konfigurasiýany pozmaýar; serweri
   aýratyn işden çykaryň.
-- nginx ýasama konfigurasiýasy we `index.html` düwün tarapyndan döredilýär
+- nginx ýasama konfigurasiýasy we `index.html` serwer tarapyndan döredilýär
   we dolandyrylýar. `index.html`-däki belgini aýyrsaňyz, sahypa öz
-  sahypaňyz bolýar, ýöne täzeleme üýtgedilmedik sahypalary täzeläýär.
-- Ýasama saýt TLS 1.3 + `X25519MLKEM768:X25519`, PQ däl yza gaýtma ýok;
-  OpenSSL < 3.5 serwer gurmakda ýa apply-da şowsuz bolýar.
+  sahypaňyz bolýar, ýöne obraz täzelemesi üýtgedilmedik sahypalary täzeläýär.
+- Ýasama saýt TLS 1.3 + `X25519MLKEM768:X25519`, PQ däl yza gaýtma ýok we
+  bu diňe obrazyň içinde sazlanýar.
+- `X-Lessv-Node` serweriň şahsyýet sözbaşysy, `/dev/shm/lessv-decoy.sock`
+  bolsa REALITY-niň `dest`-i: ikisi hem önümiň ady däl, doňdurylan protokol
+  bahalarydyr.
 - `BLOCK` uly harplar bilen ýazylmaly; kiçi `block` ýol berilýän çykyş
   hasaplanýar.
 - WARP registrasiýasy Cloudflare app API-sini ulanýar; şowsuzylykda 502
@@ -3541,9 +3585,8 @@ bolmaýar.
   `geoip:` düzgüni üçin ýeterlik däl.
 - Staging şahadatnamalary täzelenmeýär we 7 günden soň pozulýar; uzak
   möhletli synag düwüni üçin Test issue-ny täzeden işlediň.
-- Bu gollanma `lessv-node 0.6.0` we protokol 3-i beýan edýär; häzirki
-  wersiýany [Gitee Releases](https://gitee.com/realumino/lessv/releases)-dan
-  görüň.
+- Bu gollanma protokol 3-i we `vela-server` obrazyny beýan edýär; häzirki
+  taglary serwer ammaryndan görüň.
 
 ### 8. Goşmaça okamak
 
@@ -3568,10 +3611,10 @@ bolmaýar.
 
 ## License
 
-LessV is licensed under the GNU Affero General Public License, version 3 or
+Vela is licensed under the GNU Affero General Public License, version 3 or
 later. The full text is in [`LICENSE`](LICENSE).
 
 ## Credits
 
-LessV rests on open-source work for most of its machinery. The debt is large,
+Vela rests on open-source work for most of its machinery. The debt is large,
 and the projects behind it are left unnamed in this document.

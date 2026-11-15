@@ -1,6 +1,6 @@
 /**
  * D1 store tests for the certificate tables, adapted from certworker's
- * store-d1.spec.ts to the LessV schema (environment column, is_current,
+ * store-d1.spec.ts to the plane schema (environment column, is_current,
  * created_at on runs, node assignment).
  */
 
