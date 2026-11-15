@@ -107,55 +107,47 @@ A useful boundary: tier B is the only tier where the plane's source can be
 edited and observed in seconds. Use it before touching anything involving the
 renderer or the protocol.
 
-## Tier C — a separate deployment
-
-One Worker per deployment is the model (`wrangler.jsonc` is operator-local and
-gitignored). A second, independent deployment is a second config file:
+## Tier C — a separate deployment, created and destroyed by one command
 
 ```sh
-cp wrangler.example.jsonc wrangler.staging.jsonc
+node scripts/stage.mjs create --config wrangler.staging.jsonc   --secrets-file .env.staging --generate-secrets
+# ... the test run, e.g. scripts/accept.mjs --plane https://<host> ...
+node scripts/stage.mjs destroy --config wrangler.staging.jsonc
 ```
 
-Then edit, in that copy only:
+The config is the only input — copy `wrangler.example.jsonc` and edit its
+`name`, route, `database_name` and workflow name. `create` deploys through the
+pipeline (real SPA, remote migrations, health probe), uploads the secrets, and
+generates the two plane-owned ones (`ADMIN_KEY`, `KEY_SECRET`) when told to;
+the DNS token is a third-party credential, so it is copied from an existing env
+file, never invented. `destroy` removes the workflow, the Worker (its
+custom-domain record goes with it) and the database, in that order — a
+workflow's records outlive its Worker, and `wrangler delete` never touches D1.
+The secrets file is not deleted: its values are only disposable once the
+database is gone, and the operator deletes it last.
 
-| Key | Staging value |
-|---|---|
-| `name` | `vela-staging` |
-| `routes[0].pattern` | `staging.<your-zone>` (custom domain) |
-| `d1_databases[0].database_name` | `vela-staging` |
-| `workflows[0].name` | `vela-staging-cert-issuance` |
-| `triggers.crons` | removed — a test plane must not renew anything on a schedule |
+Without the script, the same steps are:
 
 ```sh
+cp wrangler.example.jsonc wrangler.staging.jsonc     # then edit the four names
 npm run deploy -- --config wrangler.staging.jsonc --secrets-file .env.staging
+npx wrangler secret bulk .env.staging --config wrangler.staging.jsonc
+npx wrangler workflows delete <workflow> --config wrangler.staging.jsonc
+npx wrangler delete --config wrangler.staging.jsonc
+npx wrangler d1 delete <database> --config wrangler.staging.jsonc
 ```
-
-WHY the pipeline and not `wrangler deploy --config`: the prebuild swaps
-`frontend/dist` for stubs, so a bare deploy ships a placeholder SPA. The
-pipeline builds the real one, deploys, applies the remote migrations and probes
-`/api/health`.
 
 Isolation is structural, not procedural: its own D1, its own `ADMIN_KEY`, its
-own `KEY_SECRET`. `.env.staging` holds the values and is gitignored; the DNS
-token in it should be scoped to the test zone only.
+own `KEY_SECRET`. The DNS token in it should be scoped to the test zone only —
+a token scoped to the wrong zone makes the plane blind to the test zone, which
+fails at the first `test-issue`, not at deploy time.
 
 Two deliberate differences from production, both for automation:
 
 - no Cloudflare Access in front of it (the SPA login is an operator convenience,
   not the API's security model — the admin key is), so scripts and CI can use it;
-- no cron trigger, so nothing issues or renews on a schedule while you test.
-
-Teardown, in this order:
-
-```sh
-npx wrangler delete --config wrangler.staging.jsonc   # Worker + its custom-domain record
-npx wrangler workflows delete vela-staging-cert-issuance
-npx wrangler d1 delete vela-staging
-rm -f wrangler.staging.jsonc .env.staging
-```
-
-A workflow's records outlive its Worker, so it has to be deleted by name; the
-custom-domain DNS record goes with the Worker.
+- no cron trigger in a staging config, so nothing issues or renews on a
+  schedule while you test.
 
 ## Tier D — a node under test
 

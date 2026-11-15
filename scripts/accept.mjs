@@ -472,7 +472,17 @@ let crashed = null;
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     crashed = signal;
-    throw new Error(`interrupted by ${signal}`);
+    // A throw inside a signal handler does not reach the finally below on
+    // every platform; exit so the finally still runs through the normal path.
+    process.exitCode = 130;
+    const error = new Error(`interrupted by ${signal}`);
+    Promise.resolve().then(async () => {
+      if (args.keep) return;
+      const failures = await teardown();
+      for (const failure of failures) console.error(`teardown failed: ${failure}`);
+      process.exit(130);
+    });
+    throw error;
   });
 }
 
