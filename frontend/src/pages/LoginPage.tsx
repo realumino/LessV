@@ -43,7 +43,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
         <span className="cf-brand__mark">
           <BrandMark />
         </span>
-        <span className="cf-brand__name">LessV</span>
+        <span className="cf-brand__name">Vela</span>
         <span className="cf-brand__tag">Admin</span>
       </div>
 
@@ -84,7 +84,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
       </div>
 
       <footer className="cf-auth__foot">
-        LessV · self-hosted Xray management plane
+        Vela · self-hosted Xray management plane
       </footer>
     </div>
   );

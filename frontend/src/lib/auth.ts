@@ -12,7 +12,7 @@
  * signed in" instead of crashing the shell.
  */
 
-const STORAGE_KEY = "lessv.admin-key";
+const STORAGE_KEY = "vela.admin-key";
 
 /** The storage when the environment has one (browser yes, Node tests no). */
 function storage(): Pick<Storage, "getItem" | "setItem" | "removeItem"> | null {

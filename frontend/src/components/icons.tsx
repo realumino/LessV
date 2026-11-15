@@ -142,7 +142,7 @@ export default function Icon({ name }: { name: IconName }) {
   );
 }
 
-/** The LessV mark: a boxed cube, in the brand colour wherever it is placed. */
+/** The Vela mark: a boxed cube, in the brand colour wherever it is placed. */
 export function BrandMark() {
   return (
     <svg

@@ -1,6 +1,6 @@
 /**
  * Issuance steps: the pure(ish) building blocks the Workflow binds into
- * durable steps. Ported from certworker's steps.ts with three LessV
+ * durable steps. Ported from certworker's steps.ts with three Vela
  * changes:
  *
  * 1. The directory URL is chosen by `environment` from the ACME_DIRECTORIES

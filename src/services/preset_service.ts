@@ -23,7 +23,13 @@ import { createWarpMasque, warpMasqueOutbound } from "./warp_service";
 /** WHAT: a JSON object carrying config data. */
 type Dict = Record<string, unknown>;
 
-/** WHAT: the decoy socket a self-steal REALITY inbound targets. */
+/**
+ * WHAT: the decoy socket a self-steal REALITY inbound targets.
+ *
+ * WHY the name keeps its prefix: the path is a wire constant — deployed
+ * agents create their decoy socket here and the plane renders it as REALITY
+ * `dest`. Renaming it is a protocol change, not a rebrand.
+ */
 export const DECOY_SOCKET = "/dev/shm/lessv-decoy.sock";
 
 /**
@@ -159,7 +165,7 @@ export function presetDescriptors(nodeAddress: string): PresetDescriptor[] {
         "Appends routing rules that send matching destinations to the chosen " +
         "outbound (BLOCK by default) and sets routing.domainStrategy to " +
         "IPOnDemand so ip rules also see hostname destinations. Needs " +
-        "geoip.dat/geosite.dat, which lessv-node installs and refreshes.",
+        "geoip.dat/geosite.dat, which the node server installs and refreshes.",
       fields: [
         {
           name: "countries",

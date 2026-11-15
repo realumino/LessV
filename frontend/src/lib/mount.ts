@@ -8,7 +8,7 @@
  */
 
 /** WHAT: the document title the panel carries, only inside its mount. */
-export const ADMIN_TITLE = "LessV admin";
+export const ADMIN_TITLE = "Vela admin";
 
 /**
  * WHAT: return true only for a URL inside the admin mount.

@@ -420,7 +420,7 @@ export class AcmeClient {
 
   private async fetchRaw(url: string, init: RequestInit): Promise<Response> {
     const headers = new Headers(init.headers);
-    headers.set("User-Agent", "lessv/0.1");
+    headers.set("User-Agent", "vela/0.1");
     // Call the fetcher standalone: workerd's global `fetch` throws an
     // "Illegal invocation" TypeError when invoked as a method of another object
     // (i.e. `this.fetcher(...)`), which is the production code path.

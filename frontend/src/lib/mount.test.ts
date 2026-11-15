@@ -4,7 +4,7 @@
  * WHY these assertions exist: the control plane's privacy is a property of
  * two files that never run in the app's own tests — the mount predicate in
  * main.tsx and the fallback document the edge serves to navigation misses.
- * A regression in either one puts a titled LessV page at the site root, so
+ * A regression in either one puts a titled Vela page at the site root, so
  * both are pinned here.
  */
 
@@ -39,14 +39,14 @@ describe("isAdminMount", () => {
   });
 
   it("keeps the product name out of the site-root title", () => {
-    expect(ADMIN_TITLE).toContain("LessV");
+    expect(ADMIN_TITLE).toContain("Vela");
   });
 });
 
 describe("the SPA fallback document", () => {
   it("has an empty title and no product name", () => {
     expect(FALLBACK).toMatch(/<title>\s*<\/title>/);
-    expect(FALLBACK).not.toMatch(/LessV/i);
+    expect(FALLBACK).not.toMatch(/Vela/i);
   });
 
   it("names no bundle, only the shell it fetches inside the mount", () => {

@@ -41,7 +41,7 @@ type ParsedLink = {
 };
 
 /** WHAT: the group every profile routes through. */
-const GROUP = "LESSV";
+const GROUP = "VELA";
 
 /** WHAT: keys that may appear unquoted in this document. */
 const PLAIN_KEY = /^[A-Za-z_][A-Za-z0-9_-]*$/;
@@ -211,7 +211,7 @@ function transport(
  * get a counter suffix, which is also what mihomo's own converter does.
  */
 function uniqueName(names: Map<string, number>, wanted: string): string {
-  const base = wanted.trim() || "LessV";
+  const base = wanted.trim() || "Vela";
   const seen = names.get(base) ?? 0;
   names.set(base, seen + 1);
   return seen === 0 ? base : `${base} (${seen + 1})`;

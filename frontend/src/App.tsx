@@ -71,7 +71,7 @@ export default function App() {
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
           <footer className="cf-footer">
-            <span>LessV · self-hosted Xray management plane</span>
+            <span>Vela · self-hosted Xray management plane</span>
             <span>Admin API · v1</span>
           </footer>
         </div>
@@ -90,17 +90,17 @@ function Sidebar() {
           <span className="cf-brand__mark">
             <BrandMark />
           </span>
-          <span className="cf-brand__name">LessV</span>
+          <span className="cf-brand__name">Vela</span>
         </Link>
         <span className="cf-brand__tag">Admin</span>
       </div>
 
       <div className="cf-sidebar__account">
         <span className="cf-avatar" aria-hidden="true">
-          LV
+          VL
         </span>
         <span className="cf-account__text">
-          <span className="cf-account__name">LessV</span>
+          <span className="cf-account__name">Vela</span>
           <span className="cf-account__sub">Self-hosted control plane</span>
         </span>
       </div>

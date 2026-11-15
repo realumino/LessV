@@ -4,7 +4,7 @@
  *
  * WHY this file and not scattered utilities: the palette, the ring-bordered
  * surfaces, the one action hue, and the control treatments are one
- * decision. Pages reference var(--lessv-*) and the cf-* classes below;
+ * decision. Pages reference var(--vela-*) and the cf-* classes below;
  * Tailwind is still imported for layout utilities, but colour, geometry,
  * and control styling never leave this file.
  *
@@ -16,62 +16,62 @@
 :root {
   color-scheme: light;
 
-  --lessv-font-sans: "Inter", "Inter Variable", "Segoe UI Variable", "Segoe UI",
+  --vela-font-sans: "Inter", "Inter Variable", "Segoe UI Variable", "Segoe UI",
     -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-  --lessv-font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
+  --vela-font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
 
   /* Surfaces: canvas -> card -> sunken. */
-  --lessv-background: #fbfbfb;
-  --lessv-card: #ffffff;
-  --lessv-card-foreground: #18181b;
-  --lessv-popover: #ffffff;
-  --lessv-popover-foreground: #18181b;
-  --lessv-muted: #f4f4f5;
-  --lessv-muted-foreground: #5f5f68;
-  --lessv-sunken: #f7f7f8;
+  --vela-background: #fbfbfb;
+  --vela-card: #ffffff;
+  --vela-card-foreground: #18181b;
+  --vela-popover: #ffffff;
+  --vela-popover-foreground: #18181b;
+  --vela-muted: #f4f4f5;
+  --vela-muted-foreground: #5f5f68;
+  --vela-sunken: #f7f7f8;
 
   /* Text */
-  --lessv-foreground: #18181b;
-  --lessv-foreground-strong: #09090b;
-  --lessv-foreground-soft: #5f5f68;
-  --lessv-foreground-faint: #8d8d96;
+  --vela-foreground: #18181b;
+  --vela-foreground-strong: #09090b;
+  --vela-foreground-soft: #5f5f68;
+  --vela-foreground-faint: #8d8d96;
 
   /* Lines */
-  --lessv-border: rgba(0, 0, 0, 0.1);
-  --lessv-line: #e9e9ec;
-  --lessv-input: #d7d7dc;
+  --vela-border: rgba(0, 0, 0, 0.1);
+  --vela-line: #e9e9ec;
+  --vela-input: #d7d7dc;
 
   /* One action hue, plus the orange brand mark. */
-  --lessv-primary: #056dff;
-  --lessv-primary-foreground: #ffffff;
-  --lessv-primary-hover: #0055cc;
-  --lessv-primary-soft: #edf4ff;
-  --lessv-ring: #056dff;
-  --lessv-logo: #f6821f;
-  --lessv-logo-deep: #d9670a;
+  --vela-primary: #056dff;
+  --vela-primary-foreground: #ffffff;
+  --vela-primary-hover: #0055cc;
+  --vela-primary-soft: #edf4ff;
+  --vela-ring: #056dff;
+  --vela-logo: #f6821f;
+  --vela-logo-deep: #d9670a;
 
   /* Status colours: only for real state, validation, and destructive action. */
-  --lessv-state-success: #067647;
-  --lessv-state-success-soft: #ecfdf3;
-  --lessv-state-warning: #b54708;
-  --lessv-state-warning-soft: #fffaeb;
-  --lessv-state-error: #b42318;
-  --lessv-state-error-soft: #fef3f2;
-  --lessv-state-info: #175cd3;
-  --lessv-state-info-soft: #eff8ff;
+  --vela-state-success: #067647;
+  --vela-state-success-soft: #ecfdf3;
+  --vela-state-warning: #b54708;
+  --vela-state-warning-soft: #fffaeb;
+  --vela-state-error: #b42318;
+  --vela-state-error-soft: #fef3f2;
+  --vela-state-info: #175cd3;
+  --vela-state-info-soft: #eff8ff;
 
   /* Geometry */
-  --lessv-radius-sm: 4px;
-  --lessv-radius-md: 6px;
-  --lessv-radius-lg: 8px;
-  --lessv-radius-xl: 12px;
-  --lessv-radius-full: 999px;
+  --vela-radius-sm: 4px;
+  --vela-radius-md: 6px;
+  --vela-radius-lg: 8px;
+  --vela-radius-xl: 12px;
+  --vela-radius-full: 999px;
 
   /* Static surfaces use a hairline, not a shadow; only floating layers rise. */
-  --lessv-shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04);
-  --lessv-shadow-float: 0 24px 60px -20px rgba(16, 24, 40, 0.28);
-  --lessv-shadow-raised: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --vela-shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --vela-shadow-float: 0 24px 60px -20px rgba(16, 24, 40, 0.28);
+  --vela-shadow-raised: 0 1px 2px rgba(16, 24, 40, 0.06);
 
   --cf-sidebar-width: 260px;
   --cf-topbar-height: 56px;
@@ -86,9 +86,9 @@
 
   body {
     margin: 0;
-    background: var(--lessv-background);
-    color: var(--lessv-foreground);
-    font-family: var(--lessv-font-sans);
+    background: var(--vela-background);
+    color: var(--vela-foreground);
+    font-family: var(--vela-font-sans);
     font-size: 14px;
     line-height: 1.5;
     letter-spacing: -0.006em;
@@ -104,9 +104,9 @@
   height: 100vh;
   min-height: 0;
   overflow: hidden;
-  background: var(--lessv-background);
-  color: var(--lessv-foreground);
-  font-family: var(--lessv-font-sans);
+  background: var(--vela-background);
+  color: var(--vela-foreground);
+  font-family: var(--vela-font-sans);
   font-size: 14px;
   line-height: 1.5;
   letter-spacing: -0.006em;
@@ -120,8 +120,8 @@
   flex-direction: column;
   width: var(--cf-sidebar-width);
   height: 100vh;
-  background: var(--lessv-card);
-  border-right: 1px solid var(--lessv-border);
+  background: var(--vela-card);
+  border-right: 1px solid var(--vela-border);
 }
 
 .cf-sidebar__head {
@@ -131,14 +131,14 @@
   height: 58px;
   flex: 0 0 58px;
   padding: 0 16px;
-  border-bottom: 1px solid var(--lessv-border);
+  border-bottom: 1px solid var(--vela-border);
 }
 
 .cf-brand {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  color: var(--lessv-foreground-strong);
+  color: var(--vela-foreground-strong);
   text-decoration: none;
 }
 
@@ -149,7 +149,7 @@
   width: 26px;
   height: 26px;
   border-radius: 7px;
-  background: var(--lessv-logo);
+  background: var(--vela-logo);
   color: #ffffff;
 }
 
@@ -167,9 +167,9 @@
 .cf-brand__tag {
   margin-left: auto;
   padding: 1px 6px;
-  border: 1px dashed var(--lessv-input);
-  border-radius: var(--lessv-radius-full);
-  color: var(--lessv-foreground-soft);
+  border: 1px dashed var(--vela-input);
+  border-radius: var(--vela-radius-full);
+  color: var(--vela-foreground-soft);
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -181,7 +181,7 @@
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--lessv-line);
+  border-bottom: 1px solid var(--vela-line);
 }
 
 .cf-avatar {
@@ -192,9 +192,9 @@
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: var(--lessv-muted);
-  border: 1px solid var(--lessv-line);
-  color: var(--lessv-foreground-soft);
+  background: var(--vela-muted);
+  border: 1px solid var(--vela-line);
+  color: var(--vela-foreground-soft);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -217,7 +217,7 @@
   overflow: hidden;
   font-size: 13.5px;
   font-weight: 600;
-  color: var(--lessv-foreground);
+  color: var(--vela-foreground);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -225,7 +225,7 @@
 .cf-account__sub {
   overflow: hidden;
   font-size: 11.5px;
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -242,7 +242,7 @@
 
 .cf-nav__label {
   margin: 16px 10px 6px;
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -259,8 +259,8 @@
   gap: 10px;
   min-height: 34px;
   padding: 0 10px;
-  border-radius: var(--lessv-radius-md);
-  color: var(--lessv-foreground);
+  border-radius: var(--vela-radius-md);
+  color: var(--vela-foreground);
   font-size: 13.5px;
   font-weight: 500;
   text-decoration: none;
@@ -268,13 +268,13 @@
 }
 
 .cf-nav__item:hover {
-  background: var(--lessv-muted);
+  background: var(--vela-muted);
 }
 
 .cf-nav__item[data-active="true"],
 .cf-nav__item[aria-current="page"] {
-  background: var(--lessv-muted);
-  color: var(--lessv-foreground-strong);
+  background: var(--vela-muted);
+  color: var(--vela-foreground-strong);
   font-weight: 600;
 }
 
@@ -284,12 +284,12 @@
   justify-content: center;
   width: 18px;
   height: 18px;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
 }
 
 .cf-nav__item[data-active="true"] .cf-nav__icon,
 .cf-nav__item[aria-current="page"] .cf-nav__icon {
-  color: var(--lessv-foreground);
+  color: var(--vela-foreground);
 }
 
 .cf-nav__icon svg {
@@ -302,14 +302,14 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px 14px;
-  border-top: 1px solid var(--lessv-border);
+  border-top: 1px solid var(--vela-border);
 }
 
 .cf-statusline {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
   font-size: 11.5px;
 }
 
@@ -317,7 +317,7 @@
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: var(--lessv-state-success);
+  background: var(--vela-state-success);
 }
 
 .cf-main {
@@ -340,8 +340,8 @@
   height: var(--cf-topbar-height);
   flex: 0 0 var(--cf-topbar-height);
   padding: 0 20px;
-  background: var(--lessv-card);
-  border-bottom: 1px solid var(--lessv-border);
+  background: var(--vela-card);
+  border-bottom: 1px solid var(--vela-border);
 }
 
 .cf-crumbs {
@@ -349,28 +349,28 @@
   min-width: 0;
   align-items: center;
   gap: 8px;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
   font-size: 13px;
 }
 
 .cf-crumbs a {
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
   text-decoration: none;
 }
 
 .cf-crumbs a:hover {
-  color: var(--lessv-foreground);
+  color: var(--vela-foreground);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
 .cf-crumbs__sep {
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
 }
 
 .cf-crumbs__current {
   overflow: hidden;
-  color: var(--lessv-foreground);
+  color: var(--vela-foreground);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -412,8 +412,8 @@
   gap: 16px;
   margin-top: auto;
   padding: 16px 0 22px;
-  border-top: 1px solid var(--lessv-line);
-  color: var(--lessv-foreground-faint);
+  border-top: 1px solid var(--vela-line);
+  color: var(--vela-foreground-faint);
   font-size: 11.5px;
 }
 
@@ -438,7 +438,7 @@
   align-items: center;
   gap: 8px;
   margin: 0;
-  color: var(--lessv-foreground-strong);
+  color: var(--vela-foreground-strong);
   font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.022em;
@@ -448,7 +448,7 @@
 .cf-pagehead__desc {
   max-width: 760px;
   margin: 0;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
   font-size: 14px;
   line-height: 1.55;
 }
@@ -475,14 +475,14 @@
 
 .cf-section__title {
   margin: 0;
-  color: var(--lessv-foreground);
+  color: var(--vela-foreground);
   font-size: 14px;
   font-weight: 600;
 }
 
 .cf-section__hint {
   margin: 0;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
   font-size: 12.5px;
   line-height: 1.5;
 }
@@ -497,7 +497,7 @@
   height: 32px;
   padding: 0 12px;
   border: 1px solid transparent;
-  border-radius: var(--lessv-radius-md);
+  border-radius: var(--vela-radius-md);
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
@@ -516,52 +516,52 @@
 }
 
 .cf-btn:focus-visible {
-  outline: 2px solid var(--lessv-ring);
+  outline: 2px solid var(--vela-ring);
   outline-offset: 1px;
 }
 
 .cf-btn--primary {
-  background: var(--lessv-primary);
-  border-color: var(--lessv-primary);
-  color: var(--lessv-primary-foreground);
-  box-shadow: var(--lessv-shadow-raised);
+  background: var(--vela-primary);
+  border-color: var(--vela-primary);
+  color: var(--vela-primary-foreground);
+  box-shadow: var(--vela-shadow-raised);
 }
 
 .cf-btn--primary:hover {
-  background: var(--lessv-primary-hover);
-  border-color: var(--lessv-primary-hover);
+  background: var(--vela-primary-hover);
+  border-color: var(--vela-primary-hover);
 }
 
 .cf-btn--secondary {
-  background: var(--lessv-card);
-  border-color: var(--lessv-input);
-  color: var(--lessv-foreground);
-  box-shadow: var(--lessv-shadow-card);
+  background: var(--vela-card);
+  border-color: var(--vela-input);
+  color: var(--vela-foreground);
+  box-shadow: var(--vela-shadow-card);
 }
 
 .cf-btn--secondary:hover {
-  background: var(--lessv-muted);
+  background: var(--vela-muted);
 }
 
 .cf-btn--ghost {
   background: transparent;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
 }
 
 .cf-btn--ghost:hover {
-  background: var(--lessv-muted);
-  color: var(--lessv-foreground);
+  background: var(--vela-muted);
+  color: var(--vela-foreground);
 }
 
 .cf-btn--danger {
-  background: var(--lessv-card);
-  border-color: var(--lessv-input);
-  color: var(--lessv-state-error);
+  background: var(--vela-card);
+  border-color: var(--vela-input);
+  color: var(--vela-state-error);
 }
 
 .cf-btn--danger:hover {
-  background: var(--lessv-state-error-soft);
-  border-color: var(--lessv-state-error);
+  background: var(--vela-state-error-soft);
+  border-color: var(--vela-state-error);
 }
 
 .cf-btn--sm {
@@ -587,20 +587,20 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: var(--lessv-radius-md);
+  border-radius: var(--vela-radius-md);
   background: transparent;
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
   cursor: pointer;
   transition: background-color 120ms, color 120ms;
 }
 
 .cf-iconbtn:hover {
-  background: var(--lessv-muted);
-  color: var(--lessv-foreground);
+  background: var(--vela-muted);
+  color: var(--vela-foreground);
 }
 
 .cf-iconbtn:focus-visible {
-  outline: 2px solid var(--lessv-ring);
+  outline: 2px solid var(--vela-ring);
   outline-offset: 1px;
 }
 
@@ -616,7 +616,7 @@
   border: 0;
   padding: 0;
   background: none;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
   font: inherit;
   font-size: 12.5px;
   font-weight: 500;
@@ -630,13 +630,13 @@
 }
 
 .cf-rowlink:hover {
-  color: var(--lessv-primary);
+  color: var(--vela-primary);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
 .cf-link {
-  color: var(--lessv-primary);
+  color: var(--vela-primary);
   font-weight: 500;
   text-decoration: none;
 }
@@ -647,18 +647,18 @@
 }
 
 .cf-link--strong {
-  color: var(--lessv-foreground-strong);
+  color: var(--vela-foreground-strong);
   font-weight: 600;
 }
 
 .cf-link--strong:hover {
-  color: var(--lessv-primary);
+  color: var(--vela-primary);
 }
 
 .cf-label {
   display: block;
   margin-bottom: 6px;
-  color: var(--lessv-foreground);
+  color: var(--vela-foreground);
   font-size: 12px;
   font-weight: 600;
 }
@@ -666,7 +666,7 @@
 .cf-hint {
   display: block;
   margin-top: 5px;
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
   font-size: 11.5px;
   line-height: 1.45;
 }
@@ -676,10 +676,10 @@
 .cf-textarea {
   width: 100%;
   padding: 0 10px;
-  border: 1px solid var(--lessv-input);
-  border-radius: var(--lessv-radius-md);
-  background: var(--lessv-card);
-  color: var(--lessv-foreground);
+  border: 1px solid var(--vela-input);
+  border-radius: var(--vela-radius-md);
+  background: var(--vela-card);
+  color: var(--vela-foreground);
   font-family: inherit;
   font-size: 13px;
   line-height: 1.4;
@@ -694,8 +694,8 @@
 .cf-select {
   appearance: none;
   padding-right: 28px;
-  background-image: linear-gradient(45deg, transparent 50%, var(--lessv-foreground-faint) 50%),
-    linear-gradient(135deg, var(--lessv-foreground-faint) 50%, transparent 50%);
+  background-image: linear-gradient(45deg, transparent 50%, var(--vela-foreground-faint) 50%),
+    linear-gradient(135deg, var(--vela-foreground-faint) 50%, transparent 50%);
   background-position: calc(100% - 14px) 13px, calc(100% - 9px) 13px;
   background-repeat: no-repeat;
   background-size: 5px 5px, 5px 5px;
@@ -705,7 +705,7 @@
   padding: 10px 12px;
   min-height: 200px;
   resize: vertical;
-  font-family: var(--lessv-font-mono);
+  font-family: var(--vela-font-mono);
   font-size: 12px;
   line-height: 1.55;
 }
@@ -714,13 +714,13 @@
 .cf-select:focus,
 .cf-textarea:focus {
   outline: none;
-  border-color: var(--lessv-primary);
+  border-color: var(--vela-primary);
   box-shadow: 0 0 0 3px rgba(5, 109, 255, 0.12);
 }
 
 .cf-input::placeholder,
 .cf-textarea::placeholder {
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
 }
 
 .cf-field {
@@ -745,7 +745,7 @@
 }
 
 .cf-toolbar__meta {
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
   font-size: 12px;
 }
 
@@ -753,9 +753,9 @@
 
 .cf-card {
   min-width: 0;
-  background: var(--lessv-card);
-  border: 1px solid var(--lessv-border);
-  border-radius: var(--lessv-radius-lg);
+  background: var(--vela-card);
+  border: 1px solid var(--vela-border);
+  border-radius: var(--vela-radius-lg);
 }
 
 .cf-card__head {
@@ -764,7 +764,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 13px 16px;
-  border-bottom: 1px solid var(--lessv-line);
+  border-bottom: 1px solid var(--vela-line);
 }
 
 .cf-card__title {
@@ -772,13 +772,13 @@
   align-items: center;
   gap: 8px;
   margin: 0;
-  color: var(--lessv-foreground-strong);
+  color: var(--vela-foreground-strong);
   font-size: 13.5px;
   font-weight: 600;
 }
 
 .cf-card__meta {
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
   font-size: 12px;
   font-weight: 400;
 }
@@ -797,7 +797,7 @@
   gap: 8px;
   justify-content: flex-end;
   padding: 12px 16px;
-  border-top: 1px solid var(--lessv-line);
+  border-top: 1px solid var(--vela-line);
 }
 
 .cf-badge {
@@ -805,7 +805,7 @@
   align-items: center;
   gap: 5px;
   padding: 1px 8px;
-  border-radius: var(--lessv-radius-full);
+  border-radius: var(--vela-radius-full);
   font-size: 11.5px;
   font-weight: 600;
   line-height: 18px;
@@ -820,34 +820,34 @@
 }
 
 .cf-badge--ok {
-  background: var(--lessv-state-success-soft);
-  color: var(--lessv-state-success);
+  background: var(--vela-state-success-soft);
+  color: var(--vela-state-success);
 }
 
 .cf-badge--warn {
-  background: var(--lessv-state-warning-soft);
-  color: var(--lessv-state-warning);
+  background: var(--vela-state-warning-soft);
+  color: var(--vela-state-warning);
 }
 
 .cf-badge--bad {
-  background: var(--lessv-state-error-soft);
-  color: var(--lessv-state-error);
+  background: var(--vela-state-error-soft);
+  color: var(--vela-state-error);
 }
 
 .cf-badge--info {
-  background: var(--lessv-state-info-soft);
-  color: var(--lessv-state-info);
+  background: var(--vela-state-info-soft);
+  color: var(--vela-state-info);
 }
 
 .cf-badge--idle {
-  background: var(--lessv-muted);
-  color: var(--lessv-foreground-soft);
+  background: var(--vela-muted);
+  color: var(--vela-foreground-soft);
 }
 
 .cf-badge--outline {
-  border: 1px solid var(--lessv-input);
+  border: 1px solid var(--vela-input);
   background: transparent;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
 }
 
 .cf-alert {
@@ -856,7 +856,7 @@
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid transparent;
-  border-radius: var(--lessv-radius-md);
+  border-radius: var(--vela-radius-md);
   font-size: 12.5px;
   line-height: 1.5;
 }
@@ -870,41 +870,41 @@
 
 .cf-alert--warn {
   border-color: #f5d597;
-  background: var(--lessv-state-warning-soft);
-  color: var(--lessv-state-warning);
+  background: var(--vela-state-warning-soft);
+  color: var(--vela-state-warning);
 }
 
 .cf-alert--info {
   border-color: #c7dcfa;
-  background: var(--lessv-state-info-soft);
-  color: var(--lessv-state-info);
+  background: var(--vela-state-info-soft);
+  color: var(--vela-state-info);
 }
 
 .cf-alert--ok {
   border-color: #b7e4c8;
-  background: var(--lessv-state-success-soft);
-  color: var(--lessv-state-success);
+  background: var(--vela-state-success-soft);
+  color: var(--vela-state-success);
 }
 
 .cf-alert--bad {
   border-color: #f4c5c1;
-  background: var(--lessv-state-error-soft);
-  color: var(--lessv-state-error);
+  background: var(--vela-state-error-soft);
+  color: var(--vela-state-error);
 }
 
 .cf-mono {
-  font-family: var(--lessv-font-mono);
+  font-family: var(--vela-font-mono);
   font-size: 12px;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
 }
 
 .cf-meta {
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
   font-size: 12px;
 }
 
 .cf-error {
-  color: var(--lessv-state-error);
+  color: var(--vela-state-error);
 }
 
 .cf-stack {
@@ -927,18 +927,18 @@
   gap: 4px;
   max-width: 100%;
   padding: 1px 6px;
-  border: 1px solid var(--lessv-line);
-  border-radius: var(--lessv-radius-sm);
-  background: var(--lessv-sunken);
-  color: var(--lessv-foreground-soft);
-  font-family: var(--lessv-font-mono);
+  border: 1px solid var(--vela-line);
+  border-radius: var(--vela-radius-sm);
+  background: var(--vela-sunken);
+  color: var(--vela-foreground-soft);
+  font-family: var(--vela-font-mono);
   font-size: 11px;
   line-height: 17px;
 }
 
 .cf-hash__label {
-  color: var(--lessv-foreground-faint);
-  font-family: var(--lessv-font-sans);
+  color: var(--vela-foreground-faint);
+  font-family: var(--vela-font-sans);
   font-size: 10.5px;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -959,9 +959,9 @@
 .cf-table th {
   height: 38px;
   padding: 0 16px;
-  border-bottom: 1px solid var(--lessv-line);
-  background: var(--lessv-card);
-  color: var(--lessv-foreground-faint);
+  border-bottom: 1px solid var(--vela-line);
+  background: var(--vela-card);
+  color: var(--vela-foreground-faint);
   font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -970,8 +970,8 @@
 
 .cf-table td {
   padding: 11px 16px;
-  border-bottom: 1px solid var(--lessv-line);
-  color: var(--lessv-foreground);
+  border-bottom: 1px solid var(--vela-line);
+  color: var(--vela-foreground);
   font-size: 13px;
   vertical-align: middle;
   word-break: normal;
@@ -1001,9 +1001,9 @@
 }
 
 .cf-table .cf-cell--mono {
-  font-family: var(--lessv-font-mono);
+  font-family: var(--vela-font-mono);
   font-size: 12px;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
 }
 
 .cf-table--fixed {
@@ -1016,7 +1016,7 @@
 
 .cf-subrow td {
   padding: 0 16px 14px 32px;
-  background: var(--lessv-sunken);
+  background: var(--vela-sunken);
 }
 
 .cf-check {
@@ -1030,7 +1030,7 @@
   width: 14px;
   height: 14px;
   margin: 0;
-  accent-color: var(--lessv-primary);
+  accent-color: var(--vela-primary);
   cursor: pointer;
 }
 
@@ -1056,7 +1056,7 @@
   height: 20px;
   padding: 2px;
   border-radius: 999px;
-  background: var(--lessv-input);
+  background: var(--vela-input);
   transition: background-color 140ms;
 }
 
@@ -1065,12 +1065,12 @@
   height: 16px;
   border-radius: 999px;
   background: #ffffff;
-  box-shadow: var(--lessv-shadow-raised);
+  box-shadow: var(--vela-shadow-raised);
   transition: transform 140ms cubic-bezier(0.3, 0, 0, 1);
 }
 
 .cf-switch input:checked + .cf-switch__track {
-  background: var(--lessv-primary);
+  background: var(--vela-primary);
 }
 
 .cf-switch input:checked + .cf-switch__track .cf-switch__thumb {
@@ -1078,7 +1078,7 @@
 }
 
 .cf-switch input:focus-visible + .cf-switch__track {
-  outline: 2px solid var(--lessv-ring);
+  outline: 2px solid var(--vela-ring);
   outline-offset: 2px;
 }
 
@@ -1088,7 +1088,7 @@
   display: flex;
   align-items: stretch;
   gap: 4px;
-  border-bottom: 1px solid var(--lessv-line);
+  border-bottom: 1px solid var(--vela-line);
   overflow-x: auto;
 }
 
@@ -1097,8 +1097,8 @@
   align-items: center;
   gap: 6px;
   padding: 9px 12px 10px;
-  border-radius: var(--lessv-radius-sm) var(--lessv-radius-sm) 0 0;
-  color: var(--lessv-foreground-soft);
+  border-radius: var(--vela-radius-sm) var(--vela-radius-sm) 0 0;
+  color: var(--vela-foreground-soft);
   font-size: 13px;
   font-weight: 500;
   text-decoration: none;
@@ -1107,14 +1107,14 @@
 }
 
 .cf-tab:hover {
-  background: var(--lessv-muted);
-  color: var(--lessv-foreground);
+  background: var(--vela-muted);
+  color: var(--vela-foreground);
 }
 
 .cf-tab[data-active="true"],
 .cf-tab[aria-current="page"] {
-  box-shadow: inset 0 -2px 0 var(--lessv-primary);
-  color: var(--lessv-foreground-strong);
+  box-shadow: inset 0 -2px 0 var(--vela-primary);
+  color: var(--vela-foreground-strong);
 }
 
 .cf-tabpanel {
@@ -1167,16 +1167,16 @@
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   margin: 0;
-  background: var(--lessv-card);
-  border: 1px solid var(--lessv-border);
-  border-radius: var(--lessv-radius-lg);
+  background: var(--vela-card);
+  border: 1px solid var(--vela-border);
+  border-radius: var(--vela-radius-lg);
   overflow: hidden;
 }
 
 .cf-fact {
   min-width: 0;
   padding: 12px 16px;
-  border-left: 1px solid var(--lessv-line);
+  border-left: 1px solid var(--vela-line);
 }
 
 .cf-fact:first-child {
@@ -1185,7 +1185,7 @@
 
 .cf-fact dt {
   margin: 0 0 3px;
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
   font-size: 11.5px;
   font-weight: 500;
 }
@@ -1195,7 +1195,7 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  color: var(--lessv-foreground);
+  color: var(--vela-foreground);
   font-size: 13px;
   font-weight: 500;
   min-width: 0;
@@ -1205,7 +1205,7 @@
 .cf-fact__hint {
   display: block;
   margin-top: 3px;
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
   font-size: 11px;
   font-weight: 400;
 }
@@ -1239,10 +1239,10 @@
   padding: 12px 14px;
   overflow: auto;
   border: 0;
-  border-radius: 0 0 var(--lessv-radius-lg) var(--lessv-radius-lg);
-  background: var(--lessv-sunken);
-  color: var(--lessv-foreground);
-  font-family: var(--lessv-font-mono);
+  border-radius: 0 0 var(--vela-radius-lg) var(--vela-radius-lg);
+  background: var(--vela-sunken);
+  color: var(--vela-foreground);
+  font-family: var(--vela-font-mono);
   font-size: 11.5px;
   line-height: 1.6;
 }
@@ -1268,7 +1268,7 @@
   align-items: flex-start;
   gap: 12px;
   padding: 12px 14px;
-  border-top: 1px solid var(--lessv-line);
+  border-top: 1px solid var(--vela-line);
 }
 
 .cf-preset:first-of-type {
@@ -1284,13 +1284,13 @@
 }
 
 .cf-preset__name {
-  color: var(--lessv-foreground-strong);
+  color: var(--vela-foreground-strong);
   font-size: 13px;
   font-weight: 600;
 }
 
 .cf-preset__desc {
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
   font-size: 11.5px;
   line-height: 1.45;
 }
@@ -1308,7 +1308,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 0;
-  border-top: 1px solid var(--lessv-line);
+  border-top: 1px solid var(--vela-line);
   font-size: 12px;
 }
 
@@ -1322,7 +1322,7 @@
   gap: 8px;
   flex-wrap: wrap;
   padding: 12px 14px;
-  border-top: 1px solid var(--lessv-line);
+  border-top: 1px solid var(--vela-line);
 }
 
 .cf-maintrow:first-of-type {
@@ -1368,7 +1368,7 @@
   gap: 12px;
   flex-wrap: wrap;
   padding: 12px 16px;
-  border-top: 1px solid var(--lessv-line);
+  border-top: 1px solid var(--vela-line);
 }
 
 .cf-nodeaccess__row:first-child {
@@ -1387,7 +1387,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--lessv-foreground-strong);
+  color: var(--vela-foreground-strong);
   font-size: 13px;
   font-weight: 600;
 }
@@ -1397,8 +1397,8 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   padding: 4px 16px 16px 42px;
-  border-top: 1px solid var(--lessv-line);
-  background: var(--lessv-sunken);
+  border-top: 1px solid var(--vela-line);
+  background: var(--vela-sunken);
 }
 
 .cf-optionlist {
@@ -1411,7 +1411,7 @@
 
 .cf-optionlist__label {
   margin: 0;
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -1423,21 +1423,21 @@
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border: 1px solid var(--lessv-line);
-  border-radius: var(--lessv-radius-md);
-  background: var(--lessv-card);
+  border: 1px solid var(--vela-line);
+  border-radius: var(--vela-radius-md);
+  background: var(--vela-card);
   font-size: 12.5px;
   cursor: pointer;
 }
 
 .cf-option:hover {
-  border-color: var(--lessv-input);
+  border-color: var(--vela-input);
 }
 
 .cf-option__tag {
   margin-left: auto;
-  color: var(--lessv-foreground-faint);
-  font-family: var(--lessv-font-mono);
+  color: var(--vela-foreground-faint);
+  font-family: var(--vela-font-mono);
   font-size: 11px;
 }
 
@@ -1446,10 +1446,10 @@
   align-items: center;
   gap: 5px;
   padding: 1px 8px;
-  border: 1px solid var(--lessv-line);
-  border-radius: var(--lessv-radius-sm);
-  background: var(--lessv-sunken);
-  color: var(--lessv-foreground-soft);
+  border: 1px solid var(--vela-line);
+  border-radius: var(--vela-radius-sm);
+  background: var(--vela-sunken);
+  color: var(--vela-foreground-soft);
   font-size: 11.5px;
   white-space: nowrap;
 }
@@ -1467,13 +1467,13 @@
   gap: 10px;
   flex-wrap: wrap;
   padding: 7px 10px;
-  border: 1px solid var(--lessv-line);
-  border-radius: var(--lessv-radius-md);
-  background: var(--lessv-card);
+  border: 1px solid var(--vela-line);
+  border-radius: var(--vela-radius-md);
+  background: var(--vela-card);
 }
 
 .cf-variant__name {
-  color: var(--lessv-foreground-strong);
+  color: var(--vela-foreground-strong);
   font-size: 12.5px;
   font-weight: 600;
 }
@@ -1482,8 +1482,8 @@
   min-width: 0;
   flex: 1 1 220px;
   overflow: hidden;
-  color: var(--lessv-foreground-soft);
-  font-family: var(--lessv-font-mono);
+  color: var(--vela-foreground-soft);
+  font-family: var(--vela-font-mono);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1501,7 +1501,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 7px 0;
-  border-top: 1px solid var(--lessv-line);
+  border-top: 1px solid var(--vela-line);
   font-size: 12px;
 }
 
@@ -1511,7 +1511,7 @@
 
 .cf-kv dt {
   margin: 0;
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
 }
 
 .cf-kv dd {
@@ -1519,7 +1519,7 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  color: var(--lessv-foreground);
+  color: var(--vela-foreground);
   font-weight: 500;
   text-align: right;
 }
@@ -1529,18 +1529,18 @@
   align-items: center;
   gap: 2px;
   padding: 2px;
-  border: 1px solid var(--lessv-line);
-  border-radius: var(--lessv-radius-md);
-  background: var(--lessv-muted);
+  border: 1px solid var(--vela-line);
+  border-radius: var(--vela-radius-md);
+  background: var(--vela-muted);
 }
 
 .cf-seg__item {
   height: 26px;
   padding: 0 12px;
   border: 0;
-  border-radius: var(--lessv-radius-sm);
+  border-radius: var(--vela-radius-sm);
   background: transparent;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
   font-family: inherit;
   font-size: 12.5px;
   font-weight: 500;
@@ -1549,27 +1549,27 @@
 }
 
 .cf-seg__item:hover {
-  color: var(--lessv-foreground);
+  color: var(--vela-foreground);
 }
 
 .cf-seg__item[aria-pressed="true"] {
-  background: var(--lessv-card);
-  color: var(--lessv-foreground-strong);
+  background: var(--vela-card);
+  color: var(--vela-foreground-strong);
   font-weight: 600;
-  box-shadow: var(--lessv-shadow-card);
+  box-shadow: var(--vela-shadow-card);
 }
 
 .cf-input--mono {
   width: 156px;
   height: 28px;
-  font-family: var(--lessv-font-mono);
+  font-family: var(--vela-font-mono);
   font-size: 11.5px;
 }
 
 .cf-card__note {
   padding: 10px 16px;
-  border-top: 1px solid var(--lessv-line);
-  color: var(--lessv-foreground-faint);
+  border-top: 1px solid var(--vela-line);
+  color: var(--vela-foreground-faint);
   font-size: 11.5px;
   line-height: 1.5;
 }
@@ -1593,10 +1593,10 @@
   max-height: 76vh;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--lessv-border);
-  border-radius: var(--lessv-radius-xl);
-  background: var(--lessv-card);
-  box-shadow: var(--lessv-shadow-float);
+  border: 1px solid var(--vela-border);
+  border-radius: var(--vela-radius-xl);
+  background: var(--vela-card);
+  box-shadow: var(--vela-shadow-float);
   transform: translateX(-50%);
 }
 
@@ -1610,12 +1610,12 @@
   justify-content: space-between;
   gap: 12px;
   padding: 16px 18px 12px;
-  border-bottom: 1px solid var(--lessv-line);
+  border-bottom: 1px solid var(--vela-line);
 }
 
 .cf-modal__title {
   margin: 0;
-  color: var(--lessv-foreground-strong);
+  color: var(--vela-foreground-strong);
   font-size: 16px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -1623,7 +1623,7 @@
 
 .cf-modal__desc {
   margin: 4px 0 0;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
   font-size: 12.5px;
   line-height: 1.5;
 }
@@ -1641,8 +1641,8 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 18px;
-  border-top: 1px solid var(--lessv-line);
-  background: var(--lessv-sunken);
+  border-top: 1px solid var(--vela-line);
+  background: var(--vela-sunken);
 }
 
 .cf-drawer {
@@ -1654,9 +1654,9 @@
   width: min(540px, 92vw);
   height: 100vh;
   flex-direction: column;
-  border-left: 1px solid var(--lessv-border);
-  background: var(--lessv-card);
-  box-shadow: var(--lessv-shadow-float);
+  border-left: 1px solid var(--vela-border);
+  background: var(--vela-card);
+  box-shadow: var(--vela-shadow-float);
 }
 
 .cf-drawer__head {
@@ -1665,7 +1665,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 18px 20px 14px;
-  border-bottom: 1px solid var(--lessv-border);
+  border-bottom: 1px solid var(--vela-border);
 }
 
 .cf-drawer__body {
@@ -1683,8 +1683,8 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 20px;
-  border-top: 1px solid var(--lessv-border);
-  background: var(--lessv-sunken);
+  border-top: 1px solid var(--vela-border);
+  background: var(--vela-sunken);
 }
 
 .cf-linkitem {
@@ -1692,8 +1692,8 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border: 1px solid var(--lessv-line);
-  border-radius: var(--lessv-radius-md);
+  border: 1px solid var(--vela-line);
+  border-radius: var(--vela-radius-md);
 }
 
 .cf-linkitem__head {
@@ -1704,7 +1704,7 @@
 }
 
 .cf-linkitem__name {
-  color: var(--lessv-foreground-strong);
+  color: var(--vela-foreground-strong);
   font-size: 12.5px;
   font-weight: 600;
 }
@@ -1712,11 +1712,11 @@
 .cf-uri {
   display: block;
   padding: 8px 10px;
-  border: 1px solid var(--lessv-line);
-  border-radius: var(--lessv-radius-sm);
-  background: var(--lessv-sunken);
-  color: var(--lessv-foreground-soft);
-  font-family: var(--lessv-font-mono);
+  border: 1px solid var(--vela-line);
+  border-radius: var(--vela-radius-sm);
+  background: var(--vela-sunken);
+  color: var(--vela-foreground-soft);
+  font-family: var(--vela-font-mono);
   font-size: 11px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -1727,8 +1727,8 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border: 1px solid var(--lessv-line);
-  border-radius: var(--lessv-radius-md);
+  border: 1px solid var(--vela-line);
+  border-radius: var(--vela-radius-md);
 }
 
 .cf-run__meta {
@@ -1736,17 +1736,17 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
   font-size: 11.5px;
 }
 
 .cf-run__error {
   margin: 0;
   padding: 8px 10px;
-  border-radius: var(--lessv-radius-sm);
-  background: var(--lessv-state-error-soft);
-  color: var(--lessv-state-error);
-  font-family: var(--lessv-font-mono);
+  border-radius: var(--vela-radius-sm);
+  background: var(--vela-state-error-soft);
+  color: var(--vela-state-error);
+  font-family: var(--vela-font-mono);
   font-size: 11px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -1755,10 +1755,10 @@
 .cf-steps {
   margin: 0;
   padding: 8px 10px;
-  border-radius: var(--lessv-radius-sm);
-  background: var(--lessv-sunken);
-  color: var(--lessv-foreground-soft);
-  font-family: var(--lessv-font-mono);
+  border-radius: var(--vela-radius-sm);
+  background: var(--vela-sunken);
+  color: var(--vela-foreground-soft);
+  font-family: var(--vela-font-mono);
   font-size: 11px;
   line-height: 1.55;
 }
@@ -1771,10 +1771,10 @@
   justify-content: center;
   min-height: 180px;
   padding: 32px;
-  border: 1px dashed var(--lessv-input);
-  border-radius: var(--lessv-radius-lg);
-  background: var(--lessv-card);
-  color: var(--lessv-foreground-soft);
+  border: 1px dashed var(--vela-input);
+  border-radius: var(--vela-radius-lg);
+  background: var(--vela-card);
+  color: var(--vela-foreground-soft);
   font-size: 13px;
 }
 
@@ -1793,15 +1793,15 @@
   align-items: center;
   gap: 10px;
   padding: 32px;
-  border: 1px solid var(--lessv-border);
-  border-radius: var(--lessv-radius-xl);
-  background: var(--lessv-card);
+  border: 1px solid var(--vela-border);
+  border-radius: var(--vela-radius-xl);
+  background: var(--vela-card);
   text-align: center;
 }
 
 .cf-empty-card__code {
-  color: var(--lessv-foreground-faint);
-  font-family: var(--lessv-font-mono);
+  color: var(--vela-foreground-faint);
+  font-family: var(--vela-font-mono);
   font-size: 40px;
   font-weight: 600;
   letter-spacing: -0.03em;
@@ -1810,14 +1810,14 @@
 
 .cf-empty-card h1 {
   margin: 0;
-  color: var(--lessv-foreground-strong);
+  color: var(--vela-foreground-strong);
   font-size: 18px;
   font-weight: 600;
 }
 
 .cf-empty-card p {
   margin: 0;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
   font-size: 13px;
   line-height: 1.55;
 }
@@ -1832,9 +1832,9 @@
   justify-content: center;
   gap: 20px;
   padding: 32px 16px;
-  background: var(--lessv-background);
-  color: var(--lessv-foreground);
-  font-family: var(--lessv-font-sans);
+  background: var(--vela-background);
+  color: var(--vela-foreground);
+  font-family: var(--vela-font-sans);
   font-size: 14px;
 }
 
@@ -1842,20 +1842,20 @@
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  color: var(--lessv-foreground-strong);
+  color: var(--vela-foreground-strong);
 }
 
 .cf-auth__card {
   width: min(400px, 100%);
   padding: 26px 26px 22px;
-  border: 1px solid var(--lessv-border);
-  border-radius: var(--lessv-radius-xl);
-  background: var(--lessv-card);
+  border: 1px solid var(--vela-border);
+  border-radius: var(--vela-radius-xl);
+  background: var(--vela-card);
 }
 
 .cf-auth__title {
   margin: 0 0 6px;
-  color: var(--lessv-foreground-strong);
+  color: var(--vela-foreground-strong);
   font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -1863,7 +1863,7 @@
 
 .cf-auth__desc {
   margin: 0 0 20px;
-  color: var(--lessv-foreground-soft);
+  color: var(--vela-foreground-soft);
   font-size: 13px;
   line-height: 1.55;
 }
@@ -1875,7 +1875,7 @@
 }
 
 .cf-auth__foot {
-  color: var(--lessv-foreground-faint);
+  color: var(--vela-foreground-faint);
   font-size: 11.5px;
   text-align: center;
 }
@@ -1883,8 +1883,8 @@
 .cf-auth__note {
   margin: 0;
   padding-top: 14px;
-  border-top: 1px solid var(--lessv-line);
-  color: var(--lessv-foreground-faint);
+  border-top: 1px solid var(--vela-line);
+  color: var(--vela-foreground-faint);
   font-size: 11.5px;
   line-height: 1.55;
 }
@@ -1901,7 +1901,7 @@
   }
 
   .cf-facts .cf-fact:nth-child(n + 4) {
-    border-top: 1px solid var(--lessv-line);
+    border-top: 1px solid var(--vela-line);
   }
 
   .cf-cfg,
@@ -1921,7 +1921,7 @@
     height: auto;
     flex: 0 0 auto;
     border-right: 0;
-    border-bottom: 1px solid var(--lessv-border);
+    border-bottom: 1px solid var(--vela-border);
   }
 
   .cf-main {
@@ -1990,7 +1990,7 @@
   }
 
   .cf-fact:nth-child(n + 3) {
-    border-top: 1px solid var(--lessv-line);
+    border-top: 1px solid var(--vela-line);
   }
 
   .cf-pagehead__actions {

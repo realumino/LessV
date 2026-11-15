@@ -1,7 +1,7 @@
 /**
  * ACME v2 client tests, ported from certworker's acme-client.spec.ts:
  * account/order/challenge/finalize lifecycle, badNonce retry, problem
- * surfacing — plus the LessV-added profile support. The revoke tests are
+ * surfacing — plus the panel-added profile support. The revoke tests are
  * not ported: this plane does not implement revocation.
  */
 
@@ -51,7 +51,7 @@ describe("ACME v2 client", () => {
       }
 
       const { protectedHeader, payload } = await inspectSignedRequest(captured, accountKey.publicKey);
-      expect(request.headers.get("user-agent")).toBe("lessv/0.1");
+      expect(request.headers.get("user-agent")).toBe("vela/0.1");
 
       if (url.pathname === "/new-account") {
         expect(protectedHeader.jwk).toEqual(publicJwk);

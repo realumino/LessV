@@ -1,6 +1,10 @@
 {
   // WHAT: the committed template for the local wrangler.jsonc.
   //
+  // WHY the names here are per-deployment: `name`, `database_name` and the
+  // workflow name are whatever this deployment is called, and the operator's
+  // wrangler.jsonc is local; this template uses the project's own name.
+  //
   // WHY this file exists: wrangler.jsonc is the single source of truth for
   // every wrangler command (dev, deploy, migrations, types) and it carries
   // operator-specific values that must never be committed — the deploy
@@ -10,7 +14,7 @@
   // pre-hooks do that automatically when the file is missing) and edit the
   // field marked EDIT below before deploying.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "lessv",
+  "name": "vela",
   "main": "src/worker.ts",
   // The runtime feature set pinned by this date. workerd executes the TS
   // plane natively. Bump deliberately, in a commit, never casually — the
@@ -36,7 +40,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "lessv",
+      "database_name": "vela",
       "migrations_dir": "migrations"
     }
   ],
@@ -47,7 +51,7 @@
   // 03:17 daily and only touches production certificates.
   "workflows": [
     {
-      "name": "lessv-cert-issuance",
+      "name": "vela-cert-issuance",
       "binding": "ISSUANCE",
       "class_name": "CertificateWorkflow"
     }

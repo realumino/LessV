@@ -456,7 +456,7 @@ describe("the subscription endpoint", () => {
       expect(yaml).toContain('    client-fingerprint: "chrome"');
       expect(yaml).toContain("    reality-opts:");
       expect(yaml).toContain("      support-x25519mlkem768: true");
-      expect(yaml).toContain('  - "MATCH,LESSV"');
+      expect(yaml).toContain('  - "MATCH,VELA"');
     });
 
     it("keeps the URI list unless a client asks for a profile", async () => {
