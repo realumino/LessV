@@ -105,7 +105,7 @@ npm --prefix frontend run build
   run; they must not persist them into tracked files.
 - `KEY_SECRET` is never rotated: it seals REALITY, certificate, and ACME
   account keys; rotation makes every sealed key unreadable.
-- `/var/lib/lessv/config.json` inside a node container is server-owned; node
+- `/var/lib/vela/config.json` inside a node container is server-owned; node
   configuration changes go through the plane API, never by hand on the host.
 - The image carries the server, Xray and nginx, so a node has no runtime
   dependency beyond Docker, the image and its two volumes. Worker dependencies

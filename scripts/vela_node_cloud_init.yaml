@@ -16,7 +16,7 @@
 #
 # The image carries Xray, nginx, the server binary and its supervisor; the
 # host owns Docker, the firewall and the two published ports. The volume
-# mount points (/etc/lessv, /var/lib/lessv) are the image's contract, not the
+# mount points (/etc/vela, /var/lib/vela) are the image's contract, not the
 # host's choice — only the volume names are.
 manage_etc_hosts: false
 ssh_pwauth: false
@@ -254,8 +254,8 @@ write_files:
           echo "        soft: 1048576"
           echo "        hard: 1048576"
           echo "    volumes:"
-          echo "      - vela-etc:/etc/lessv"
-          echo "      - vela-state:/var/lib/lessv"
+          echo "      - vela-etc:/etc/vela"
+          echo "      - vela-state:/var/lib/vela"
           echo ""
           echo "volumes:"
           echo "  vela-etc:"
@@ -266,9 +266,9 @@ write_files:
       # shell history or an argument list on the host.
       printf '%s\n' "$TOKEN" | docker run --rm -i \
           --entrypoint "$BINARY" \
-          -v vela-etc:/etc/lessv \
+          -v vela-etc:/etc/vela \
           "$IMAGE" enroll --cp "$CP_URL" --node "$NODE_ID" \
-          --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+          --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
       echo "enrolled $NODE_ID"
 
       docker compose -f /etc/vela/compose.yaml up -d

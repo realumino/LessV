@@ -284,8 +284,8 @@ services:
         soft: 1048576
         hard: 1048576
     volumes:
-      - vela-etc:/etc/lessv
-      - vela-state:/var/lib/lessv
+      - vela-etc:/etc/vela
+      - vela-state:/var/lib/vela
 
 volumes:
   vela-etc:
@@ -294,9 +294,9 @@ COMPOSE
 
 # 一次性 enroll：token 走 stdin，不进参数列表
 printf '%s\n' '<粘贴节点 token>' | docker run --rm -i \
-  --entrypoint "$BINARY" -v vela-etc:/etc/lessv "$IMAGE" \
+  --entrypoint "$BINARY" -v vela-etc:/etc/vela "$IMAGE" \
   enroll --cp https://cp.example.com --node node1 \
-  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
 
 docker compose -f /etc/vela/compose.yaml up -d
 ```
@@ -354,7 +354,7 @@ docker compose -f /etc/vela/compose.yaml logs -n 50
 
 需要额外出口时，在配置里加 outbound（`freedom` 为直连，WARP 预设会生成 masque 出站（CONNECT-IP over HTTP/3，要求节点 Xray ≥ 26.10.21），其余按上游出口处理），再给用户分配。`BLOCK` 是未匹配流量的默认路由，永远不能分配给用户。保存配置会把每个 inbound/outbound 登记进端点注册表；改 tag 不会丢用户授权、REALITY 密钥或链接变体。
 
-不要手工改节点上的 `/var/lib/lessv/config.json`；面板是唯一事实来源，节点会在下次拉取时覆盖。
+不要手工改节点上的 `/var/lib/vela/config.json`；面板是唯一事实来源，节点会在下次拉取时覆盖。
 
 #### 5.5 签发并分配证书
 
@@ -364,7 +364,7 @@ docker compose -f /etc/vela/compose.yaml logs -n 50
 2. 点 **Test issue**：完整跑一遍 ACME/DNS-01，但只更新 staging 的 current，不动生产；用来验证 DNS 与 CAA 可达性，不消耗生产限额。
 3. 成功后点 **Issue**，在确认框输入完整域名。Let's Encrypt 生产限额是每域名每周 5 张；失败不要循环重试。
 4. 节点页 **Certificates** 标签：勾选 `node1.example.com`，环境选 **Production**（默认），**Save assignment**。
-5. 等节点拉取：面板显示 `cert_synced_at`、`nginx_ok=1`。节点把证书写到 `/etc/lessv/certs/<域名路径>/current/`，生成 nginx decoy 配置，执行 `nginx -t` 并 reload。流量转发工具内核不会重启。
+5. 等节点拉取：面板显示 `cert_synced_at`、`nginx_ok=1`。节点把证书写到 `/etc/vela/certs/<域名路径>/current/`，生成 nginx decoy 配置，执行 `nginx -t` 并 reload。流量转发工具内核不会重启。
 
 验证：
 
@@ -434,7 +434,7 @@ curl -I https://node1.example.com    # 200，证书有效（不用 -k）
 
 - `ADMIN_KEY` 等价 root；Cloudflare Access 是额外门槛，不是替代品。
 - `KEY_SECRET` 不可轮换；换掉它，历史节点密钥、证书私钥、ACME 账户全部不可读。
-- 节点 token 只存哈希、只显示一次；`vela-etc` 卷里的 token 文件（`/etc/lessv/node.toml`）必须保持 0600。
+- 节点 token 只存哈希、只显示一次；`vela-etc` 卷里的 token 文件（`/etc/vela/node.toml`）必须保持 0600。
 - 订阅 URL 是能力凭据；泄漏即等于把该用户的订阅交给对方，及时 Rotate。
 - cloud-init 的 token 存在 user-data 和服务商元数据里；不可信服务商不要用。
 - `expire` 只影响订阅资格（过期用户拿到空订阅），`status=disabled` 才会从流量转发工具内核配置移除。
@@ -808,8 +808,8 @@ services:
         soft: 1048576
         hard: 1048576
     volumes:
-      - vela-etc:/etc/lessv
-      - vela-state:/var/lib/lessv
+      - vela-etc:/etc/vela
+      - vela-state:/var/lib/vela
 
 volumes:
   vela-etc:
@@ -818,9 +818,9 @@ COMPOSE
 
 # one-shot enrollment: the token arrives on stdin, never in an argument list
 printf '%s\n' '<paste node token>' | docker run --rm -i \
-  --entrypoint "$BINARY" -v vela-etc:/etc/lessv "$IMAGE" \
+  --entrypoint "$BINARY" -v vela-etc:/etc/vela "$IMAGE" \
   enroll --cp https://cp.example.com --node node1 \
-  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
 
 docker compose -f /etc/vela/compose.yaml up -d
 ```
@@ -919,7 +919,7 @@ never be assigned to a user. Saving the config registers every inbound and
 outbound in the endpoint registry; renaming a tag preserves user access,
 REALITY keys, and link variants.
 
-Do not hand-edit `/var/lib/lessv/config.json` on the node. The panel is the
+Do not hand-edit `/var/lib/vela/config.json` on the node. The panel is the
 only source of truth; the next pull overwrites the file.
 
 #### 5.5 Issue and assign a certificate
@@ -939,7 +939,7 @@ be assigned to the node before nginx can serve it.
 4. Node page **Certificates** tab: check `node1.example.com`, choose
    **Production** (default), and **Save assignment**.
 5. Wait for the pull: the panel shows `cert_synced_at` and `nginx_ok=1`. The
-   node writes the certificate to `/etc/lessv/certs/<domain path>/current/`,
+   node writes the certificate to `/etc/vela/certs/<domain path>/current/`,
    renders the nginx decoy config, runs `nginx -t`, and reloads nginx. The
    traffic-forwarding engine is not restarted.
 
@@ -1050,7 +1050,7 @@ reissued; private keys cannot.
 - `KEY_SECRET` is not rotatable. Rotating it makes every stored node key,
   certificate key, and ACME account unreadable.
 - Node tokens are stored as hashes and shown once; the token file inside
-  the `vela-etc` volume (`/etc/lessv/node.toml`) must stay 0600.
+  the `vela-etc` volume (`/etc/vela/node.toml`) must stay 0600.
 - A subscription URL is a capability credential; leaking it hands that user's
   subscription to the holder. Rotate promptly.
 - cloud-init puts the token in user-data and provider metadata; do not use an
@@ -1433,8 +1433,8 @@ services:
         soft: 1048576
         hard: 1048576
     volumes:
-      - vela-etc:/etc/lessv
-      - vela-state:/var/lib/lessv
+      - vela-etc:/etc/vela
+      - vela-state:/var/lib/vela
 
 volumes:
   vela-etc:
@@ -1443,9 +1443,9 @@ COMPOSE
 
 # enroll یک‌باره: توکن از stdin می‌آید، نه از فهرست آرگومان‌ها
 printf '%s\n' '<paste node token>' | docker run --rm -i \
-  --entrypoint "$BINARY" -v vela-etc:/etc/lessv "$IMAGE" \
+  --entrypoint "$BINARY" -v vela-etc:/etc/vela "$IMAGE" \
   enroll --cp https://cp.example.com --node node1 \
-  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
 
 docker compose -f /etc/vela/compose.yaml up -d
 ```
@@ -1540,7 +1540,7 @@ user-data رندرشده را هرگز commit نکنید.
 هر inbound/outbound را در رجیستری ثبت می‌کند؛ تغییر tag دسترسی کاربران،
 کلیدهای REALITY و variantهای پیوند را حفظ می‌کند.
 
-`/var/lib/lessv/config.json` را روی گره دستی ویرایش نکنید. پنل تنها منبع
+`/var/lib/vela/config.json` را روی گره دستی ویرایش نکنید. پنل تنها منبع
 حقیقت است؛ کشیدن بعدی فایل را بازنویسی می‌کند.
 
 #### ۵.۵ صدور و تخصیص گواهی
@@ -1560,7 +1560,7 @@ user-data رندرشده را هرگز commit نکنید.
 4. تب **Certificates** صفحهٔ گره: `node1.example.com` را تیک بزنید، محیط
    **Production** (پیش‌فرض) را انتخاب و **Save assignment** را بزنید.
 5. منتظر کشیدن بمانید: پنل `cert_synced_at` و `nginx_ok=1` را نشان می‌دهد.
-   گره گواهی را در `/etc/lessv/certs/<domain path>/current/` می‌نویسد،
+   گره گواهی را در `/etc/vela/certs/<domain path>/current/` می‌نویسد،
    پیکربندی فریبندهٔ nginx را می‌سازد، `nginx -t` و reload می‌کند. هستهٔ ابزار
    هدایت ترافیک راه‌اندازی مجدد نمی‌شود.
 
@@ -1667,7 +1667,7 @@ point-in-time restore در داشبورد). D1 هم وضعیت و هم محصو�
 - `KEY_SECRET` قابل چرخش نیست. چرخش آن همهٔ کلیدهای گره، گواهی و حساب ACME
   را ناخوانا می‌کند.
 - توکن گره فقط هش ذخیره می‌شود و یک‌بار نمایش داده می‌شود؛ فایل توکن داخل
-  جلد `vela-etc` (`/etc/lessv/node.toml`) باید 0600 بماند.
+  جلد `vela-etc` (`/etc/vela/node.toml`) باید 0600 بماند.
 - URL اشتراک یک اعتبارنامهٔ capability است؛ افشای آن یعنی دادن اشتراک آن
   کاربر. سریع Rotate کنید.
 - cloud-init توکن را در user-data و متادیتای ارائه‌دهنده می‌گذارد؛ از
@@ -2059,8 +2059,8 @@ services:
         soft: 1048576
         hard: 1048576
     volumes:
-      - vela-etc:/etc/lessv
-      - vela-state:/var/lib/lessv
+      - vela-etc:/etc/vela
+      - vela-state:/var/lib/vela
 
 volumes:
   vela-etc:
@@ -2069,9 +2069,9 @@ COMPOSE
 
 # одноразовый enroll: токен приходит через stdin, а не в списке аргументов
 printf '%s\n' '<paste node token>' | docker run --rm -i \
-  --entrypoint "$BINARY" -v vela-etc:/etc/lessv "$IMAGE" \
+  --entrypoint "$BINARY" -v vela-etc:/etc/vela "$IMAGE" \
   enroll --cp https://cp.example.com --node node1 \
-  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
 
 docker compose -f /etc/vela/compose.yaml up -d
 ```
@@ -2170,7 +2170,7 @@ systemd-хост.
 inbound/outbound в реестре; переименование tag сохраняет доступ пользователей,
 ключи REALITY и варианты ссылок.
 
-Не редактируйте `/var/lib/lessv/config.json` на узле вручную. Панель —
+Не редактируйте `/var/lib/vela/config.json` на узле вручную. Панель —
 единственный источник истины; следующее получение перезапишет файл.
 
 #### 5.5 Выпуск и назначение сертификата
@@ -2190,7 +2190,7 @@ inbound/outbound в реестре; переименование tag сохра�
 4. Вкладка **Certificates** узла: отметьте `node1.example.com`, выберите
    **Production** (по умолчанию) и **Save assignment**.
 5. Дождитесь синхронизации: панель покажет `cert_synced_at` и `nginx_ok=1`.
-   Узел пишет сертификат в `/etc/lessv/certs/<domain path>/current/`,
+   Узел пишет сертификат в `/etc/vela/certs/<domain path>/current/`,
    генерирует конфиг заглушки nginx, выполняет `nginx -t` и reload. Ядро
    инструмента пересылки трафика не перезапускается.
 
@@ -2301,7 +2301,7 @@ REALITY/сертификатов/ACME не расшифровать. Серти�
 - `KEY_SECRET` нельзя менять. Смена делает нечитаемыми все ключи узлов,
   сертификатов и аккаунтов ACME.
 - Токены узлов хранятся как хеши и показываются один раз; файл токена внутри
-  тома `vela-etc` (`/etc/lessv/node.toml`) должен оставаться 0600.
+  тома `vela-etc` (`/etc/vela/node.toml`) должен оставаться 0600.
 - URL подписки — capability-credential; утечка отдаёт подписку пользователя.
   Сразу выполняйте Rotate.
 - cloud-init кладёт токен в user-data и метаданные провайдера; не используйте
@@ -2689,8 +2689,8 @@ services:
         soft: 1048576
         hard: 1048576
     volumes:
-      - vela-etc:/etc/lessv
-      - vela-state:/var/lib/lessv
+      - vela-etc:/etc/vela
+      - vela-state:/var/lib/vela
 
 volumes:
   vela-etc:
@@ -2699,9 +2699,9 @@ COMPOSE
 
 # 한번 enroll: 토큰은 stdin으로 오고 인수목록에 남지 않습니다
 printf '%s\n' '<paste node token>' | docker run --rm -i \
-  --entrypoint "$BINARY" -v vela-etc:/etc/lessv "$IMAGE" \
+  --entrypoint "$BINARY" -v vela-etc:/etc/vela "$IMAGE" \
   enroll --cp https://cp.example.com --node node1 \
-  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
 
 docker compose -f /etc/vela/compose.yaml up -d
 ```
@@ -2795,7 +2795,7 @@ masque(CONNECT-IP over HTTP/3, Xray 26.10.21 이상 필요)를 만듬, 나머지
 저장하면 모든 inbound/outbound가 endpoint 등록부에 들어갑니다. tag를 고쳐도
 사용자권한, REALITY 열쇠, 련결변형이 보존됩니다.
 
-마디의 `/var/lib/lessv/config.json`을 손으로 고치지 마십시오. 관리평면이
+마디의 `/var/lib/vela/config.json`을 손으로 고치지 마십시오. 관리평면이
 유일한 진실의 근원이며 다음 당겨오기가 파일을 덮어씁니다.
 
 #### 5.5 증명서 발급과 배정
@@ -2813,7 +2813,7 @@ nginx가 그것을 봉사할수 있습니다.
 4. 마디화면 **Certificates** 탭: `node1.example.com`을 표시하고 환경을
    **Production**(기본)으로 고른 다음 **Save assignment**를 누르십시오.
 5. 당겨오기를 기다리십시오. 관리화면에 `cert_synced_at`, `nginx_ok=1`이
-   보입니다. 마디는 증명서를 `/etc/lessv/certs/<domain path>/current/`에 쓰고
+   보입니다. 마디는 증명서를 `/etc/vela/certs/<domain path>/current/`에 쓰고
    nginx 위장설정을 만들며 `nginx -t`와 reload를 실행합니다. 흐름전달도구핵심은
    다시 시작하지 않습니다.
 
@@ -2921,7 +2921,7 @@ point-in-time restore)을 복사하십시오. D1에는 상태와 증명서 산�
 - `KEY_SECRET`은 돌릴수 없습니다. 돌리면 저장된 모든 마디열쇠, 증명서열쇠,
   ACME 계정을 읽을수 없습니다.
 - 마디 토큰은 해시로만 저장되고 한번만 보입니다. `vela-etc` 론안의 토큰
-  파일(`/etc/lessv/node.toml`)은 0600을 지켜야 합니다.
+  파일(`/etc/vela/node.toml`)은 0600을 지켜야 합니다.
 - 구독 URL은 capability 증표입니다. 새면 그 사용자의 구독을 넘겨주는것과
   같습니다. 즉시 Rotate하십시오.
 - cloud-init은 토큰을 user-data와 봉사자 메터자료에 둡니다. 믿을수 없는
@@ -3313,8 +3313,8 @@ services:
         soft: 1048576
         hard: 1048576
     volumes:
-      - vela-etc:/etc/lessv
-      - vela-state:/var/lib/lessv
+      - vela-etc:/etc/vela
+      - vela-state:/var/lib/vela
 
 volumes:
   vela-etc:
@@ -3323,9 +3323,9 @@ COMPOSE
 
 # bir gezeklik enroll: token stdin-den gelýär, argument sanawyna düşmeýär
 printf '%s\n' '<paste node token>' | docker run --rm -i \
-  --entrypoint "$BINARY" -v vela-etc:/etc/lessv "$IMAGE" \
+  --entrypoint "$BINARY" -v vela-etc:/etc/vela "$IMAGE" \
   enroll --cp https://cp.example.com --node node1 \
-  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
 
 docker compose -f /etc/vela/compose.yaml up -d
 ```
@@ -3425,7 +3425,7 @@ hiç wagt ulanyja berilmeýär. Konfigurasiýany saklamak her inbound/outbound-y
 endpoint registrine ýazýar; tag üýtgese-de ulanyjy hukuklary, REALITY
 açarlary we baglanyşyk görnüşleri saklanýar.
 
-Düwündäki `/var/lib/lessv/config.json` faýlyny elde üýtgetmäň. Panel ýeke-täk
+Düwündäki `/var/lib/vela/config.json` faýlyny elde üýtgetmäň. Panel ýeke-täk
 hakykat çeşmesi; indiki çekiliş faýly üstünden ýazar.
 
 #### 5.5 Şahadatnama çykarmak we bellemek
@@ -3445,7 +3445,7 @@ Düwün domeni `serverNames`-de bolmaly we şahadatnama düwüne bellenmeli,
 4. Düwün sahypasynyň **Certificates** bölümi: `node1.example.com`-y belläň,
    **Production** (deslapky) saýlaň we **Save assignment**-a basyň.
 5. Çekilişe garaşyň: panel `cert_synced_at` we `nginx_ok=1` görkezýär. Düwün
-   şahadatnamany `/etc/lessv/certs/<domain path>/current/`-a ýazýar, nginx
+   şahadatnamany `/etc/vela/certs/<domain path>/current/`-a ýazýar, nginx
    ýasama konfigurasiýasyny döredýär, `nginx -t` we reload edýär. Ýadro
    täzeden başlamaýar.
 
@@ -3553,7 +3553,7 @@ täzeden çykaryp bolýar; hususy açarlary bolmaýar.
 - `KEY_SECRET` çalşylmaýar. Çalşyrsaňyz, saklanýan ähli düwün açarlary,
   şahadatnama açarlary we ACME hasaby okalmaz bolýar.
 - Düwün tokenleri diňe hash görnüşinde saklanýar we bir gezek görkezilýär;
-  `vela-etc` jiltindäki token faýly (`/etc/lessv/node.toml`) 0600 bolmaly.
+  `vela-etc` jiltindäki token faýly (`/etc/vela/node.toml`) 0600 bolmaly.
 - Abuna URL-si kepil: syrsa, şol ulanyjynyň abunasyny başga birine
   berýärsiňiz. Derrew Rotate ediň.
 - cloud-init tokeni user-data-a we üpjün edijiniň metamaglumatlaryna

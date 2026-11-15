@@ -242,7 +242,7 @@ plane if it:
    `GET /api/node/config` before swapping the live file, and reports through
    `POST /api/node/report`;
 3. polls `GET /api/node/certs`, writes the content-addressed tree under
-   `/etc/lessv/certs/<domain path>/<fingerprint>/` (`fullchain.pem` 0644,
+   `/etc/vela/certs/<domain path>/<fingerprint>/` (`fullchain.pem` 0644,
    `privkey.pem` 0600) and swaps `current` atomically;
 4. renders the nginx decoy and reaches it through the Unix socket the plane
    renders as REALITY `dest`, `/dev/shm/lessv-decoy.sock`;
@@ -251,8 +251,8 @@ plane if it:
 The image is the delivery vehicle, and it has one operator-facing requirement:
 publish port 80 and port 443/tcp and nothing else needs exposing. Inside, the
 server owns Xray on 443 and nginx on the decoy's Unix socket, and it keeps its
-two directories as volumes (`/etc/lessv` for identity and certificates,
-`/var/lib/lessv` for state, the live config and geodata). How the process is
+two directories as volumes (`/etc/vela` for identity and certificates,
+`/var/lib/vela` for state, the live config and geodata). How the process is
 supervised — s6 in the image, systemd or OpenRC outside it, a bare binary on a
 developer machine — is invisible to the plane. The plane never connects to a
 node: every call is server-initiated, so a node behind NAT needs no inbound

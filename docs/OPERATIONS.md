@@ -10,10 +10,10 @@ and nodes that pull their certificates from the plane.
 ```
 Internet ── :443 ──► Xray (REALITY, stream proxy)
                         │ realitySettings.dest = /dev/shm/lessv-decoy.sock
-                        │ geoip:/geosite: ← /var/lib/lessv/assets/*.dat
+                        │ geoip:/geosite: ← /var/lib/vela/assets/*.dat
                         ▼
                      nginx (TLS, decoy site; Unix socket only, :80 = 301)
-                        │ ssl_certificate = /etc/lessv/certs/<path>/current/fullchain.pem
+                        │ ssl_certificate = /etc/vela/certs/<path>/current/fullchain.pem
                         ▼
                      certificate files ← vela-server sync ← GET /api/node/certs
 ```
@@ -24,7 +24,7 @@ Internet ── :443 ──► Xray (REALITY, stream proxy)
   socket only (no TCP listener) and :80 answers a 301.
 - Certificates belong to nginx (the self-stealed origin); Xray has none.
 - GeoIP/GeoSite data belongs to the server (`geodata_dir`, default
-  `/var/lib/lessv/assets`; Xray reads it through `XRAY_LOCATION_ASSET`).
+  `/var/lib/vela/assets`; Xray reads it through `XRAY_LOCATION_ASSET`).
 
 ## Presets and the base document (plane)
 
@@ -197,8 +197,8 @@ First boot sets:
   compose file is written to `/etc/vela/compose.yaml`: one service, bridge
   networking, `ports: ["80:80", "443:443/tcp"]`, `restart:
   unless-stopped`, a 90-second stop grace period, a 1M `nofile` ulimit,
-  `no-new-privileges`, and two named volumes (`vela-etc` on `/etc/lessv`,
-  `vela-state` on `/var/lib/lessv`). The mount points are the image's
+  `no-new-privileges`, and two named volumes (`vela-etc` on `/etc/vela`,
+  `vela-state` on `/var/lib/vela`). The mount points are the image's
   contract; the volume names are the operator's.
 - Enrollment runs once in a throwaway container with the token on stdin, so
   the token never lands in a shell history, an argument list, or the host's
@@ -230,10 +230,10 @@ firewall and the two published ports.
   it — a hand-edited Xray binary or nginx config disappears, which is the
   point: the image is the truth and the plane is the configuration.
 - **The two volumes are the node's identity.** `vela-etc` holds
-  `/etc/lessv`: the enrollment token file, the certificate tree and the nginx
+  `/etc/vela`: the enrollment token file, the certificate tree and the nginx
   decoy configuration. Losing it means re-enrolling (the plane mints a new
   token) and re-fetching every certificate. `vela-state` holds
-  `/var/lib/lessv`: the state file, the live Xray config and the geodata
+  `/var/lib/vela`: the state file, the live Xray config and the geodata
   files. Losing it costs one reconcile — the server re-fetches the config and
   the certificates and re-downloads geodata on its next poll.
 - **One volume cannot be shared.** Two containers mounting the same
@@ -245,7 +245,7 @@ firewall and the two published ports.
 ### On-disk layout inside the container
 
 ```
-/etc/lessv/certs/<domain path>/
+/etc/vela/certs/<domain path>/
 ├── <fingerprint sha256>/        # one directory per certificate version
 │   ├── fullchain.pem            # 0644
 │   └── privkey.pem              # 0600 (0600/0640+cert_group when set)
@@ -265,7 +265,7 @@ firewall and the two published ports.
   retries.
 - The server also writes the decoy nginx configuration (next section) and
   restarts nginx when it is found stopped, on every poll.
-- GeoIP/GeoSite data lives in `/var/lib/lessv/assets/geoip.dat` and
+- GeoIP/GeoSite data lives in `/var/lib/vela/assets/geoip.dat` and
   `geosite.dat` (see the update section above); a stale `.prev` sibling is
   the last rollback copy.
 
@@ -274,8 +274,8 @@ firewall and the two published ports.
 The image ships nginx with no default site; the server renders exactly one
 file from the certificate manifest at the path it was enrolled with
 (`--nginx-conf-path`). The provisioning template uses
-`/etc/nginx/http.d/lessv-decoy.conf`; a container built on a
-Debian/Ubuntu/RHEL base uses `/etc/nginx/conf.d/lessv-decoy.conf`.
+`/etc/nginx/http.d/vela-decoy.conf`; a container built on a
+Debian/Ubuntu/RHEL base uses `/etc/nginx/conf.d/vela-decoy.conf`.
 
 One `server` block per assigned certificate, listening **only** on the
 decoy's Unix socket, plus one plain-HTTP block that redirects everything to
@@ -296,8 +296,8 @@ server {
     listen unix:/dev/shm/lessv-decoy.sock ssl default_server;
     server_name <domain>;
 
-    ssl_certificate     /etc/lessv/certs/<path>/current/fullchain.pem;
-    ssl_certificate_key /etc/lessv/certs/<path>/current/privkey.pem;
+    ssl_certificate     /etc/vela/certs/<path>/current/fullchain.pem;
+    ssl_certificate_key /etc/vela/certs/<path>/current/privkey.pem;
     ssl_protocols       TLSv1.3;
     ssl_ecdh_curve      X25519MLKEM768:X25519;
 
@@ -309,7 +309,7 @@ server {
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
     add_header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://api.ipify.org https://api64.ipify.org; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
 
-    root  /var/www/lessv-decoy;
+    root  /var/www/vela-decoy;
     index index.html;
 
     location = /robots.txt {
@@ -348,10 +348,10 @@ Disallow: /
   noindex, nofollow, noarchive, nosnippet`, `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer`, `nosniff`, a restrictive CSP, and a
   `robots.txt` that disallows everything. `index.html` is rendered by the
-  server from a template that starts with `<!-- lessv-node-decoy-page -->`:
+  server from a template that starts with `<!-- vela-server-decoy-page -->`:
   while that marker is present the page follows image upgrades; delete the
   marker to keep your own page untouched.
-- `nginx_socket` in `/etc/lessv/node.toml` moves the socket (absolute path;
+- `nginx_socket` in `/etc/vela/node.toml` moves the socket (absolute path;
   keep the preset's `dest` in sync). Both services run as root here, so the
   socket's default ownership is enough; with a non-root Xray, set
   `user=`/`group=` on the `listen` line instead.
@@ -400,10 +400,10 @@ Server side, from the host (the compose file lives at `/etc/vela/compose.yaml`):
 ```bash
 docker compose -f /etc/vela/compose.yaml ps
 docker compose -f /etc/vela/compose.yaml logs -n 100 vela-server
-docker exec vela-server xray run -test -c /var/lib/lessv/config.json
+docker exec vela-server xray run -test -c /var/lib/vela/config.json
 docker exec vela-server nginx -t
-docker exec vela-server ls -l /etc/lessv/certs/<path>/
-docker exec vela-server readlink -f /etc/lessv/certs/<path>/current
+docker exec vela-server ls -l /etc/vela/certs/<path>/
+docker exec vela-server readlink -f /etc/vela/certs/<path>/current
 ```
 
 ## Troubleshooting playbook (in order)
@@ -416,19 +416,19 @@ docker exec vela-server readlink -f /etc/lessv/certs/<path>/current
    covered by an assigned certificate`, `dest ... is not a local Unix socket
    or 127.0.0.1:<port>`, invalid `shortIds`).
 3. **Server**: `docker compose -f /etc/vela/compose.yaml logs -n 100`;
-   `docker exec vela-server ls -l /etc/lessv/certs/<path>/`;
+   `docker exec vela-server ls -l /etc/vela/certs/<path>/`;
    `docker exec vela-server readlink -f .../current`. The state file
-   (`/var/lib/lessv/state.json` inside the `vela-state` volume) carries
+   (`/var/lib/vela/state.json` inside the `vela-state` volume) carries
    `cert_etag`, `cert_synced_at`, `last_nginx_ok`, and `certs` (the
    certificate set the decoy config was rendered from; used to notice that a
    server upgrade made the generated file stale). The decoy page lives at
-   `/var/www/lessv-decoy/index.html`.
+   `/var/www/vela-decoy/index.html`.
 4. **nginx**: `docker exec vela-server nginx -t`; the error log is in
    `docker compose logs`.
 5. **HTTP checks**: `curl -v https://<domain>` (must validate without
    `-k`); `openssl s_client -connect <host>:443 -servername <domain>`.
 6. **Xray**: `docker exec vela-server xray run -test -c
-   /var/lib/lessv/config.json`; its log is in `docker compose logs`. Cert
+   /var/lib/vela/config.json`; its log is in `docker compose logs`. Cert
    issuance and nginx reload must never restart Xray.
 7. **Artifacts missing**: the bytes live in D1, in `certificate_artifacts`,
    keyed by certificate id (`SELECT certificate_id, cert_pem IS NOT NULL,
