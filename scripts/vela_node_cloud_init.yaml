@@ -1,0 +1,287 @@
+#cloud-config
+# WHAT: first boot for a disposable Alpine (OpenRC) Vela node. The same file
+# works on any provider whose Alpine 3.22+ image runs cloud-init.
+# WHY: a node is cattle. This file raises the socket/fd ceilings, installs
+# Docker, enrolls the node image once, and runs it with the two ports the
+# server needs published. There is no Tailscale, no configuration-management
+# agent, and no package upgrade step: a host that drifts or breaks is
+# destroyed and rebuilt from this file plus the plane.
+#
+# The five values in the marked vela.env block below are the only per-node
+# edits (NODE_ID, CP_URL, TOKEN, IMAGE, BINARY). The token is intentionally in
+# user data (the operator's current trade-off): the plane can revoke it by
+# deleting the node row, and the host has no SSH listener after first boot.
+# The Linode-specific helper `scripts/linode_provision.mjs` can render this
+# file, but it is not required; the operator manual documents the manual paste.
+#
+# The image carries Xray, nginx, the server binary and its supervisor; the
+# host owns Docker, the firewall and the two published ports. The volume
+# mount points (/etc/lessv, /var/lib/lessv) are the image's contract, not the
+# host's choice — only the volume names are.
+manage_etc_hosts: false
+ssh_pwauth: false
+
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - docker
+  - docker-cli-compose
+  - nftables
+  - nftables-openrc
+
+write_files:
+  # ===================== EDIT THIS BLOCK =====================
+  # NODE_ID  plane node id (1-32 lowercase letters/digits)
+  # CP_URL   control-plane base URL, no trailing slash
+  # TOKEN    value returned once by POST /api/admin/nodes/<NODE_ID>/token
+  # IMAGE    container image, registry and tag included
+  # BINARY   the server binary inside the image (the enrollment entrypoint)
+  # Everything below this block is generic and should not be edited.
+  # ===========================================================
+  - path: /root/vela.env
+    owner: root:root
+    permissions: '0600'
+    content: |
+      NODE_ID="__NODE_ID__"
+      CP_URL="__CP_URL__"
+      TOKEN="__TOKEN__"
+      IMAGE="__IMAGE__"
+      BINARY="__BINARY__"
+
+  # sshd is not merely stopped: cloud-init's own cc_ssh module calls
+  # `rc-service sshd restart`, and a default-runlevel start can race the
+  # cleanup below. A no-op init script makes every path a no-op.
+  - path: /etc/init.d/sshd
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/sbin/openrc-run
+      description="sshd (disabled by Vela)"
+      start() { ewarn "sshd is disabled on this node"; return 0; }
+      stop() { return 0; }
+      status() { return 3; }
+
+  # BBR keeps a long-haul proxy usable under loss; the socket/file ceilings
+  # match the compose file's nofile ulimit. Forwarding is deliberately absent:
+  # this host terminates its own TLS and routes nothing.
+  - path: /etc/sysctl.d/99-vela.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      fs.file-max = 2097152
+      net.core.default_qdisc = fq
+      net.ipv4.tcp_congestion_control = bbr
+      net.core.somaxconn = 1024
+      net.core.netdev_max_backlog = 2500
+      net.ipv4.tcp_fastopen = 3
+      net.ipv4.tcp_syncookies = 1
+      net.ipv4.tcp_mtu_probing = 1
+      net.ipv4.tcp_keepalive_time = 150
+      net.ipv4.tcp_keepalive_intvl = 15
+      net.ipv4.tcp_keepalive_probes = 3
+      net.ipv4.tcp_tw_reuse = 1
+
+  # Input fallback: drop everything except the two service ports. The ICMP
+  # and DHCP exceptions keep TCP/IP correct (PMTU, IPv6 ND) and survive a
+  # DHCP-based image; they expose no service. 22 is absent because sshd is
+  # stopped and removed from the runlevels below.
+  #
+  # WHY there is no forward chain: the container's traffic is DNAT'd onto the
+  # bridge and crosses the forward hook, which Docker manages in its own
+  # table. A second drop verdict there would race Docker's accepts and break
+  # the published ports — the one thing this host exists to do.
+  - path: /root/vela.nft
+    owner: root:root
+    permissions: '0644'
+    content: |
+      #!/usr/sbin/nft -f
+      flush ruleset
+      table inet vela {
+          chain input {
+              type filter hook input priority filter; policy drop;
+              iifname "lo" accept
+              ct state established,related accept
+              ct state invalid drop
+              tcp dport { 80, 443 } accept
+              icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
+              icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+              udp sport 67 udp dport 68 accept
+              udp sport 547 udp dport 546 accept
+          }
+          chain output {
+              type filter hook output priority filter; policy accept;
+          }
+      }
+
+  # Load the congestion control and qdisc modules on later boots, before the
+  # sysctl service applies the file above. Harmless when the kernel has them
+  # built in (modprobe is quiet).
+  - path: /etc/modules-load.d/vela.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      tcp_bbr
+      sch_fq
+
+  - path: /root/vela-bootstrap.sh
+    owner: root:root
+    permissions: '0700'
+    content: |
+      #!/bin/sh
+      set -eu
+
+      cleanup() {
+          status=$?
+          rm -f /root/vela.env /root/vela.nft /root/vela-bootstrap.sh
+          # No remote shell, on success or failure. The provider console
+          # (with whatever root password the image or operator set) is the
+          # only console, and a host that cannot converge is destroyed
+          # rather than repaired.
+          rc-update del sshd default >/dev/null 2>&1 || true
+          rc-update del sshd boot >/dev/null 2>&1 || true
+          rc-service sshd stop >/dev/null 2>&1 || true
+          exit "$status"
+      }
+      trap cleanup EXIT
+
+      rc-update del sshd default >/dev/null 2>&1 || true
+      rc-update del sshd boot >/dev/null 2>&1 || true
+      rc-service sshd stop >/dev/null 2>&1 || true
+
+      # The only per-node values live here. Remove the file immediately so
+      # the token is not left on disk; user data still holds it (see above).
+      . /root/vela.env
+      rm -f /root/vela.env
+      : "${NODE_ID:?NODE_ID is empty in the vela.env block}"
+      : "${CP_URL:?CP_URL is empty in the vela.env block}"
+      : "${TOKEN:?TOKEN is empty in the vela.env block}"
+      : "${IMAGE:?IMAGE is empty in the vela.env block}"
+      : "${BINARY:?BINARY is empty in the vela.env block}"
+      # Quoted pieces keep the renderer from substituting this guard along
+      # with the env block above.
+      case "$NODE_ID$CP_URL$TOKEN$IMAGE$BINARY" in
+          *"__"NODE_ID"__"*|*"__"CP_URL"__"*|*"__"TOKEN"__"*|*"__"IMAGE"__"*|*"__"BINARY"__"*)
+              echo "a template placeholder in the vela.env block was not replaced" >&2
+              exit 1
+              ;;
+      esac
+      hostname "$NODE_ID" 2>/dev/null || true
+      printf '%s\n' "$NODE_ID" > /etc/hostname
+
+      mkdir -p /etc/modules-load.d
+      rc-update add sysctl boot >/dev/null 2>&1 || true
+      modprobe tcp_bbr 2>/dev/null || true
+      modprobe sch_fq 2>/dev/null || true
+      if ! sysctl -p /etc/sysctl.d/99-vela.conf >/dev/null 2>&1; then
+          echo "warning: sysctl rejected at least one key in /etc/sysctl.d/99-vela.conf" >&2
+      fi
+      if [ "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || true)" != "bbr" ]; then
+          echo "warning: bbr is unavailable on this kernel; keeping the default CCA" >&2
+      fi
+
+      # The fallback is part of the host's contract: if it cannot load, stop
+      # before enrolling a node that would be reachable on unlisted ports.
+      install -m 0644 /root/vela.nft /etc/nftables.nft
+      rc-update add nftables boot >/dev/null 2>&1 || true
+      rc-service nftables restart
+      echo "firewall loaded (input: tcp 80/443 only)"
+
+      rc-update add docker default >/dev/null 2>&1 || true
+      rc-service docker start
+      # The daemon answers on its socket a moment after the init script
+      # returns; every docker command below needs it.
+      attempt=0
+      until docker info >/dev/null 2>&1; do
+          attempt=$((attempt + 1))
+          if [ "$attempt" -ge 30 ]; then
+              echo "the docker daemon did not start" >&2
+              exit 1
+          fi
+          sleep 2
+      done
+
+      # The control plane may be behind a cold DNS answer; the one-shot
+      # enrollment must not burn this cloud-init run on a transient error.
+      attempt=0
+      until curl -fsS --max-time 5 "$CP_URL/api/health" >/dev/null 2>&1; do
+          attempt=$((attempt + 1))
+          if [ "$attempt" -ge 60 ]; then
+              echo "control plane unreachable: $CP_URL/api/health" >&2
+              exit 1
+          fi
+          sleep 3
+      done
+
+      # Only the image this file names is ever pulled, and never a floating
+      # tag on the operator's behalf. A node booted with a locally built
+      # image loads it first; the pull is the published path.
+      if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+          echo "image $IMAGE is not present; pulling exactly that reference"
+          if ! docker pull "$IMAGE"; then
+              echo "cannot pull $IMAGE" >&2
+              echo "for a locally built image: docker load < <file>, then rerun:" >&2
+              echo "  rc-service docker start && docker compose -f /etc/vela/compose.yaml up -d" >&2
+              exit 1
+          fi
+      fi
+
+      mkdir -p /etc/vela
+      # WHY line by line and not a heredoc: cloud-init indents this whole
+      # script, and an indented heredoc would produce an indented YAML
+      # document, which is not a valid compose file.
+      {
+          echo "# WHAT: the node image, as this host runs it."
+          echo "#"
+          echo "# WHY bridge networking with two published ports: it is the only"
+          echo "# network mode that behaves the same on every provider, and the server"
+          echo "# needs nothing else. Source addresses are rewritten by the bridge; the"
+          echo "# plane takes the public address from the edge instead."
+          echo "services:"
+          echo "  vela-server:"
+          echo "    image: \"${IMAGE}\""
+          echo "    container_name: vela-server"
+          echo "    restart: unless-stopped"
+          echo "    network_mode: bridge"
+          echo "    ports:"
+          echo "      - \"80:80\""
+          echo "      - \"443:443/tcp\""
+          echo "    stop_grace_period: 90s"
+          echo "    security_opt:"
+          echo "      - no-new-privileges:true"
+          echo "    ulimits:"
+          echo "      nofile:"
+          echo "        soft: 1048576"
+          echo "        hard: 1048576"
+          echo "    volumes:"
+          echo "      - vela-etc:/etc/lessv"
+          echo "      - vela-state:/var/lib/lessv"
+          echo ""
+          echo "volumes:"
+          echo "  vela-etc:"
+          echo "  vela-state:"
+      } > /etc/vela/compose.yaml
+
+      # One-shot enrollment: the token arrives on stdin and never reaches a
+      # shell history or an argument list on the host.
+      printf '%s\n' "$TOKEN" | docker run --rm -i \
+          --entrypoint "$BINARY" \
+          -v vela-etc:/etc/lessv \
+          "$IMAGE" enroll --cp "$CP_URL" --node "$NODE_ID" \
+          --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/lessv-decoy.conf
+      echo "enrolled $NODE_ID"
+
+      docker compose -f /etc/vela/compose.yaml up -d
+
+      # A container that exits immediately is a failed node; report the tail
+      # of its log instead of leaving the operator with a dead host.
+      sleep 20
+      if [ -z "$(docker compose -f /etc/vela/compose.yaml ps --status running --quiet)" ]; then
+          echo "vela-server is not running after start:" >&2
+          docker compose -f /etc/vela/compose.yaml logs --tail 50 >&2 || true
+          exit 1
+      fi
+      echo "vela-server running on ${NODE_ID}; the plane shows its first heartbeat"
+
+runcmd:
+  - [ /bin/sh, /root/vela-bootstrap.sh ]

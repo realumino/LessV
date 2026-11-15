@@ -1,6 +1,6 @@
 /**
  * WHAT: provision Linode fixtures (server + optional client) and optionally
- * boot LessV nodes, and inventory them.
+ * boot Vela nodes, and inventory them.
  *
  * WHY a script and not dashboard clicks: a reproducible fixture —
  * `g6-nanode-1` Debian 12 instances with an SSH key injected, polled to
@@ -12,10 +12,15 @@
  * The `node` command is a Linode-specific convenience: it creates the plane
  * node row (with the REALITY preset unless disabled), mints its token, boots
  * an Alpine Linode whose cloud-init user data is
- * `scripts/alpine_cloud_init.yaml`, waits for enrollment, and writes the
+ * `scripts/vela_node_cloud_init.yaml`, waits for enrollment, and writes the
  * inventory (0600; holds the LISH root password). It is not the documented
  * installation path; the operator manual describes the generic cloud-init
  * and manual SSH paths instead.
+ *
+ * The node runs the server image, so the one artifact this script needs is
+ * an image reference — not a release version. Nothing here resolves "the
+ * latest" on the operator's behalf: say which image, and that exact reference
+ * is what the host pulls (or what a locally loaded image must be tagged as).
  *
  * Usage:
  *   node scripts/linode_provision.mjs create --token-file <token-file> \
@@ -25,7 +30,8 @@
  *     --admin-key-file <plane-env> --cp <url> --node <node-id> \
  *     --address <fqdn> --out <inventory.json> [--label <label>] \
  *     [--region jp-tyo-3] [--type g6-nanode-1] [--image linode/alpine3.24] \
- *     [--version <x.y.z>] [--tag <tag>] [--cert-environment staging] \
+ *     [--server-image <registry/image:tag>] [--binary <path-in-image>] \
+ *     [--tag <tag>] [--cert-environment staging] \
  *     [--no-config true] [--wait 300]
  *   node scripts/linode_provision.mjs list --token-file <token-file> [--tag <tag>]
  *   node scripts/linode_provision.mjs delete --token-file <token-file> \
@@ -49,8 +55,9 @@ import { join } from "node:path";
 
 const API = "https://api.linode.com/v4";
 const BOOT_TIMEOUT_S = 300;
-const CLOUD_INIT_TEMPLATE = new URL("alpine_cloud_init.yaml", import.meta.url);
-const GITEE_LATEST = "https://gitee.com/api/v5/repos/realumino/lessv/releases/latest";
+const CLOUD_INIT_TEMPLATE = new URL("vela_node_cloud_init.yaml", import.meta.url);
+const DEFAULT_SERVER_IMAGE = "ghcr.io/realumino/vela-server:latest";
+const DEFAULT_SERVER_BINARY = "/usr/local/bin/vela-server";
 
 /** WHAT: read `KEY=value` lines of an env file into a map. */
 function readEnvFile(path) {
@@ -164,23 +171,17 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** WHAT: the newest lessv-node release tag from Gitee, without the prefix. */
-async function latestNodeVersion() {
-  let response;
-  try {
-    response = await fetch(GITEE_LATEST, { signal: AbortSignal.timeout(15000) });
-  } catch (error) {
-    fail(`cannot reach the Gitee release API (${error.message}); pass --version`);
+/**
+ * WHAT: validate one image reference.
+ *
+ * WHY a shape check: the reference is interpolated into a compose file and a
+ * docker command on the node, so a value with whitespace or shell characters
+ * would be a command injection through cloud-init.
+ */
+function assertImageReference(value, flag) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/:-]*$/.test(value) || value.includes("..")) {
+    fail(`invalid ${flag}: ${value}`);
   }
-  if (!response.ok) {
-    fail(`Gitee release API -> ${response.status}; pass --version`);
-  }
-  const data = await response.json().catch(() => null);
-  const tag = typeof data?.tag_name === "string" ? data.tag_name : "";
-  if (!tag.startsWith("node-v") || tag.length <= "node-v".length) {
-    fail("the latest Gitee release is not a node-v tag; pass --version");
-  }
-  return tag.slice("node-v".length);
 }
 
 /** WHAT: one control-plane admin call; returns the parsed JSON body. */
@@ -480,9 +481,11 @@ async function cmdNode(args) {
   if (!args.out) {
     fail("--out is required; the inventory holds the LISH root password");
   }
-  const version = args.version ?? (await latestNodeVersion());
-  if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/.test(version)) {
-    fail(`invalid --version: ${version}`);
+  const serverImage = args["server-image"] ?? DEFAULT_SERVER_IMAGE;
+  assertImageReference(serverImage, "--server-image");
+  const serverBinary = args.binary ?? DEFAULT_SERVER_BINARY;
+  if (!/^\/[A-Za-z0-9._/-]+$/.test(serverBinary)) {
+    fail(`invalid --binary: ${serverBinary}`);
   }
   const noConfig = args["no-config"] === "true";
   const template = readFileSync(CLOUD_INIT_TEMPLATE, "utf8");
@@ -533,7 +536,8 @@ async function cmdNode(args) {
       NODE_ID: nodeId,
       CP_URL: cp,
       TOKEN: token,
-      VERSION: version,
+      IMAGE: serverImage,
+      BINARY: serverBinary,
     });
 
     const rootPass = randomRootPassword();
@@ -550,7 +554,8 @@ async function cmdNode(args) {
         image,
         ipv4: null,
         root_pass: rootPass,
-        version,
+        server_image: serverImage,
+        server_binary: serverBinary,
         cert_environment: certEnvironment ?? "production",
         created_at: new Date().toISOString(),
       },
