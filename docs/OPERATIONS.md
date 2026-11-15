@@ -85,21 +85,14 @@ Every other outbound is rendered per node as `<node>-<tag>` (e.g.
 added; every registered endpoint shows up on the node's Links tab, where its
 name can be changed and extra link variants added.
 
-## Xray binary and geodata updates
+## Geodata updates
 
-The admin confirms both on the node page (**Maintenance**); the plane records
-a `node_actions` row and the node executes it on its next heartbeat, then
-reports through `POST /api/node/action`. Neither action is automatic except
-the weekly geodata refresh.
+The admin asks for a refresh on the node page (**Maintenance**); the plane
+records a `node_actions` row and the node executes it on its next heartbeat,
+then reports through `POST /api/node/action`. The weekly refresh is the only
+automatic one. Xray itself is part of the node image and is updated by
+replacing that image, not by the plane.
 
-- **Xray binary**: the node resolves the requested tag (`latest` by default)
-  through the GitHub API, downloads `Xray-linux-*.zip` plus the vendor
-  `.dgst`, verifies the SHA-256, extracts the binary itself (no `unzip`
-  runtime dependency), runs `version` and a full `run -test` against the live
-  config, copies the current binary to `xray.lessv-backup`, swaps the new
-  one in, restarts the service and verifies it stays up. Any failure leaves
-  or restores the previous binary. A repeated request for the version it
-  already runs is answered without downloading anything.
 - **Geodata**: the node installs `geoip-full.dat` and `geosite.dat` from
   `XTLS/Xray-rules-dat` (latest release, SHA-256 sidecars verified,
   decompressed in-process) into `geodata_dir`, restarts Xray, and restores
@@ -110,7 +103,7 @@ the weekly geodata refresh.
   - Then: every 7 days while the live config references `geoip:`/`geosite:`,
     and on every admin request. A failed refresh is retried after 24 hours.
 
-Both actions are visible in `GET /api/admin/nodes/{id}/sync` under `actions`
+The action is visible in `GET /api/admin/nodes/{id}/sync` under `actions`
 (`pending`/`ok`/`failed`, target, message, timestamps); a failure stays
 visible until the admin requests the action again.
 

@@ -1,10 +1,10 @@
 /**
- * The pull contract version is frozen at protocol 3 (certificate
- * endpoint, cert-stage reports, X-Lessv-Node header).
+ * The pull contract version is frozen at protocol 3 (certificate endpoint,
+ * cert-stage reports, the node identity header).
  *
- * Why a pin and not a docstring: both repos implement this number, and the
- * node's zero-code-change proof against the plane depends on it not
- * drifting silently. Bumping it means editing this test, the node, and
+ * Why a pin and not a docstring: the server repo implements this number too,
+ * and the server's zero-code-change proof against the plane depends on it not
+ * drifting silently. Bumping it means editing this test, the server, and
  * docs/PROTOCOL.md together.
  */
 

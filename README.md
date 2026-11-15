@@ -2,7 +2,7 @@
 
 LessV is a self-hosted traffic-forwarding management plane on Cloudflare Workers. This file is the operator manual in Simplified Chinese, English, Persian, Russian, 조선어, and Türkmençe.
 
-LessV 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare Workers 上，管理端是挂在 `/admin` 的 React SPA，节点端是静态单二进制 `lessv-node`。节点只从面板拉取配置与证书，面板不主动连接节点。
+LessV 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare Workers 上，管理端是挂在 `/admin` 的 React SPA，节点端是 [LessV-Node](https://github.com/realumino/LessV-Node) 提供的节点服务。节点只从面板拉取配置与证书，面板不主动连接节点。
 
 本文件是面向部署与运维的**使用手册**，包含简体中文、English、فارسی、Русский、조선어、Türkmençe 六个版本。开发者文档在 [`docs/dev/`](docs/dev/README.md)：架构、开发、测试、发布。
 
@@ -25,7 +25,7 @@ LessV 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare
 
 用户 ── /sub/{token} ──► 订阅 ──► 链接（由 D1 渲染）
 
-节点 ── 流量转发工具内核（REALITY :443）──► lessv-node（Rust，systemd/OpenRC）
+节点 ── 流量转发工具内核（REALITY :443）──► 节点服务（Rust）
         ▲ nginx 假站点（Unix socket）│
         └── 证书文件 ◄── GET /api/node/certs ◄── ACME（DNS-01）
 ```
@@ -460,7 +460,8 @@ curl -I https://node1.example.com    # 200，证书有效（不用 -k）
 
 LessV is a self-hosted traffic-forwarding management plane. The control plane runs on
 Cloudflare Workers; the admin SPA is served under `/admin`; each node runs
-`lessv-node`, a static single binary. Nodes pull their desired configuration
+the node server maintained in [LessV-Node](https://github.com/realumino/LessV-Node). Nodes pull their
+desired configuration
 and certificates from the plane. The plane never connects to a node.
 
 ```
@@ -473,7 +474,7 @@ Browser ── /admin ─────────────► Worker (Hono + 
 
 User ── /sub/{token} ──► subscription ──► links (rendered from D1)
 
-Node ── traffic-forwarding engine (REALITY :443) ──► lessv-node (Rust, systemd/OpenRC)
+Node ── traffic-forwarding engine (REALITY :443) ──► node server (Rust)
         ▲ nginx decoy (Unix socket) │
         └── certificate files ◄── GET /api/node/certs ◄── ACME (DNS-01)
 ```
@@ -1084,7 +1085,7 @@ cannot.
 
 LessV یک صفحهٔ مدیریت خودمیزبان برای سرویس هدایت ترافیک است. صفحهٔ کنترل
 روی Cloudflare Workers اجرا می‌شود؛ پنل مدیریت یک SPA React زیر `/admin`
-است؛ هر گره یک باینری ثابت به نام `lessv-node` اجرا می‌کند. گره‌ها
+است؛ هر گره سرور گره را که در [LessV-Node](https://github.com/realumino/LessV-Node) نگهداری می‌شود اجرا می‌کند. گره‌ها
 پیکربندی و گواهی‌های موردنظر خود را از صفحهٔ کنترل می‌کشند. صفحهٔ کنترل
 هرگز به گره متصل نمی‌شود.
 
@@ -1098,7 +1099,7 @@ LessV یک صفحهٔ مدیریت خودمیزبان برای سرویس هدا
 
 کاربر ── /sub/{token} ──► اشتراک ──► پیوندها (رندر از D1)
 
-گره ── هستهٔ ابزار هدایت ترافیک (REALITY :443) ──► lessv-node (Rust، systemd/OpenRC)
+گره ── هستهٔ ابزار هدایت ترافیک (REALITY :443) ──► سرور گره (Rust)
        ▲ سایت فریبندهٔ nginx (سوکت یونیکس) │
        └── فایل‌های گواهی ◄── GET /api/node/certs ◄── ACME (DNS-01)
 ```
@@ -1694,7 +1695,7 @@ point-in-time restore در داشبورد) و سطل گواهی R2. بدون `KE
 LessV — саморазмещаемая панель управления сервисом пересылки трафика.
 Панель управления работает на Cloudflare Workers; административный SPA
 отдаётся по `/admin`; на каждом узле
-запущен `lessv-node`, один статический бинарник. Узлы сами забирают желаемую
+запущен сервер узла из [LessV-Node](https://github.com/realumino/LessV-Node). Узлы сами забирают желаемую
 конфигурацию и сертификаты с панели. Панель никогда не подключается к узлу.
 
 ```
@@ -1707,7 +1708,7 @@ LessV — саморазмещаемая панель управления се�
 
 Пользователь ── /sub/{token} ──► подписка ──► ссылки (рендер из D1)
 
-Узел ── ядро инструмента пересылки трафика (REALITY :443) ──► lessv-node (Rust, systemd/OpenRC)
+Узел ── ядро инструмента пересылки трафика (REALITY :443) ──► сервер узла (Rust)
         ▲ сайт-заглушка nginx (Unix-сокет) │
         └── файлы сертификатов ◄── GET /api/node/certs ◄── ACME (DNS-01)
 ```
@@ -2319,7 +2320,7 @@ point-in-time restore в панели Cloudflare) и бакет сертифик
 
 LessV는 흐름전달봉사를 자체적으로 운영하기 위한 관리평면입니다. 관리평면은 Cloudflare
 Workers에서 실행되고, 관리용 SPA는 `/admin` 아래에서 봉사되며, 각 마디에서는
-정적 단일 실행파일인 `lessv-node`가 돕니다. 마디는 원하는 설정과 증명서를
+[LessV-Node](https://github.com/realumino/LessV-Node)에서 관리하는 마디 서버가 돕니다. 마디는 원하는 설정과 증명서를
 관리평면에서 당겨옵니다. 관리평면은 마디에 먼저 련결하지 않습니다.
 
 ```
@@ -2332,7 +2333,7 @@ Workers에서 실행되고, 관리용 SPA는 `/admin` 아래에서 봉사되며,
 
 사용자 ── /sub/{token} ──► 구독 ──► 련결주소 (D1에서 생성)
 
-마디 ── 흐름전달도구핵심 (REALITY :443) ──► lessv-node (Rust, systemd/OpenRC)
+마디 ── 흐름전달도구핵심 (REALITY :443) ──► 마디 서버 (Rust)
         ▲ nginx 위장누리집 (Unix socket) │
         └── 증명서파일 ◄── GET /api/node/certs ◄── ACME (DNS-01)
 ```
@@ -2930,8 +2931,8 @@ point-in-time restore), R2 증명서 bucket을 복사하십시오. `KEY_SECRET`�
 
 LessV — Cloudflare Workers-de işleýän, özüňiz dolandyrýan trafik geçiriji
 dolandyryş tekizligi. Dolandyryş tekizligi Cloudflare Workers-de işleýär;
-dolandyryş SPA-si `/admin` astynda berilýär; her düwünde `lessv-node` atly
-statik ýeke-täk binary işleýär. Düwünler islenýän konfigurasiýasyny we
+dolandyryş SPA-si `/admin` astynda berilýär; her düwünde [LessV-Node](https://github.com/realumino/LessV-Node)-da
+saklanýan düwün serweri işleýär. Düwünler islenýän konfigurasiýasyny we
 şahadatnamalaryny panelden çekýärler. Panel düwüne hiç wagt özi birikmeýär.
 
 ```
@@ -2944,7 +2945,7 @@ Brauzer ── /admin ─────────────► Worker (Hono + 
 
 Ulanyjy ── /sub/{token} ──► abuna ──► baglanyşyklar (D1-den döredilýär)
 
-Düwün ── trafik geçiriji ýadro (REALITY :443) ──► lessv-node (Rust, systemd/OpenRC)
+Düwün ── trafik geçiriji ýadro (REALITY :443) ──► düwün serweri (Rust)
         ▲ nginx ýasama saýt (Unix socket) │
         └── şahadatnama faýllary ◄── GET /api/node/certs ◄── ACME (DNS-01)
 ```

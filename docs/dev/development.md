@@ -1,6 +1,6 @@
 # Development
 
-This is the contributor guide for the Worker, SPA, and `lessv-node`. Operator
+This is the contributor guide for the Worker, SPA, and the node server. Operator
 procedures are in the top-level `README.md`; system design is in
 [`architecture.md`](architecture.md); the node contract is in
 [`docs/PROTOCOL.md`](../PROTOCOL.md); certificate and nginx operations are in
@@ -9,8 +9,6 @@ procedures are in the top-level `README.md`; system design is in
 ## Prerequisites
 
 - Node.js 22 LTS or newer, with npm.
-- A C toolchain and Rust 1.80+ for `node/` (`cargo test`; Linux-only because
-  the agent uses `std::os::unix`).
 - No Cloudflare account is needed for tests. A real account is needed only
   to deploy or to exercise real ACME/DNS.
 
@@ -63,7 +61,6 @@ npm test
 npm run typecheck
 npm --prefix frontend test
 npm --prefix frontend run build
-(cd node && cargo test)             # Linux host or a musl cross toolchain
 ```
 
 | Layer | Command | Notes |
@@ -72,8 +69,10 @@ npm --prefix frontend run build
 | Types | `npm run types && npm run typecheck` | regenerates `worker-configuration.d.ts` |
 | Worker build | `npm run build` | `wrangler deploy --dry-run` |
 | Frontend | `npm --prefix frontend test` / `run build` | Vitest + `tsc --noEmit` + Vite |
-| Node | `cd node && cargo test` | Linux; static musl release artifacts |
 | Deploy pipeline | `npm run deploy -- --dry-run` | build + wrangler dry-run, no cloud |
+
+The server is tested in its own repository; the plane only owns the contract
+([`docs/PROTOCOL.md`](../PROTOCOL.md)).
 
 The suite is hermetic: it does not depend on `.dev.vars`, the network, or
 real DNS. ACME runs against a mock CA, Cloudflare DNS calls are intercepted,
@@ -102,10 +101,8 @@ production allows 5 certificates per week per domain.
   allocation. Keep them side-effect free.
 - `frontend/src/` — React SPA. `api.ts` is the only module that calls the
   admin API; `lib/` holds pure helpers; `pages/` holds routes.
-- `node/src/` — one module per concern: `reconcile`, `apply`, `certs`,
-  `nginx`, `config`, `state`, `supervisor`, `update`, `geodata`, `stats`,
-  `http`.
 
+The node server is a separate repository; this tree never contains its source.
 Do not put SQL in routers or services. Do not put HTTP concerns in services.
 Do not add a fourth data store; D1, R2, and the Workflow are the backend.
 
@@ -140,15 +137,14 @@ are documented in `docs/OPERATIONS.md`.
 
 ## Changing the node protocol
 
-The protocol is a three-file invariant:
+The protocol is a two-file invariant in this repository:
 
 - `docs/PROTOCOL.md`
 - `PROTOCOL_VERSION` in `src/routers/node.ts`
-- the crate version in `node/Cargo.toml`
 
-`tests/pure/protocol_freeze.test.ts` pins the version. Bump only for a wire
-change, update all three in one commit, and keep the node's correct fallback
-("serve the current config") true. Add a protocol test in
+the server repo's crate version is the third value, changed there. Bump only
+for a wire change, update all three in one commit, and keep the node's correct
+fallback ("serve the current config") true. Add a protocol test in
 `tests/workerd/node_protocol.test.ts` or the relevant node module.
 
 ## Secrets and local data

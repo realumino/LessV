@@ -221,40 +221,29 @@ Issuance is serialized per domain by an active-run unique index. The
 `_acme-challenge` TXT names collide across environments, so one run per domain
 is enough; a staging test never flips the production pointer.
 
-## Node agent
+## The server
 
-`node/` is a Rust crate with two commands:
+The node-side software is a separate repository
+([LessV-Node](https://github.com/realumino/LessV-Node)); what this tree owns is
+the contract in [`docs/PROTOCOL.md`](../PROTOCOL.md). A server satisfies the
+plane if it:
 
-- `lessv-node enroll --cp <url> --node <id>` writes `/etc/lessv/node.toml`
-  (0600) from the token on stdin and first-contacts the plane.
-- `lessv-node run --config /etc/lessv/node.toml` is the daemon.
+1. speaks protocol 3 and identifies itself with the `X-Lessv-Node` header on
+   every `/api/node/*` call;
+2. heartbeats the applied config hash, then fetches, validates and tests
+   `GET /api/node/config` before swapping the live file, and reports through
+   `POST /api/node/report`;
+3. polls `GET /api/node/certs`, writes the content-addressed tree under
+   `/etc/lessv/certs/<domain path>/<fingerprint>/` (`fullchain.pem` 0644,
+   `privkey.pem` 0600) and swaps `current` atomically;
+4. renders the nginx decoy and reaches it through the Unix socket the plane
+   renders as REALITY `dest`, `/dev/shm/lessv-decoy.sock`;
+5. executes advertised actions and answers through `POST /api/node/action`.
 
-The daemon (`src/reconcile.rs`) loop:
-
-1. Heartbeat every 30 s with the applied hash, versions, health, and nginx
-   state; receive `desired_hash` and pending actions.
-2. If the hash differs (or the last apply failed), `GET /api/node/config`,
-   validate, test with `xray run -test`, write atomically, restart Xray, and
-   report success/failure.
-3. Poll `GET /api/node/certs`; validate the manifest, write content-addressed
-   certificate versions, swap `current` symlinks, render the nginx decoy
-   config, run `nginx -t`, reload nginx.
-4. Execute maintenance actions (`update_xray`, `update_geodata`) and report
-   through `POST /api/node/action`.
-5. Back off exponentially (5 s to 300 s, with jitter) when the plane is
-   unreachable.
-
-State lives in `/var/lib/lessv/state.json`; the live Xray config is
-`/var/lib/lessv/config.json`; certificates are under `/etc/lessv/certs/`;
-geodata is under `/var/lib/lessv/assets/`. The agent never accepts a remote
-shell and never edits `/etc/lessv/node.toml` after enrollment.
-
-Startup repairs from the last-known-good config: no bad config survives a
-`kill -9` or a host reboot. nginx never owns 443; Xray owns 443 and relays
-non-REALITY handshakes to the decoy's Unix socket, so the decoy's TLS
-certificate is the one clients see.
-
-## Failure model
+How the process is supervised — s6, systemd, OpenRC, a bare binary or a
+container — is invisible to the plane. The plane never connects to a node: every
+call is server-initiated, so a node behind NAT needs no inbound port except the
+two it serves traffic on.
 
 - **Plane unavailable:** nodes keep serving their current config and retry
   with backoff. Subscriptions and admin UI are unavailable.
@@ -273,9 +262,9 @@ certificate is the one clients see.
 - `ADMIN_KEY` is root-equivalent for the plane.
 - `KEY_SECRET` is never rotated. It seals stored REALITY, certificate, and
   ACME account keys; rotating it makes them unreadable.
-- The protocol version is pinned in `docs/PROTOCOL.md`,
-  `src/routers/node.ts`, and `node/Cargo.toml`, and frozen by
-  `tests/pure/protocol_freeze.test.ts`.
+- The protocol version is pinned in `docs/PROTOCOL.md` and
+  `src/routers/node.ts`, and frozen by `tests/pure/protocol_freeze.test.ts`;
+  the server repo carries the matching crate version.
 - The blackhole outbound tag is uppercase `BLOCK`; it is never assignable to
   a user.
 - The decoy is PQ-only (`X25519MLKEM768:X25519`) with no classical fallback;

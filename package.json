@@ -16,8 +16,7 @@
     "pretest:watch": "node scripts/ensure_wrangler_config.mjs",
     "pretypes": "node scripts/ensure_wrangler_config.mjs",
     "build": "wrangler deploy --dry-run",
-    "deploy": "node scripts/deploy.mjs",
-    "release:node": "node scripts/release_node.mjs"
+    "deploy": "node scripts/deploy.mjs"
   },
   "dependencies": {
     "@abraham/reflection": "^0.13.0",

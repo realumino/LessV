@@ -1,22 +1,22 @@
 # Releasing
 
-Two artifacts are versioned independently:
+Two artifacts are versioned independently, in two repositories:
 
 - **Plane** — Worker + SPA + migrations. Version in `package.json`; deployed
   with `npm run deploy`.
-- **Node** — `lessv-node` static binary + `install.sh` + unit files. Version in
-  `node/Cargo.toml`; published as a Gitee Release tag `node-v<version>`.
+- **Server** — the node image. Version in the server repository; published
+  there by its own workflow.
 
-The node↔plane protocol is a third, separate number. `docs/PROTOCOL.md`,
-`PROTOCOL_VERSION` in `src/routers/node.ts`, and `node/Cargo.toml` move
-together only when the wire contract changes; the version is pinned by
-`tests/pure/protocol_freeze.test.ts`. A plane deploy that changes the
-protocol requires a node release, and vice versa.
+The node↔plane protocol is a third, separate number. `docs/PROTOCOL.md` and
+`PROTOCOL_VERSION` in `src/routers/node.ts` (plus the server repo's
+`Cargo.toml`) move together only when the wire contract changes; the version is
+pinned by `tests/pure/protocol_freeze.test.ts`. A plane deploy that changes the
+protocol requires a server release, and vice versa.
 
 ## Plane release
 
 1. Run the full baseline from [`development.md`](development.md): `npm test`,
-   `npm run typecheck`, frontend tests and build, `cargo test`, and
+   `npm run typecheck`, frontend tests and build, and
    `npm run deploy -- --dry-run`.
 2. Confirm `npm run types` produced no unexpected change to
    `worker-configuration.d.ts` after a binding change.
@@ -61,64 +61,18 @@ Deploying with Cloudflare Access already enabled is fine only if the pipeline
 can reach `/api/health`; that path is deliberately left unprotected. Do not
 put Access in front of `/api/health`, `/api/node/*`, or `/sub/*`.
 
-## Node release
+## Server release
 
-`scripts/release_node.mjs` builds the static bundles from a clean tree and
-publishes them. `node/Cargo.toml` is the single version source; the script
-does not accept `--version`.
+The node server is built, tested and published in
+[LessV-Node](https://github.com/realumino/LessV-Node): the crate, the
+`Dockerfile`, the compose file and the image workflow all live there, and its
+`docs/` describe the release procedure. This repository ships no server
+artifact and no installer.
 
-1. Bump the version in `node/Cargo.toml`. If the wire contract changed, bump
-   the protocol in all three files and update the freeze test.
-2. Run `(cd node && cargo test)` and the full baseline.
-3. Build both architectures on a Linux host with the musl targets (or the
-   documented cross toolchain):
-
-   ```bash
-   npm run release:node -- --targets amd64,arm64
-   ```
-
-   Output in `dist/`:
-
-   ```
-   lessv-node-<version>-linux-amd64.tar.gz
-   lessv-node-<version>-linux-arm64.tar.gz
-   SHA256SUMS
-   install.sh
-   VERSION
-   *.sha256
-   ```
-
-   Each tarball contains the binary, `install.sh`, `VERSION`, `systemd/`, and
-   `openrc/`. It deliberately does not contain `src/`, `Cargo*`, or
-   `target/`.
-4. Inspect the artifacts: `tar -tzf` each tarball, run
-   `sha256sum -c SHA256SUMS`, and confirm the binary reports the version in
-   its filename (`./lessv-node version`).
-5. Publish the Gitee release. `--upload` creates or reuses the tag
-   `node-v<version>` and uploads the tarballs, `install.sh`, `VERSION`, and
-   `SHA256SUMS`:
-
-   ```bash
-   GITEE_TOKEN=<token> npm run release:node -- \
-     --targets amd64,arm64 --upload
-   ```
-
-   The token needs Gitee release permissions. It is read from the environment
-   or `--token-file`; never put it in a command line that lands in shell
-   history or a log.
-6. Verify from a clean host: download the tarball, check `SHA256SUMS`, run
-   `install.sh --help`, and install on a disposable node. The installer
-   refuses an nginx linked against OpenSSL < 3.5; that is intentional.
-
-`install.sh` in a release tarball already carries the version, and it also
-supports downloading a release by itself. Re-running it on an installed node
-is the upgrade path: it reuses `/etc/lessv/node.toml` and does not re-enroll.
-A node binary upgrade does not require a plane deploy unless the protocol
-changed.
-
-Do not publish a tarball built from a dirty tree, a binary built for the wrong
-libc, or an artifact whose `VERSION` disagrees with the tag. The node trusts
-`SHA256SUMS`; a mismatched release is worse than no release.
+The plane side of a server release is the contract: `docs/PROTOCOL.md` and
+`tests/pure/protocol_freeze.test.ts` are what a new image has to satisfy, and
+[`testing.md`](testing.md) describes the environment in which that is checked
+(tier D — one node under test).
 
 ## Release checklist
 
@@ -129,5 +83,4 @@ libc, or an artifact whose `VERSION` disagrees with the tag. The node trusts
 - [ ] Migration is additive and applied by the deploy pipeline.
 - [ ] `worker-configuration.d.ts` regenerated if bindings changed.
 - [ ] Plane deploy health check passed.
-- [ ] Node tarballs checksum-verified and installed on a disposable host.
 - [ ] Release notes name the version, protocol, and operator-visible change.
