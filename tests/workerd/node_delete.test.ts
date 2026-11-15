@@ -187,7 +187,7 @@ describe("deleting a node", () => {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
-        "X-Lessv-Node": nodeId,
+        "X-Vela-Server": nodeId,
       },
       body: JSON.stringify({ protocol: 3 }),
     });

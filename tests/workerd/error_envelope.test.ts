@@ -121,7 +121,7 @@ describe("the error envelope", () => {
 
     const config = await planeJson("GET", "/api/node/config", undefined, {
       Authorization: `Bearer ${token}`,
-      "X-Lessv-Node": node,
+      "X-Vela-Server": node,
     });
 
     expect(minted.headers.get("cache-control")).toBe("no-store");

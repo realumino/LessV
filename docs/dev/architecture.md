@@ -70,7 +70,8 @@ subscription renderer.
   SHA-256 digests and a constant-time XOR loop (`src/auth/admin_key.ts`), so
   neither content nor length leaks.
 - `/api/node/*` authenticates with a node bearer token (hash lookup) plus the
-  `X-Lessv-Node` header; every mismatch is the same 401. `/sub/:token` is a
+  `X-Vela-Server` header (the old `X-Lessv-Node` is still accepted); every
+  mismatch is the same 401. `/sub/:token` is a
   capability URL: unknown, disabled, expired, and empty users all get an empty
   200 body, and the three answers are asserted byte-identical — a stale holder
   must not learn that the token is merely dead rather than never minted.
@@ -236,7 +237,7 @@ The node-side software is a separate repository
 the contract in [`docs/PROTOCOL.md`](../PROTOCOL.md). A server satisfies the
 plane if it:
 
-1. speaks protocol 3 and identifies itself with the `X-Lessv-Node` header on
+1. speaks protocol 3 and identifies itself with the `X-Vela-Server` header on
    every `/api/node/*` call;
 2. heartbeats the applied config hash, then fetches, validates and tests
    `GET /api/node/config` before swapping the live file, and reports through

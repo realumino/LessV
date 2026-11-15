@@ -296,7 +296,7 @@ COMPOSE
 printf '%s\n' '<粘贴节点 token>' | docker run --rm -i \
   --entrypoint "$BINARY" -v vela-etc:/etc/vela "$IMAGE" \
   enroll --cp https://cp.example.com --node node1 \
-  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
+  --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
 
 docker compose -f /etc/vela/compose.yaml up -d
 ```
@@ -443,7 +443,7 @@ curl -I https://node1.example.com    # 200，证书有效（不用 -k）
 - 删除节点不会远程清空机器上的配置；节点仍需单独下线。
 - nginx decoy 配置与 `index.html` 由服务端生成/托管；删掉 `index.html` 里的标记即可自定义，但换镜像会刷新未自定义的页面。
 - decoy 固定 TLS 1.3 + `X25519MLKEM768:X25519`，没有非 PQ 回退；这一切只在镜像里配置。
-- `X-Lessv-Node` 是服务端身份头，`/dev/shm/lessv-decoy.sock` 是 REALITY 的 `dest`：两者都是冻结的协议值，不是产品名。
+- `X-Vela-Server` 是服务端身份头（旧构建发送的 `X-Lessv-Node` 仍被接受），`/dev/shm/lessv-decoy.sock` 是 REALITY 的 `dest`：两者都是冻结的协议值，不是产品名。
 - `BLOCK` 必须是大写；小写 `block` 会被当作可路由出口。
 - WARP 注册依赖 Cloudflare 的 app API，失败会显示 502，不会写半份配置；每次预览预设都会注册一个新设备，面板不保存设备凭据。
 - GeoIP 使用 rules-dat full 版；lite 版不能用于任意地区代码的 `geoip:` 规则。
@@ -820,7 +820,7 @@ COMPOSE
 printf '%s\n' '<paste node token>' | docker run --rm -i \
   --entrypoint "$BINARY" -v vela-etc:/etc/vela "$IMAGE" \
   enroll --cp https://cp.example.com --node node1 \
-  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
+  --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
 
 docker compose -f /etc/vela/compose.yaml up -d
 ```
@@ -1070,8 +1070,9 @@ reissued; private keys cannot.
   upgrades refresh unmodified pages.
 - The decoy is TLS 1.3 + `X25519MLKEM768:X25519` with no non-PQ fallback, and
   the image is the only place that is configured.
-- `X-Lessv-Node` is the server identity header and `/dev/shm/lessv-decoy.sock`
-  is REALITY's `dest`: both are frozen protocol values, not product names.
+- `X-Vela-Server` is the server identity header (the older
+  `X-Lessv-Node` is still accepted) and `/dev/shm/lessv-decoy.sock` is
+  REALITY's `dest`: both are frozen protocol values, not product names.
 - `BLOCK` must be uppercase; lowercase `block` is treated as a routable exit.
 - WARP registration uses Cloudflare's app API; a failure returns 502 and never
   writes half a config. Every preset preview registers a new device, and the
@@ -1445,7 +1446,7 @@ COMPOSE
 printf '%s\n' '<paste node token>' | docker run --rm -i \
   --entrypoint "$BINARY" -v vela-etc:/etc/vela "$IMAGE" \
   enroll --cp https://cp.example.com --node node1 \
-  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
+  --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
 
 docker compose -f /etc/vela/compose.yaml up -d
 ```
@@ -1686,8 +1687,9 @@ point-in-time restore در داشبورد). D1 هم وضعیت و هم محصو�
   اصلاح‌نشده را تازه می‌کند.
 - سایت فریبنده TLS 1.3 + `X25519MLKEM768:X25519` است و بازگشت غیر PQ ندارد؛
   این تنها جایی که تنظیم می‌شود خود تصویر است.
-- `X-Lessv-Node` هدر هویت سرور و `/dev/shm/lessv-decoy.sock` همان `dest`
-  REALITY است: هر دو مقدار ثابت پروتکل‌اند، نه نام محصول.
+- `X-Vela-Server` هدر هویت سرور است (نام قدیمی `X-Lessv-Node` هم پذیرفته
+  می‌شود) و `/dev/shm/lessv-decoy.sock` همان `dest` REALITY است: هر دو مقدار
+  ثابت پروتکل‌اند، نه نام محصول.
 - `BLOCK` باید بزرگ باشد؛ `block` کوچک به‌عنوان خروجی قابل مسیریابی رفتار
   می‌کند.
 - ثبت WARP از API اپ Cloudflare استفاده می‌کند؛ شکست 502 می‌دهد و هرگز
@@ -2071,7 +2073,7 @@ COMPOSE
 printf '%s\n' '<paste node token>' | docker run --rm -i \
   --entrypoint "$BINARY" -v vela-etc:/etc/vela "$IMAGE" \
   enroll --cp https://cp.example.com --node node1 \
-  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
+  --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
 
 docker compose -f /etc/vela/compose.yaml up -d
 ```
@@ -2321,9 +2323,10 @@ REALITY/сертификатов/ACME не расшифровать. Серти�
   обновление образа освежает неизменённые страницы.
 - Заглушка — TLS 1.3 + `X25519MLKEM768:X25519` без не-PQ отката, и
   настраивается это только в образе.
-- `X-Lessv-Node` — заголовок идентичности сервера, а
-  `/dev/shm/lessv-decoy.sock` — это `dest` REALITY: оба значения заморожены
-  протоколом и не являются названиями продукта.
+- `X-Vela-Server` — заголовок идентичности сервера (старое имя
+  `X-Lessv-Node` тоже принимается), а `/dev/shm/lessv-decoy.sock` — это `dest`
+  REALITY: оба значения заморожены протоколом и не являются названиями
+  продукта.
 - `BLOCK` должен быть в верхнем регистре; `block` в нижнем считается
   маршрутизируемым выходом.
 - Регистрация WARP использует app API Cloudflare; при сбое возвращается 502 и
@@ -2701,7 +2704,7 @@ COMPOSE
 printf '%s\n' '<paste node token>' | docker run --rm -i \
   --entrypoint "$BINARY" -v vela-etc:/etc/vela "$IMAGE" \
   enroll --cp https://cp.example.com --node node1 \
-  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
+  --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
 
 docker compose -f /etc/vela/compose.yaml up -d
 ```
@@ -2939,8 +2942,9 @@ point-in-time restore)을 복사하십시오. D1에는 상태와 증명서 산�
   새로 고칩니다.
 - 위장누리집은 TLS 1.3 + `X25519MLKEM768:X25519`이며 비PQ 되돌림이 없습니다.
   이것을 설정하는곳은 홀씨그림안뿐입니다.
-- `X-Lessv-Node`는 서버 신분 머리말이고 `/dev/shm/lessv-decoy.sock`은 REALITY의
-  `dest`입니다. 둘 다 제품이름이 아니라 굳어진 프로토콜값입니다.
+- `X-Vela-Server`는 서버 신분 머리말(옛 이름 `X-Lessv-Node`도 받습니다)이고
+  `/dev/shm/lessv-decoy.sock`은 REALITY의 `dest`입니다. 둘 다 제품이름이 아니라
+  굳어진 프로토콜값입니다.
 - `BLOCK`은 큰글자여야 합니다. 작은글자 `block`은 길이 있는 출구로
   취급됩니다.
 - WARP 등록은 Cloudflare app API를 씁니다. 실패하면 502를 돌려주며 절반설정을
@@ -3325,7 +3329,7 @@ COMPOSE
 printf '%s\n' '<paste node token>' | docker run --rm -i \
   --entrypoint "$BINARY" -v vela-etc:/etc/vela "$IMAGE" \
   enroll --cp https://cp.example.com --node node1 \
-  --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
+  --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
 
 docker compose -f /etc/vela/compose.yaml up -d
 ```
@@ -3573,9 +3577,9 @@ täzeden çykaryp bolýar; hususy açarlary bolmaýar.
   sahypaňyz bolýar, ýöne obraz täzelemesi üýtgedilmedik sahypalary täzeläýär.
 - Ýasama saýt TLS 1.3 + `X25519MLKEM768:X25519`, PQ däl yza gaýtma ýok we
   bu diňe obrazyň içinde sazlanýar.
-- `X-Lessv-Node` serweriň şahsyýet sözbaşysy, `/dev/shm/lessv-decoy.sock`
-  bolsa REALITY-niň `dest`-i: ikisi hem önümiň ady däl, doňdurylan protokol
-  bahalarydyr.
+- `X-Vela-Server` serweriň şahsyýet sözbaşysy (köne ady `X-Lessv-Node` hem
+  kabul edilýär), `/dev/shm/lessv-decoy.sock` bolsa REALITY-niň `dest`-i: ikisi
+  hem önümiň ady däl, doňdurylan protokol bahalarydyr.
 - `BLOCK` uly harplar bilen ýazylmaly; kiçi `block` ýol berilýän çykyş
   hasaplanýar.
 - WARP registrasiýasy Cloudflare app API-sini ulanýar; şowsuzylykda 502

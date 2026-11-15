@@ -26,7 +26,7 @@ async function authedFetch(nodeId: string, token: string, path: string, headers:
   return planeFetch(path, {
     headers: {
       Authorization: `Bearer ${token}`,
-      "X-Lessv-Node": nodeId,
+      "X-Vela-Server": nodeId,
       ...headers,
     },
   });

@@ -7,9 +7,10 @@ The server ↔ plane contract. Protocol 1 was the original pull contract
 structured objects, adds version reporting on the heartbeat, and adds the
 action-result endpoint.
 
-`X-Lessv-Node` is frozen: deployed servers send it, so it is the contract's
-name for "which node row this token must prove", not a product name. A
-renamed header means a protocol bump and a server release that sends both.
+The identity header is `X-Vela-Server`. It names the node row a token must
+prove, not a product, and it is the only header the plane requires. A server
+built before the rename sends `X-Lessv-Node`; the plane still reads it, so a
+plane upgrade does not lock an older build out.
 
 The server is maintained in
 [LessV-Node](https://github.com/realumino/LessV-Node); the plane's code is
@@ -28,8 +29,9 @@ the artifact has had; they stay for the same reason as the header.
 - Every request carries two headers:
   - `Authorization: Bearer <node token>` — the token minted by the admin and
     stored in `node.toml` (0600). The server keeps only a hash.
-  - `X-Lessv-Node: <node id>` — selects the row the token must prove. A
-    missing header, unknown id, never-minted token, and wrong token all
+  - `X-Vela-Server: <node id>` — selects the row the token must prove; the
+    old `X-Lessv-Node` is accepted as an alias. A missing header, unknown id,
+    never-minted token, and wrong token all
     answer the same `401 {"detail":"invalid node credentials"}`; nothing
     about the attempt is logged.
 - Every write request body carries `"protocol": 3`; anything else answers

@@ -188,7 +188,7 @@ describe("the preset catalog", () => {
       "POST",
       "/api/node/heartbeat",
       { protocol: 3, xray_version: version },
-      { Authorization: `Bearer ${token}`, "X-Lessv-Node": node },
+      { Authorization: `Bearer ${token}`, "X-Vela-Server": node },
     );
     expect(heartbeat.status).toBe(200);
   }

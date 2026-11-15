@@ -92,7 +92,7 @@ describe("the node protocol", () => {
   function auth(token: string, nodeId: string = node): Record<string, string> {
     return {
       Authorization: `Bearer ${token}`,
-      "X-Lessv-Node": nodeId,
+      "X-Vela-Server": nodeId,
     };
   }
 
@@ -146,7 +146,7 @@ describe("the node protocol", () => {
     const cases: [Record<string, string>, string][] = [
       [{}, "no headers at all"],
       [{ Authorization: `Bearer ${token}` }, "no node header"],
-      [{ "X-Lessv-Node": node }, "no bearer token"],
+      [{ "X-Vela-Server": node }, "no bearer token"],
       [auth("wrong"), "wrong token"],
       [auth(token, "ghost"), "unknown node id"],
     ];
@@ -159,6 +159,21 @@ describe("the node protocol", () => {
       );
       expect(response.status, label).toBe(401);
     }
+  });
+
+  it("still accepts the server identity header a pre-rename build sends", async () => {
+    // WHY: the header names the row the token must prove, and a server built
+    // before the rename sends the old name. Dropping it would lock that build
+    // out of a plane upgrade it otherwise survives.
+    await makeNode();
+    const token = await mint();
+    const response = await planeJson(
+      "POST",
+      "/api/node/enroll",
+      { protocol: 3 },
+      { Authorization: `Bearer ${token}`, "X-Lessv-Node": node },
+    );
+    expect(response.status, await response.clone().text()).toBe(200);
   });
 
   it("never lets a node read another node", async () => {

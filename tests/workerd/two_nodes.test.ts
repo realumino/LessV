@@ -122,7 +122,7 @@ describe("one plane, two nodes, two fake agents", () => {
   function auth(token: string, nodeId: string): Record<string, string> {
     return {
       Authorization: `Bearer ${token}`,
-      "X-Lessv-Node": nodeId,
+      "X-Vela-Server": nodeId,
     };
   }
 

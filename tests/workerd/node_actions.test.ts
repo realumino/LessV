@@ -37,7 +37,7 @@ describe("node maintenance actions", () => {
   });
 
   function auth(): Record<string, string> {
-    return { Authorization: `Bearer ${token}`, "X-Lessv-Node": node };
+    return { Authorization: `Bearer ${token}`, "X-Vela-Server": node };
   }
 
   async function heartbeat(

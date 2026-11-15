@@ -54,7 +54,14 @@ export const nodeApi = new Hono<{ Bindings: Env }>();
  */
 async function requireNode(env: Env, request: Request): Promise<db.NodeRow> {
   const authorization = request.headers.get("Authorization") ?? "";
-  const headerNodeId = request.headers.get("X-Lessv-Node") ?? "";
+  // WHY two header names: X-Vela-Server is the contract's name for "which
+  // node row this token must prove". X-Lessv-Node is the name a server built
+  // before the rename sends, and it stays readable so an older build is not
+  // locked out by a header nobody asked it to change.
+  const headerNodeId =
+    request.headers.get("X-Vela-Server") ??
+    request.headers.get("X-Lessv-Node") ??
+    "";
   const spaceIndex = authorization.indexOf(" ");
   const scheme =
     spaceIndex < 0 ? authorization : authorization.slice(0, spaceIndex);

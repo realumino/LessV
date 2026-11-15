@@ -30,7 +30,7 @@ async function mintToken(nodeId: string): Promise<string> {
 
 async function nodeManifest(nodeId: string, token: string) {
   const response = await planeFetch("/api/node/certs", {
-    headers: { Authorization: `Bearer ${token}`, "X-Lessv-Node": nodeId },
+    headers: { Authorization: `Bearer ${token}`, "X-Vela-Server": nodeId },
   });
   expect(response.status).toBe(200);
   return (await response.json()) as {

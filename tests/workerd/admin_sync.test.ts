@@ -59,7 +59,7 @@ describe("minting and the drift view", () => {
   function auth(token: string, nodeId: string = node): Record<string, string> {
     return {
       Authorization: `Bearer ${token}`,
-      "X-Lessv-Node": nodeId,
+      "X-Vela-Server": nodeId,
     };
   }
 

@@ -268,7 +268,7 @@ write_files:
           --entrypoint "$BINARY" \
           -v vela-etc:/etc/vela \
           "$IMAGE" enroll --cp "$CP_URL" --node "$NODE_ID" \
-          --restart-mode s6 --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
+          --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
       echo "enrolled $NODE_ID"
 
       docker compose -f /etc/vela/compose.yaml up -d

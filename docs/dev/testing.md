@@ -88,7 +88,7 @@ curl -X PUT -H "Authorization: Bearer $AK" -H 'Content-Type: application/json' \
 JSON
 
 # node-side endpoints, as the agent calls them
-curl -X POST -H "Authorization: Bearer $TOK" -H 'X-Lessv-Node: local01' \
+curl -X POST -H "Authorization: Bearer $TOK" -H 'X-Vela-Server: local01' \
   -H 'Content-Type: application/json' -d '{"protocol":3,"agent_version":"0.6.0"}' \
   $BASE/api/node/enroll
 ```

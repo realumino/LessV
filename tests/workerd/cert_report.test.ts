@@ -19,7 +19,7 @@ async function mint(nodeId: string): Promise<string> {
 }
 
 function auth(nodeId: string, token: string): Record<string, string> {
-  return { Authorization: `Bearer ${token}`, "X-Lessv-Node": nodeId };
+  return { Authorization: `Bearer ${token}`, "X-Vela-Server": nodeId };
 }
 
 async function nodeRow(nodeId: string): Promise<Record<string, unknown>> {
