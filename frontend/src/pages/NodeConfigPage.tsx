@@ -172,10 +172,15 @@ export default function NodeConfigPage() {
               id="config-json"
               value={text}
               onChange={(event) => setText(event.target.value)}
-              placeholder='{"inbounds": [...], "outbounds": [...], ...}'
               spellCheck={false}
               aria-label="Config JSON"
             />
+            <div className="cf-card__body">
+              <p className="cf-hint">
+                The authored document: inbounds, outbounds and routing. The
+                plane adds clients, keys and per-user rules when it renders.
+              </p>
+            </div>
             {(notice || authored === null) && (
               <div className="cf-card__body">
                 {notice ? (

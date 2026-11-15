@@ -208,13 +208,19 @@ export default function UserEditPage() {
                       {isEdit ? (
                         <p className="cf-mono">{username}</p>
                       ) : (
-                        <input
-                          className={inputClass}
-                          value={usernameInput}
-                          onChange={(event) => setUsernameInput(event.target.value)}
-                          placeholder="alice"
-                          aria-label="Username"
-                        />
+                        <>
+                          <input
+                            className={inputClass}
+                            value={usernameInput}
+                            onChange={(event) =>
+                              setUsernameInput(event.target.value)
+                            }
+                            aria-label="Username"
+                          />
+                          <p className="cf-hint">
+                            At most 32 characters; no spaces and no '@'.
+                          </p>
+                        </>
                       )}
                     </div>
                     <Field label="Note">

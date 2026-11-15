@@ -179,7 +179,6 @@ export interface InboundLinkIn {
 export interface PresetFieldOut {
   name: string;
   label: string;
-  placeholder: string;
   hint: string;
 }
 

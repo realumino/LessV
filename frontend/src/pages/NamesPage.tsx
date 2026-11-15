@@ -208,13 +208,15 @@ export default function NamesPage() {
         </div>
         <section className="cf-card">
           <div className="cf-card__body">
-            <Field label="Title format">
+            <Field
+              label="Title format"
+              hint="Literal text plus the fields below; empty sends no title."
+            >
               <input
                 className={inputClass}
                 value={titleTemplate}
                 onChange={(event) => setTitleTemplate(event.target.value)}
                 aria-label="Subscription title format"
-                placeholder="e.g. LessV · {username}"
               />
             </Field>
             <p className="cf-hint">
@@ -374,7 +376,6 @@ function CombinationRow({
           className={inputClass}
           style={{ minWidth: 160 }}
           value={value}
-          placeholder={combination.name}
           aria-label={`Override for ${combination.name}`}
           onChange={(event) => onChange(event.target.value)}
         />

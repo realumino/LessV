@@ -61,7 +61,6 @@ export type PresetId = "reality" | "warp" | "geo_block";
 export type PresetField = {
   name: string;
   label: string;
-  placeholder: string;
   hint: string;
 };
 
@@ -105,31 +104,30 @@ export function presetDescriptors(nodeAddress: string): PresetDescriptor[] {
         {
           name: "tag",
           label: "Inbound tag",
-          placeholder: "reality",
           hint: "Replaces an inbound with the same tag; otherwise appended.",
         },
         {
           name: "domain",
           label: "REALITY domain",
-          placeholder: nodeAddress || "vpn.example.org",
-          hint: "Presented as the certificate name; needs a matching certificate.",
+          hint:
+            "The name the inbound presents; it needs a matching certificate. " +
+            "Defaults to the node's configured address.",
         },
         {
           name: "socket",
           label: "Decoy socket",
-          placeholder: DECOY_SOCKET,
-          hint: "The decoy listens here; must stay local to the host.",
+          hint: "The decoy listens on this local path; it never leaves the host.",
         },
         {
           name: "shortId",
           label: "shortId",
-          placeholder: randomShortId(),
-          hint: "Even-length hex; clients present it to prove they know it.",
+          hint:
+            "Even-length hex; clients present it to prove they know it. " +
+            "A fresh one is generated per dialog.",
         },
         {
           name: "flow",
           label: "Flow",
-          placeholder: "xtls-rprx-vision",
           hint: "Applied to every client the plane renders for this inbound.",
         },
       ],
@@ -152,7 +150,6 @@ export function presetDescriptors(nodeAddress: string): PresetDescriptor[] {
         {
           name: "tag",
           label: "Outbound tag",
-          placeholder: "warp",
           hint: "Replaces an outbound with the same tag; otherwise appended.",
         },
       ],
@@ -170,19 +167,20 @@ export function presetDescriptors(nodeAddress: string): PresetDescriptor[] {
         {
           name: "countries",
           label: "Country IP sets",
-          placeholder: "cn, ru",
-          hint: "Two-letter codes, comma-separated; emits geoip:<code> matchers.",
+          hint:
+            "Two-letter country codes, comma-separated; " +
+            "each emits a geoip:<code> matcher.",
         },
         {
           name: "categories",
           label: "Domain categories",
-          placeholder: "category-ads-all, cn",
-          hint: "geosite categories, comma-separated.",
+          hint:
+            "geosite categories, comma-separated; " +
+            "each emits a geosite:<category> matcher.",
         },
         {
           name: "target",
           label: "Target outbound tag",
-          placeholder: "BLOCK",
           hint: "A tag already present in the document, or BLOCK.",
         },
       ],

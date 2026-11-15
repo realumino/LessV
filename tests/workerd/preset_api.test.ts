@@ -24,7 +24,7 @@ type PresetListOut = {
     id: string;
     label: string;
     summary: string;
-    fields: Array<{ name: string; label: string }>;
+    fields: Array<{ name: string; label: string; hint: string }>;
     defaults: Record<string, string>;
   }>;
 };
@@ -71,6 +71,16 @@ describe("the preset catalog", () => {
       "shortId",
       "flow",
     ]);
+
+    // WHY: an example value in a field is a value the operator can mistake
+    // for a default; every field explains its rule in `hint` instead.
+    for (const preset of catalog.presets) {
+      for (const field of preset.fields) {
+        expect(field).not.toHaveProperty("placeholder");
+        expect(field.hint.length).toBeGreaterThan(0);
+      }
+      expect(Object.keys(preset.defaults).length).toBeGreaterThan(0);
+    }
   });
 
   it("404s the catalog for an unknown node", async () => {

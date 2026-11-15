@@ -627,7 +627,6 @@ function VariantForm({
               value={id}
               onChange={(event) => setId(event.target.value)}
               disabled={mode === "edit"}
-              placeholder="cdn"
             />
           </Field>
           <Field label="Inbound">
@@ -644,12 +643,11 @@ function VariantForm({
             </select>
           </Field>
         </div>
-        <Field label="Name">
+        <Field label="Name" hint="Shown in share links for this variant.">
           <input
             className={inputClass}
             value={label}
             onChange={(event) => setLabel(event.target.value)}
-            placeholder="CDN"
           />
         </Field>
         <Field label="Overrides (JSON object)" hint="address, port, sni, host, path, …">

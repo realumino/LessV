@@ -203,12 +203,14 @@ function CreateDomainDialog({
     >
       <form id="add-domain-form" className="cf-section" onSubmit={submit}>
         {error && <ErrorNote>{error}</ErrorNote>}
-        <Field label="Domain" hint="example.com or *.example.com">
+        <Field
+          label="Domain"
+          hint="A lowercase hostname; a leading '*.' issues a wildcard SAN."
+        >
           <input
             className={inputClass}
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="tokyo01.example.com"
             aria-label="Domain"
           />
         </Field>
@@ -234,7 +236,6 @@ function CreateDomainDialog({
             value={renewDays}
             onChange={(event) => setRenewDays(event.target.value)}
             inputMode="numeric"
-            placeholder="auto"
           />
         </Field>
         <label className="cf-check">
@@ -445,9 +446,9 @@ function IssueConfirmDialog({
         className={inputClass}
         value={text}
         onChange={(event) => setText(event.target.value)}
-        placeholder={domain.name}
         aria-label="Type the domain name to confirm"
       />
+      <p className="cf-hint">Must match the domain exactly; it is the confirmation.</p>
     </Modal>
   );
 }

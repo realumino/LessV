@@ -509,10 +509,16 @@ export const NodeActionOut = z.object({
 export type NodeActionOut = z.infer<typeof NodeActionOut>;
 
 /** WHAT: response for GET /api/admin/nodes/{node_id}/presets. */
+/**
+ * WHAT: one preset input.
+ *
+ * WHY there is no placeholder: an example value is a value the operator can
+ * mistake for a default. The dialog starts from `defaults` and explains the
+ * rule in `hint`; nothing that looks saveable is ever shown as a hint.
+ */
 export const PresetFieldOut = z.object({
   name: z.string(),
   label: z.string(),
-  placeholder: z.string().default(""),
   hint: z.string().default(""),
 });
 export type PresetFieldOut = z.infer<typeof PresetFieldOut>;

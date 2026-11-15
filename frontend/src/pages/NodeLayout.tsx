@@ -340,7 +340,6 @@ function EditableDomain({
           style={{ width: 200 }}
           value={value}
           autoFocus
-          placeholder="vpn.example.org"
           aria-label="Node domain"
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
@@ -429,7 +428,6 @@ function EditableName({ node, onSaved }: { node: NodeOut; onSaved: () => void })
           style={{ width: 220 }}
           value={value}
           autoFocus
-          placeholder="Tokyo 01"
           aria-label="Node label"
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {

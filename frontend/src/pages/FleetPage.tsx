@@ -300,7 +300,6 @@ function CreateNodeDialog({
             className={inputClass}
             value={id}
             onChange={(event) => setId(event.target.value)}
-            placeholder="tokyo01"
             aria-label="Node ID"
           />
         </Field>
@@ -312,7 +311,6 @@ function CreateNodeDialog({
             className={inputClass}
             value={label}
             onChange={(event) => setLabel(event.target.value)}
-            placeholder="Tokyo 01"
             aria-label="Node label"
           />
         </Field>

@@ -99,7 +99,6 @@ export default function PresetDialog({
             <input
               className={inputClass}
               value={values[field.name] ?? ""}
-              placeholder={field.placeholder}
               onChange={(event) =>
                 setValues({ ...values, [field.name]: event.target.value })
               }
