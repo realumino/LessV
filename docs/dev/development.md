@@ -53,6 +53,9 @@ curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8787/api/admin/no
 
 ## Verification
 
+Environment tiers (local Worker, staging Worker, a node under test) live in
+[`testing.md`](testing.md); this section is the command baseline only.
+
 Baseline before declaring work done (all green):
 
 ```bash
