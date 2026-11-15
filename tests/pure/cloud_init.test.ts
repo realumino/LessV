@@ -47,6 +47,10 @@ describe("renderCloudInit", () => {
     expect(doc).toContain("443:443/tcp");
     expect(doc).toContain("vela-etc:/etc/vela");
     expect(doc).toContain("vela-state:/var/lib/vela");
+    // compose prefixes a volume with the project name; the one-shot enroll
+    // container mounts the bare name, so the document must pin both.
+    expect(doc).toContain("name: vela-etc");
+    expect(doc).toContain("name: vela-state");
     expect(doc).toContain("docker image inspect");
     expect(doc).toContain("docker compose -f /etc/vela/compose.yaml up -d");
   });

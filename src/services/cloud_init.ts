@@ -318,8 +318,13 @@ write_files:
           echo "      - vela-state:/var/lib/vela"
           echo ""
           echo "volumes:"
+          echo "  # WHY an explicit name: compose prefixes a volume with the project"
+          echo "  # name unless told otherwise, and the one-shot enroll container mounts"
+          echo "  # the bare name -- a prefixed volume is a second, empty one."
           echo "  vela-etc:"
+          echo "    name: vela-etc"
           echo "  vela-state:"
+          echo "    name: vela-state"
       } > /etc/vela/compose.yaml
 
       # One-shot enrollment: the token arrives on stdin and never reaches a
