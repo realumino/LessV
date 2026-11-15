@@ -21,6 +21,10 @@ __pycache__/
 # wrangler.example.jsonc is the committed template; the npm pre-hooks copy
 # it when this file is missing.
 wrangler.jsonc
+# per-deployment configs (a second environment, a migration target) carry the
+# same real values as wrangler.jsonc.
+wrangler.*.jsonc
+!wrangler.example.jsonc
 # operator-local workspace: work-in-progress plans, acceptance run outputs,
 # run reports. The public repo stays clean.
 .plans/

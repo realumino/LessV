@@ -12,6 +12,11 @@
  *   npm run deploy                        # full pipeline
  *   npm run deploy -- --dry-run           # build + wrangler dry-run, no cloud
  *   npm run deploy -- --secrets-file .env.production
+ *   npm run deploy -- --config wrangler.vela.jsonc --secrets-file .env.vela
+ *
+ * WHY --config: one deployment per config file is the model, and a second
+ * environment must go through this pipeline too — a bare `wrangler deploy
+ * --config` would ship the stub assets the prebuild writes.
  *
  * Secrets never pass through this script's memory beyond the file path;
  * wrangler reads the file itself.
@@ -23,13 +28,18 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const CONFIG = join(REPO_ROOT, "wrangler.jsonc");
 const PLACEHOLDER_PATTERN = "cp.example.com";
 
 const dryRun = process.argv.includes("--dry-run");
 const secretsFlag = process.argv.indexOf("--secrets-file");
 const secretsFile =
   secretsFlag >= 0 ? process.argv[secretsFlag + 1] ?? null : null;
+const configFlag = process.argv.indexOf("--config");
+const CONFIG = join(
+  REPO_ROOT,
+  configFlag >= 0 ? process.argv[configFlag + 1] ?? "" : "wrangler.jsonc",
+);
+const CONFIG_FLAG = ["--config", CONFIG];
 
 /** WHAT: run one command, echoing it; stop the pipeline when it fails. */
 function step(name, command, args, options = {}) {
@@ -57,7 +67,7 @@ function step(name, command, args, options = {}) {
 
 if (!existsSync(CONFIG)) {
   console.error(
-    "wrangler.jsonc is missing — copy the template first:\n" +
+    `wrangler.jsonc is missing — copy the template first:\n` +
       "  cp wrangler.example.jsonc wrangler.jsonc\n" +
       "then edit the route pattern to your hostname.",
   );
@@ -67,7 +77,7 @@ const config = readFileSync(CONFIG, "utf8");
 const pattern = config.match(/"pattern"\s*:\s*"([^"]+)"/)?.[1];
 if (!pattern || pattern === PLACEHOLDER_PATTERN) {
   console.error(
-    `wrangler.jsonc still has the placeholder route (${pattern ?? "none"}) — ` +
+    `${CONFIG} still has the placeholder route (${pattern ?? "none"}) — ` +
       "edit it to your hostname before deploying.",
   );
   process.exit(1);
@@ -86,7 +96,7 @@ step("build SPA", "npm", ["--prefix", "frontend", "run", "build"]);
 
 // --- 3. deploy ------------------------------------------------------------
 
-const deployArgs = ["wrangler", "deploy"];
+const deployArgs = ["wrangler", "deploy", ...CONFIG_FLAG];
 if (dryRun) {
   deployArgs.push("--dry-run");
 } else if (secretsFile) {
@@ -101,9 +111,12 @@ if (dryRun) {
 
 // --- 4. apply the remote D1 schema ----------------------------------------
 
-step("migrations", "npx", ["wrangler", "d1", "migrations", "apply", "DB", "--remote"], {
-  inherit: true,
-});
+step(
+  "migrations",
+  "npx",
+  ["wrangler", "d1", "migrations", "apply", "DB", "--remote", ...CONFIG_FLAG],
+  { inherit: true },
+);
 
 // --- 5. confirm the deployed plane answers --------------------------------
 
