@@ -107,13 +107,13 @@ A useful boundary: tier B is the only tier where the plane's source can be
 edited and observed in seconds. Use it before touching anything involving the
 renderer or the protocol.
 
-## Tier C — a persistent staging Worker
+## Tier C — a separate deployment
 
 One Worker per deployment is the model (`wrangler.jsonc` is operator-local and
 gitignored). A second, independent deployment is a second config file:
 
 ```sh
-cp wrangler.jsonc wrangler.staging.jsonc
+cp wrangler.example.jsonc wrangler.staging.jsonc
 ```
 
 Then edit, in that copy only:
@@ -122,23 +122,22 @@ Then edit, in that copy only:
 |---|---|
 | `name` | `vela-staging` |
 | `routes[0].pattern` | `staging.<your-zone>` (custom domain) |
-| `d1_databases[0]` | its own `database_name` + id |
+| `d1_databases[0].database_name` | `vela-staging` |
 | `workflows[0].name` | `vela-staging-cert-issuance` |
-| `triggers.crons` | removed — a test plane has no daily renewer |
+| `triggers.crons` | removed — a test plane must not renew anything on a schedule |
 
 ```sh
-npx wrangler d1 create vela-staging
-npx wrangler d1 migrations apply DB --remote --config wrangler.staging.jsonc
-npx wrangler deploy --config wrangler.staging.jsonc --secrets-file .env.staging
+npm run deploy -- --config wrangler.staging.jsonc --secrets-file .env.staging
 ```
 
-`scripts/deploy.mjs` hardcodes `wrangler.jsonc`, so a staging deploy is the raw
-`wrangler` call above — no code change is needed for a second environment.
+WHY the pipeline and not `wrangler deploy --config`: the prebuild swaps
+`frontend/dist` for stubs, so a bare deploy ships a placeholder SPA. The
+pipeline builds the real one, deploys, applies the remote migrations and probes
+`/api/health`.
 
-Isolation is structural, not procedural: separate D1 (no production rows),
-separate database (no production rows), separate `ADMIN_KEY`, separate
-`KEY_SECRET`. `.env.staging` holds the values and is gitignored; the DNS token
-in it should be scoped to the test zone only.
+Isolation is structural, not procedural: its own D1, its own `ADMIN_KEY`, its
+own `KEY_SECRET`. `.env.staging` holds the values and is gitignored; the DNS
+token in it should be scoped to the test zone only.
 
 Two deliberate differences from production, both for automation:
 
@@ -146,18 +145,53 @@ Two deliberate differences from production, both for automation:
   not the API's security model — the admin key is), so scripts and CI can use it;
 - no cron trigger, so nothing issues or renews on a schedule while you test.
 
-Teardown is one command each:
+Teardown, in this order:
 
 ```sh
-npx wrangler delete --config wrangler.staging.jsonc
+npx wrangler delete --config wrangler.staging.jsonc   # Worker + its custom-domain record
+npx wrangler workflows delete vela-staging-cert-issuance
 npx wrangler d1 delete vela-staging
+rm -f wrangler.staging.jsonc .env.staging
 ```
+
+A workflow's records outlive its Worker, so it has to be deleted by name; the
+custom-domain DNS record goes with the Worker.
 
 ## Tier D — a node under test
 
-Point the node at tier C (`--cp https://staging.…`) — the node-side procedure,
-including the enroll flags and the assertions to run, is
-[`docs/testing.md` in LessV-Node](https://github.com/realumino/LessV-Node/blob/main/docs/testing.md).
+Boot a host with the cloud-config the plane renders (Tier C's plane, or a
+production one if you are testing a release): **Nodes → Add node → Re-generate
+token** returns the document beside the token, with the node id, the
+control-plane URL, the token, the image and the entrypoint already filled in.
+Paste it as the provider's user-data. There is nothing to edit, and the whole
+first boot is the thing under test.
+
+The node-side procedure (what the image asserts about itself, and the stub-plane
+tier) is [`docs/testing.md` in
+LessV-Node](https://github.com/realumino/LessV-Node/blob/main/docs/testing.md).
+What the plane side checks after a boot, in order:
+
+```sh
+# enrolled and converged: last_seen set, applied_hash == desired_hash
+curl -sS -H "Authorization: Bearer $ADMIN_KEY"   https://<cp>/api/admin/nodes/<id>/sync | jq '{health,in_sync,warnings,nginx_ok,certs}'
+
+# the two published ports, from outside the host
+curl -I http://<id>.lvtest.<zone>/            # 301 to https
+openssl s_client -connect <ip>:443 -servername <id>.lvtest.<zone> </dev/null 2>/dev/null   | grep -E 'issuer=|Negotiated TLS'          # staging CA, X25519MLKEM768
+```
+
+Two failure modes are worth recognising on a first boot, because both look like
+"the node never appeared" from the panel:
+
+- `cannot start docker as cgroups would not start` — the image booted without a
+  mounted cgroup hierarchy. The document mounts cgroup2 itself; if it still
+  happens, `/var/log/cloud-init-output.log` has the cgroups/docker status the
+  bootstrap prints before it exits.
+- `failed to copy: … read tcp …` during `docker pull` — a stalled layer, not a
+  missing image. The document retries three times; finished layers are cached,
+  so a manual `docker pull` on the host resumes cheaply. A test image that is
+  not published yet can be pushed to an ephemeral public registry (`ttl.sh`) and
+  passed as `?image=` when minting the token.
 
 The plane-side rules that make tier D safe:
 
@@ -178,14 +212,16 @@ The plane-side rules that make tier D safe:
 4. **Never `issue` a production certificate for a test.** 5 duplicates/week per
    name is a hard limit, and a wasted one delays a real renewal.
 5. Test clients must trust the staging root to verify the decoy
-   ([`../OPERATIONS.md`](../OPERATIONS.md), "Trusting the staging root"); Xray /
+   ([`../OPERATIONS.md](../OPERATIONS.md), "Trusting the staging root"); Xray /
    REALITY clients do not validate the decoy certificate, so proxy traffic
    works unmodified.
 
-Ephemeral beats permanent. A node can be created, enrolled, tested and destroyed
-inside one release cycle (the cloud-config from the token dialog is the existing
-environment-as-code starting point); a permanent test node is only worth it when
-it is also the canary that runs every release first.
+Ephemeral beats permanent. A node can be created, booted, tested and destroyed
+inside one release cycle: the document from the token dialog *is* the
+environment-as-code. A permanent test node is only worth it when it is also the
+canary that runs every release first. Destroy in this order: the instance, the
+node row, the certificate domain (which takes its certificate and artifact rows
+and the TXT records with it), then the DNS records you added.
 
 ---
 
