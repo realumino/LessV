@@ -74,6 +74,38 @@ The plane side of a server release is the contract: `docs/PROTOCOL.md` and
 [`testing.md`](testing.md) describes the environment in which that is checked
 (tier D — one node under test).
 
+## Moving a deployment to D1-backed certificate artifacts
+
+A deployment created before `migrations/0014_certificate_artifacts.sql` holds
+its certificate artifacts in an R2 bucket, and its `certificates` rows carry an
+`r2_prefix` column the new schema does not have. A plain `d1 export --table
+certificates` therefore cannot be imported; the backfill reads the old rows and
+objects and emits importable SQL.
+
+1. Copy every table whose shape did not change first (migrations are additive,
+   so this works against the new schema):
+
+   ```bash
+   npx wrangler d1 export <old-d1> --remote --no-schema --table <table> \
+     --output <file.sql>
+   npx wrangler d1 execute <new-d1> --remote --file <file.sql>
+   ```
+
+2. Emit the certificate rows plus their artifacts, then apply them:
+
+   ```bash
+   node scripts/migrate_cert_artifacts.mjs \
+     --bucket <old-r2-bucket> --database <old-d1> --out <artifacts.sql> --remote
+   npx wrangler d1 execute <new-d1> --remote --file <artifacts.sql>
+   ```
+
+The script refuses a certificate whose sealed leaf key is missing or is not
+`v1:`-prefixed, and prints its id; such a row would answer 500 on delivery and
+download until it is reissued. Verify with a render: `GET
+/api/admin/nodes/{id}/sync` must return a `desired_hash` and no warnings, and
+`GET /api/admin/certificates/{id}/download?file=fullchain` must return the PEM
+the bucket held.
+
 ## Release checklist
 
 - [ ] Full test baseline green.
