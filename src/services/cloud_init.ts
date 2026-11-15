@@ -247,8 +247,27 @@ write_files:
       rc-service nftables restart
       echo "firewall loaded (input: tcp 80/443 only)"
 
+      # Docker's init script declares "need cgroups" and fails with
+      # "cannot start docker as cgroups would not start" when this image boots
+      # without the cgroups service in a runlevel. Mount the hierarchy first:
+      # the cgroups service then treats it as already done.
+      mkdir -p /sys/fs/cgroup
+      if ! grep -qs " /sys/fs/cgroup " /proc/mounts; then
+          if ! mount -t cgroup2 cgroup2 /sys/fs/cgroup; then
+              echo "cannot mount cgroup2 at /sys/fs/cgroup; docker cannot start" >&2
+              exit 1
+          fi
+      fi
+      rc-update add cgroups boot >/dev/null 2>&1 || true
+      rc-service cgroups start >/dev/null 2>&1 || true
       rc-update add docker default >/dev/null 2>&1 || true
-      rc-service docker start
+      if ! rc-service docker start; then
+          echo "docker did not start:" >&2
+          rc-service cgroups status >&2 || true
+          rc-service docker status >&2 || true
+          dmesg | tail -20 >&2 || true
+          exit 1
+      fi
       # The daemon answers on its socket a moment after the init script
       # returns; every docker command below needs it.
       attempt=0

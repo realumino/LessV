@@ -51,6 +51,9 @@ describe("renderCloudInit", () => {
     // container mounts the bare name, so the document must pin both.
     expect(doc).toContain("name: vela-etc");
     expect(doc).toContain("name: vela-state");
+    // Docker will not start on an image that boots without the cgroups
+    // service; the document mounts the hierarchy itself.
+    expect(doc).toContain("mount -t cgroup2 cgroup2 /sys/fs/cgroup");
     expect(doc).toContain("docker image inspect");
     expect(doc).toContain("docker compose -f /etc/vela/compose.yaml up -d");
   });

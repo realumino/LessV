@@ -177,14 +177,13 @@ document targets Alpine/OpenRC images with cloud-init; any host with Docker can
 run the same compose file by hand. There is no SSH and no Tailscale: the plane
 is the management interface and the provider console is the rescue path.
 
-**Check the image, not just the provider.** A document that is never consumed
-looks exactly like a node that never enrolled. On a first boot that produces no
-enrollment, confirm the data source before debugging anything else:
-`cloud-init status`, `cloud-init query datasource`, or
-`/var/log/cloud-init-output.log`. A datasource of `DataSourceNone` means the
-provider handed the instance no metadata (observed on Linode's stock Alpine
-image) and the cloud-config was never run — use an image whose cloud-init is
-wired to the provider's metadata service, or apply the document yourself.
+**If docker does not start**, the host booted without a mounted cgroup
+hierarchy; Alpine's docker init script needs the `cgroups` service and prints
+`cannot start docker as cgroups would not start` when it is missing. The
+document mounts cgroup2 itself before starting docker, so a first boot that
+still fails there is worth reading in `/var/log/cloud-init-output.log`: the
+bootstrap prints the cgroups and docker status and the last kernel messages
+before it exits.
 
 First boot sets:
 
