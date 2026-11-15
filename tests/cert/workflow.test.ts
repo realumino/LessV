@@ -232,7 +232,6 @@ async function mockSuccessfulRun(
   }
   await modifier.mockStepResult({ name: "key+csr" }, {
     certificateId: runId,
-    r2Prefix: `certs/production/${domain.name}/${runId}`,
     csrB64u: "AQ",
     publicJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
   });
@@ -251,7 +250,6 @@ async function mockSuccessfulRun(
   );
   await modifier.mockStepResult({ name: "store-certificate" }, {
     certificateId: runId,
-    r2Prefix: `certs/production/${domain.name}/${runId}`,
     serial: "serial",
     fingerprintSha256: "a".repeat(64),
     sans: [domain.name, `*.${domain.name}`],

@@ -41,16 +41,14 @@ function cronOptions(issuance: IssueWorkflowCreator) {
 describe("due-domain selection", () => {
   it("picks domains without a current certificate or inside their renewal window", async () => {
     const far = await seedCertDomain(env.DB, { name: "far.example.com" });
-    await seedCertificate(env.DB, env.CERTS, far.id, {
-      domainName: far.name,
+    await seedCertificate(env.DB, far.id, {
       environment: "production",
       notAfter: isoInDays(90),
       notBefore: isoInDays(135), // 45-day tlsserver lifetime
     });
 
     const soon = await seedCertDomain(env.DB, { name: "soon.example.com" });
-    await seedCertificate(env.DB, env.CERTS, soon.id, {
-      domainName: soon.name,
+    await seedCertificate(env.DB, soon.id, {
       environment: "production",
       notAfter: isoInDays(20),
       notBefore: isoInDays(-25),
@@ -59,15 +57,13 @@ describe("due-domain selection", () => {
     await seedCertDomain(env.DB, { name: "missing.example.com" });
 
     const paused = await seedCertDomain(env.DB, { name: "paused.example.com", status: "paused" });
-    await seedCertificate(env.DB, env.CERTS, paused.id, {
-      domainName: paused.name,
+    await seedCertificate(env.DB, paused.id, {
       environment: "production",
       notAfter: isoInDays(1),
     });
 
     const deleted = await seedCertDomain(env.DB, { name: "deleted.example.com", status: "deleted" });
-    await seedCertificate(env.DB, env.CERTS, deleted.id, {
-      domainName: deleted.name,
+    await seedCertificate(env.DB, deleted.id, {
       environment: "production",
       notAfter: isoInDays(1),
     });
@@ -76,8 +72,7 @@ describe("due-domain selection", () => {
       name: "custom.example.com",
       renewBeforeDays: 7,
     });
-    await seedCertificate(env.DB, env.CERTS, custom.id, {
-      domainName: custom.name,
+    await seedCertificate(env.DB, custom.id, {
       environment: "production",
       notAfter: isoInDays(10),
       notBefore: isoInDays(-35),
@@ -85,8 +80,7 @@ describe("due-domain selection", () => {
 
     // Staging current only: cron is production-only and must not see it.
     const stagingOnly = await seedCertDomain(env.DB, { name: "staging-only.example.com" });
-    await seedCertificate(env.DB, env.CERTS, stagingOnly.id, {
-      domainName: stagingOnly.name,
+    await seedCertificate(env.DB, stagingOnly.id, {
       environment: "staging",
       notAfter: isoInDays(1),
     });

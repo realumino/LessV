@@ -1,7 +1,7 @@
 /**
  * Sweeper tests, adapted from certworker's sweeper.spec.ts: production
- * purge with row retention, staging row deletion, stale TXT cleanup,
- * 30-day run retention.
+ * purge with row retention, staging row deletion, orphaned artifacts, stale
+ * TXT cleanup, 30-day run retention.
  */
 
 import { env } from "cloudflare:workers";
@@ -11,15 +11,19 @@ import {
   sweepStaleChallengeRecords,
   sweepUnpurgedCertificates,
   sweepStagingCertificates,
+  sweepOrphanedArtifacts,
   sweepOldRuns,
+  ORPHANED_ARTIFACTS_MS,
   type SweeperDependencies,
 } from "../../src/cert/issue/sweeper";
 import { createTxtRecord } from "../../src/cert/dns/cloudflare";
 import {
   getCertificate,
+  getCertificateArtifacts,
   getCertDomain,
   insertChallengeRecord,
   listPendingChallengeRecords,
+  putCertificatePrivateKey,
 } from "../../src/cert/store/d1";
 import { createScriptedFetch } from "./support/fake-fetch";
 import { MockCloudflareDns } from "./support/mock-dns";
@@ -38,25 +42,22 @@ function makeSetup() {
 }
 
 function sweeperDeps(fetcher: typeof fetch): SweeperDependencies {
-  return { db: env.DB, bucket: env.CERTS, dnsApiToken: "test-token", fetcher, now: () => NOW };
+  return { db: env.DB, dnsApiToken: "test-token", fetcher, now: () => NOW };
 }
 
 describe("production certificate sweeper", () => {
-  it("purges superseded prefixes and leaves current rows alone", async () => {
+  it("purges superseded artifacts and leaves current rows alone", async () => {
     const domain = await seedCertDomain(env.DB, { name: "sweep-certs.example.com" });
-    const current = await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    const current = await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: true,
     });
-    const superseded = await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    const superseded = await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: false,
     });
     // Already-purged rows are not listed again.
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: false,
       purgedAt: "2025-12-01T00:00:00.000Z",
@@ -66,8 +67,11 @@ describe("production certificate sweeper", () => {
     await expect(
       sweepUnpurgedCertificates(sweeperDeps(makeSetup().fetch)),
     ).resolves.toEqual({ purged: 1, failed: 0 });
-    expect((await env.CERTS.list({ prefix: `${superseded.r2_prefix}/` })).objects).toHaveLength(0);
-    expect((await env.CERTS.list({ prefix: `${current.r2_prefix}/` })).objects).toHaveLength(4);
+    expect(await getCertificateArtifacts(env.DB, superseded.id)).toBeNull();
+    expect(await getCertificateArtifacts(env.DB, current.id)).toMatchObject({
+      cert_pem: expect.any(String),
+      fullchain_pem: expect.any(String),
+    });
     await expect(getCertificate(env.DB, superseded.id)).resolves.toMatchObject({
       purged_at: expect.any(String),
       is_current: 0,
@@ -84,20 +88,17 @@ describe("production certificate sweeper", () => {
 describe("staging certificate sweeper", () => {
   it("deletes non-current staging rows and keeps young staging currents", async () => {
     const domain = await seedCertDomain(env.DB, { name: "sweep-staging.example.com" });
-    const young = await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    const young = await seedCertificate(env.DB, domain.id, {
       environment: "staging",
       current: true,
       createdAt: "2026-01-01T00:00:00.000Z", // 1 day old — keep
     });
-    const oldCurrent = await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    const oldCurrent = await seedCertificate(env.DB, domain.id, {
       environment: "staging",
       current: false,
       createdAt: "2025-12-01T00:00:00.000Z", // over 7 days
     });
-    const oldNonCurrent = await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    const oldNonCurrent = await seedCertificate(env.DB, domain.id, {
       environment: "staging",
       current: false,
       createdAt: "2026-01-01T12:00:00.000Z",
@@ -110,14 +111,13 @@ describe("staging certificate sweeper", () => {
     expect(await getCertificate(env.DB, young.id)).not.toBeNull();
     expect(await getCertificate(env.DB, oldCurrent.id)).toBeNull();
     expect(await getCertificate(env.DB, oldNonCurrent.id)).toBeNull();
-    expect((await env.CERTS.list({ prefix: `${oldCurrent.r2_prefix}/` })).objects).toHaveLength(0);
+    expect(await getCertificateArtifacts(env.DB, oldCurrent.id)).toBeNull();
   });
 
   it("skips staging currents for domains with an active run", async () => {
     const domain = await seedCertDomain(env.DB, { name: "sweep-active.example.com" });
     const { runId } = await seedIssueRun(env.DB, domain.id, "test", "staging");
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       environment: "staging",
       current: true,
       createdAt: "2025-12-01T00:00:00.000Z",
@@ -128,6 +128,27 @@ describe("staging certificate sweeper", () => {
       failed: 0,
     });
     expect(await listPendingChallengeRecords(env.DB, runId)).toEqual([]);
+  });
+});
+
+describe("orphaned artifact sweeper", () => {
+  it("deletes rows no certificate claimed once they are a week old", async () => {
+    const stale = crypto.randomUUID();
+    const fresh = crypto.randomUUID();
+    await putCertificatePrivateKey(env.DB, stale, "v1:stale", 0);
+    await putCertificatePrivateKey(
+      env.DB,
+      fresh,
+      "v1:fresh",
+      Math.floor((NOW.getTime() - ORPHANED_ARTIFACTS_MS / 2) / 1000),
+    );
+
+    await expect(sweepOrphanedArtifacts(sweeperDeps(makeSetup().fetch))).resolves.toEqual({
+      deleted: 1,
+      failed: 0,
+    });
+    expect(await getCertificateArtifacts(env.DB, stale)).toBeNull();
+    expect(await getCertificateArtifacts(env.DB, fresh)).not.toBeNull();
   });
 });
 
@@ -250,8 +271,7 @@ describe("run retention", () => {
 describe("combined sweep", () => {
   it("runs every pass and aggregates the counts", async () => {
     const domain = await seedCertDomain(env.DB, { name: "sweep-all.example.com" });
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: false,
     });
@@ -261,6 +281,8 @@ describe("combined sweep", () => {
     expect(result).toMatchObject({
       certificatesPurged: 1,
       certificateFailures: 0,
+      orphanedArtifactsDeleted: 0,
+      orphanFailures: 0,
       challengesDeleted: 0,
       challengeFailures: 0,
     });

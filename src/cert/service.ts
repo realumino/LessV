@@ -3,7 +3,7 @@
  * views, artifact downloads, node assignment, and the delivery manifest.
  *
  * WHY no SQL and no HTTP here: routers translate JSON and status codes;
- * `store/d1` and `store/r2` speak storage; this module owns the rules —
+ * `store/d1` speaks storage; this module owns the rules —
  * environment isolation for delivery, ETag composition, wildcard naming,
  * and the error taxonomy the routers map to status codes.
  *
@@ -20,6 +20,7 @@ import {
   deleteNodeCertDomainAssignments,
   findActiveIssueRun,
   findCertDomainByName,
+  getCertificateArtifacts,
   getCertDomain,
   getCertDomainWithCertificates,
   listCertDomains,
@@ -34,18 +35,13 @@ import {
   type CertDomainStatus,
   type CertDomainWithCertificatesRow,
 } from "./store/d1";
-import {
-  certPathName,
-  certificatePrivateKeyKey,
-  getObjectText,
-  tryGetObjectText,
-} from "./store/r2";
 import { startIssueRun, IssueDomainNotFoundError, IssueDomainNotActiveError } from "./issue/trigger";
 import type { AcmeEnvironment, IssueTrigger } from "./issue/types";
 import { unseal } from "../services/key_cipher";
 import {
   ACME_PROFILE,
   CertDomainIssueConfirm,
+  certPathName,
   normalizedDomainName,
   type CertificateOut,
   type CertificateSummaryOut,
@@ -89,9 +85,16 @@ export class InvalidAssignmentError extends Error {
   }
 }
 
+/**
+ * WHAT: a certificate row exists but the bytes it points at do not.
+ *
+ * WHY the certificate id and the field: that pair is what an operator has
+ * to look at, and it never leaks a path or key material. It is a server
+ * fault (500), not a missing resource: the certificate row is real.
+ */
 export class CertificateArtifactsMissingError extends Error {
-  constructor(key: string) {
-    super(`R2 object ${key} does not exist`);
+  constructor(certificateId: string, field: string) {
+    super(`Certificate ${certificateId} has no stored ${field}`);
     this.name = "CertificateArtifactsMissingError";
   }
 }
@@ -437,17 +440,18 @@ export async function getCertificateOut(env: Env, id: string): Promise<Certifica
 }
 
 const DOWNLOAD_FILES = {
-  cert: { object: "cert.pem", label: "CERTIFICATE", contentType: "application/x-pem-file" },
-  chain: { object: "chain.pem", label: "CERTIFICATE", contentType: "application/x-pem-file" },
-  fullchain: { object: "fullchain.pem", label: "CERTIFICATE", contentType: "application/x-pem-file" },
+  cert: { column: "cert_pem", contentType: "application/x-pem-file" },
+  chain: { column: "chain_pem", contentType: "application/x-pem-file" },
+  fullchain: { column: "fullchain_pem", contentType: "application/x-pem-file" },
 } as const;
 export type DownloadFile = keyof typeof DOWNLOAD_FILES | "key";
 
 /**
  * WHAT: return one artifact's PEM text, unsealing the private key.
  *
- * WHY key is not in DOWNLOAD_FILES: it comes from `privkey.pem.enc` sealed
- * with KEY_SECRET, so its path and decoding differ structurally.
+ * WHY key is not in DOWNLOAD_FILES: it is sealed with KEY_SECRET, so its
+ * value needs unsealing while the three certificate PEMs are returned as
+ * stored.
  */
 export async function downloadCertificate(
   env: Env,
@@ -457,17 +461,18 @@ export async function downloadCertificate(
   const row = await getCertificateRow(env.DB, id);
   if (!row) throw new ApiError(404, "certificate not found");
 
+  const artifacts = await getCertificateArtifacts(env.DB, id);
   if (file === "key") {
-    const keyPath = certificatePrivateKeyKey(row.r2_prefix);
-    const sealed = await tryGetObjectText(env.CERTS, keyPath);
-    if (sealed === null) throw new CertificateArtifactsMissingError(keyPath);
-    return { body: await unseal(env, sealed), contentType: "application/x-pem-file" };
+    if (artifacts === null) throw new CertificateArtifactsMissingError(id, "private_key");
+    return {
+      body: await unseal(env, artifacts.private_key),
+      contentType: "application/x-pem-file",
+    };
   }
 
   const spec = DOWNLOAD_FILES[file];
-  const key = `${row.r2_prefix}/${spec.object}`;
-  const body = await tryGetObjectText(env.CERTS, key);
-  if (body === null) throw new CertificateArtifactsMissingError(key);
+  const body = artifacts?.[spec.column] ?? null;
+  if (body === null) throw new CertificateArtifactsMissingError(id, spec.column);
   return { body, contentType: spec.contentType };
 }
 
@@ -564,7 +569,7 @@ export async function requireNode(env: Env, nodeId: string): Promise<NodeRow> {
  * current certificate PEMs for the node's own ACME environment, plus the
  * composite ETag.
  *
- * WHY all-or-nothing: a missing R2 object or unseal failure throws, so the
+ * WHY all-or-nothing: a missing artifact or unseal failure throws, so the
  * router answers 500 and the agent keeps its previous files; a partial
  * manifest could let nginx serve mismatched key/cert pairs.
  *
@@ -598,11 +603,23 @@ export async function nodeCertManifest(env: Env, nodeId: string): Promise<NodeCe
   const active = rows.filter((row) => row.domain_status === "active" && row.certificate_id !== null);
   const certs: NodeCertManifestEntry[] = [];
   for (const row of active) {
-    const prefix = row.certificate_r2_prefix!;
-    const fullchain = await getObjectText(env.CERTS, `${prefix}/fullchain.pem`);
-    const sealed = await tryGetObjectText(env.CERTS, certificatePrivateKeyKey(prefix));
-    if (sealed === null) {
-      throw new CertificateArtifactsMissingError(certificatePrivateKeyKey(prefix));
+    const certificateId = row.certificate_id!;
+    const artifacts = await getCertificateArtifacts(env.DB, certificateId);
+    if (artifacts === null) {
+      throw new CertificateArtifactsMissingError(certificateId, "artifacts");
+    }
+    // All-or-nothing: one incomplete artifact row fails the whole manifest so
+    // the node keeps the files it already has instead of adopting a partial set.
+    const {
+      private_key: sealedKey,
+      cert_pem: certPem,
+      chain_pem: chainPem,
+      fullchain_pem: fullchain,
+    } = artifacts;
+    if (certPem === null || chainPem === null || fullchain === null) {
+      const missing =
+        certPem === null ? "cert_pem" : chainPem === null ? "chain_pem" : "fullchain_pem";
+      throw new CertificateArtifactsMissingError(certificateId, missing);
     }
     certs.push({
       domain: row.domain_name,
@@ -614,7 +631,7 @@ export async function nodeCertManifest(env: Env, nodeId: string): Promise<NodeCe
       not_after: row.certificate_not_after ?? "",
       profile: row.certificate_profile ?? "",
       fullchain_pem: fullchain,
-      private_key_pem: await unseal(env, sealed),
+      private_key_pem: await unseal(env, sealedKey),
     });
   }
   return { etag: await manifestEtag(certs), certs };
@@ -670,7 +687,8 @@ export function asApiError(error: unknown): ApiError {
     return new ApiError(422, error.message);
   }
   if (error instanceof CertificateArtifactsMissingError) {
-    return new ApiError(404, error.message);
+    // The certificate row exists, so this is broken server state, not a 404.
+    return new ApiError(500, error.message);
   }
   if (error instanceof CloudflareApiError) {
     return new ApiError(502, error.message);

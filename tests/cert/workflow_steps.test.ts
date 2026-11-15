@@ -34,34 +34,33 @@ import {
 import {
   finishIssueRun,
   getCertificate,
+  getCertificateArtifacts,
   getCurrentCertificate,
   getIssueRun,
   listPendingChallengeRecords,
 } from "../../src/cert/store/d1";
-import { certificatePrefix, certPathName } from "../../src/cert/store/r2";
 
 describe("issuance workflow steps", () => {
-  it("removes a key prefix when issuance fails before the certificate is committed in D1", async () => {
+  it("removes a key row when issuance fails before the certificate is committed in D1", async () => {
     const domain = await seedCertDomain(env.DB, { includeWildcard: false });
     const { runId } = await seedIssueRun(env.DB, domain.id);
     const { deps } = makeDependencies({});
     const loaded = await loadIssue(deps, runId, domain.id);
-    const leaf = await createLeafKeyAndCsr(deps, runId, loaded.domain, loaded.identifiers);
+    const leaf = await createLeafKeyAndCsr(deps, runId, loaded.identifiers);
 
-    expect((await env.CERTS.list({ prefix: `${leaf.r2Prefix}/` })).objects).toHaveLength(1);
-    await expect(cleanupFailedArtifacts(deps, domain.name, runId)).resolves.toEqual({
-      deleted: true,
+    expect(await getCertificateArtifacts(env.DB, leaf.certificateId)).toMatchObject({
+      certificate_id: runId,
+      cert_pem: null,
     });
-    expect((await env.CERTS.list({ prefix: `${leaf.r2Prefix}/` })).objects).toHaveLength(0);
+    await expect(cleanupFailedArtifacts(deps, runId)).resolves.toEqual({ deleted: true });
+    expect(await getCertificateArtifacts(env.DB, leaf.certificateId)).toBeNull();
   });
 
-  it("issues, persists, activates, purges the previous prefix, and cleans TXT records", async () => {
+  it("issues, persists, activates, purges the previous artifacts, and cleans TXT records", async () => {
     const domain = await seedCertDomain(env.DB);
     const { runId } = await seedIssueRun(env.DB, domain.id, "manual", "staging");
     const oldCertId = crypto.randomUUID();
-    const oldPrefix = certificatePrefix("staging", certPathName(domain.name), oldCertId);
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       id: oldCertId,
       environment: "staging",
       current: true,
@@ -87,7 +86,7 @@ describe("issuance workflow steps", () => {
     await expect(checkTxtPropagation(deps, published)).resolves.toBe(true);
     await acceptChallenges(deps, published);
     await expect(checkAuthorizations(deps, published)).resolves.toBe(true);
-    const leaf = await createLeafKeyAndCsr(deps, runId, loaded.domain, loaded.identifiers);
+    const leaf = await createLeafKeyAndCsr(deps, runId, loaded.identifiers);
     const issued = await finishIssuance(deps, loaded, order, leaf);
     const purge = await purgePreviousCertificate(deps, loaded.previousCertificate);
     const cleanup = await cleanupTxtRecords(deps, runId);
@@ -109,25 +108,19 @@ describe("issuance workflow steps", () => {
       is_current: 0,
       purged_at: expect.any(String),
     });
-    expect((await env.CERTS.list({ prefix: `${oldPrefix}/` })).objects).toHaveLength(0);
+    expect(await getCertificateArtifacts(env.DB, oldCertId)).toBeNull();
 
-    const artifacts = await env.CERTS.list({ prefix: `${issued.r2Prefix}/` });
-    expect(artifacts.objects.map(({ key }) => key.split("/").at(-1)).sort()).toEqual([
-      "cert.pem",
-      "chain.pem",
-      "fullchain.pem",
-      "meta.json",
-      "privkey.pem.enc",
-    ]);
-    expect(await env.CERTS.get(`${issued.r2Prefix}/cert.pem`)).not.toBeNull();
-    expect(await env.CERTS.get(`${issued.r2Prefix}/fullchain.pem`)).not.toBeNull();
-    const encryptedKey = await (await env.CERTS.get(`${issued.r2Prefix}/privkey.pem.enc`))?.text();
-    expect(encryptedKey ?? "").not.toContain("BEGIN PRIVATE KEY");
-    expect(encryptedKey ?? "").toMatch(/^v1:/);
-    // ACME account lives in D1 now; R2 has no acme/ path.
+    const artifacts = await getCertificateArtifacts(env.DB, issued.certificateId);
+    expect(artifacts).toMatchObject({
+      certificate_id: issued.certificateId,
+      cert_pem: expect.stringContaining("BEGIN CERTIFICATE"),
+      fullchain_pem: expect.stringContaining("BEGIN CERTIFICATE"),
+    });
+    expect(artifacts?.chain_pem).toBeTypeOf("string");
+    expect(artifacts?.private_key ?? "").not.toContain("BEGIN PRIVATE KEY");
+    expect(artifacts?.private_key ?? "").toMatch(/^v1:/);
     const accounts = await env.DB.prepare("SELECT environment FROM acme_accounts").all();
     expect(accounts.results).toHaveLength(1);
-    expect((await env.CERTS.list({ prefix: "acme/" })).objects).toHaveLength(0);
     expect(purge).toEqual({ purged: true });
     expect(cleanup.deleted).toBe(2);
     expect(dns.records).toHaveLength(0);
@@ -138,8 +131,7 @@ describe("issuance workflow steps", () => {
 
   it("keeps production state untouched by a staging run and vice versa", async () => {
     const domain = await seedCertDomain(env.DB, { includeWildcard: false });
-    const productionCurrent = await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    const productionCurrent = await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: true,
     });
@@ -155,7 +147,7 @@ describe("issuance workflow steps", () => {
     await expect(checkTxtPropagation(deps, published)).resolves.toBe(true);
     await acceptChallenges(deps, published);
     await expect(checkAuthorizations(deps, published)).resolves.toBe(true);
-    const leaf = await createLeafKeyAndCsr(deps, runId, loaded.domain, loaded.identifiers);
+    const leaf = await createLeafKeyAndCsr(deps, runId, loaded.identifiers);
     await finishIssuance(deps, loaded, order, leaf);
 
     const stagingCurrent = await getCurrentCertificate(env.DB, domain.id, "staging");

@@ -151,7 +151,7 @@ export class CertificateWorkflow extends WorkflowEntrypoint<Env, IssuePayload> {
       await this.phase(step, runId, "key+csr");
       const leaf = await step.do(
         "key+csr",
-        async () => createLeafKeyAndCsr(deps, runId, loaded.domain, loaded.identifiers),
+        async () => createLeafKeyAndCsr(deps, runId, loaded.identifiers),
       );
 
       await this.phase(step, runId, "finalize+store");
@@ -236,7 +236,7 @@ export class CertificateWorkflow extends WorkflowEntrypoint<Env, IssuePayload> {
       try {
         await step.do(
           "cleanup-failed-artifacts",
-          async () => cleanupFailedArtifacts(deps, domainName!, runId),
+          async () => cleanupFailedArtifacts(deps, runId),
         );
       } catch (error) {
         failure = appendFailure(failure, error, true);

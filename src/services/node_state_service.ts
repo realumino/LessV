@@ -14,7 +14,7 @@ import type { ActionReportIn, HeartbeatIn, NodeActionOut, NodeSyncOut, ReportIn 
 import { configHash, desiredConfig } from "./render_service";
 import { certLintWarnings, type LintCert } from "../cert/lint";
 import { listNodeAssignedDomains } from "../cert/store/d1";
-import { certPathName } from "../cert/store/r2";
+import { certPathName } from "../cert/models";
 
 export const HEARTBEAT_STALE_AFTER = 60;
 export const SUCCESS_STAGES = ["applied", "started"] as const;

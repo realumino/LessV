@@ -62,14 +62,12 @@ describe("per-node cert environment", () => {
   it("serves each node the current certificate of its own environment from one assignment", async () => {
     const domain = await seedDomain();
     await seedIssueRun(env.DB, domain.id, "manual", "production");
-    const production = await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    const production = await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: true,
       serial: "prod-serial",
     });
-    const staging = await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    const staging = await seedCertificate(env.DB, domain.id, {
       environment: "staging",
       current: true,
       serial: "staging-serial",
@@ -105,8 +103,7 @@ describe("per-node cert environment", () => {
   it("gives a staging node an empty manifest when only a production certificate exists", async () => {
     const domain = await seedDomain();
     await seedIssueRun(env.DB, domain.id, "manual", "production");
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: true,
     });
@@ -122,14 +119,12 @@ describe("per-node cert environment", () => {
   it("switches the environment through PUT and rotates the manifest ETag", async () => {
     const domain = await seedDomain();
     await seedIssueRun(env.DB, domain.id, "manual", "production");
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: true,
       serial: "prod-serial",
     });
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       environment: "staging",
       current: true,
       serial: "staging-serial",
@@ -182,14 +177,12 @@ describe("per-node cert environment", () => {
   it("exposes the environment on the node cert summaries and domain state", async () => {
     const domain = await seedDomain();
     await seedIssueRun(env.DB, domain.id, "manual", "production");
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: true,
       serial: "prod-serial",
     });
-    const staging = await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    const staging = await seedCertificate(env.DB, domain.id, {
       environment: "staging",
       current: true,
       serial: "staging-serial",

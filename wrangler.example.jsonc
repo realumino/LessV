@@ -41,10 +41,10 @@
     }
   ],
 
-  // Certificate artifacts live in one bucket; the workflow runs the
-  // issuance steps on a schedule. The cron is UTC 03:17 daily and only
-  // touches production certificates.
-  "r2_buckets": [{ "binding": "CERTS", "bucket_name": "lessv-certs" }],
+  // Certificate artifacts (the leaf PEMs and the sealed leaf key) live in
+  // D1, in `certificate_artifacts`; there is no object store to declare.
+  // The workflow runs the issuance steps on a schedule. The cron is UTC
+  // 03:17 daily and only touches production certificates.
   "workflows": [
     {
       "name": "lessv-cert-issuance",

@@ -26,7 +26,7 @@ const DOMAIN_STATUSES = ["active", "paused"] as const;
  * WHAT: normalize and validate one certificate domain name.
  *
  * WHY a shared function: create validates POST bodies, and every consumer
- * (R2 paths, identifiers, TXT names) needs the same lowercase punycode
+ * (path names, identifiers, TXT names) needs the same lowercase punycode
  * form. `normalizeDomainName` (ACME layer) rejects more shapes; this
  * wrapper turns its TypeError into a 400 detail string.
  */
@@ -38,6 +38,19 @@ export function normalizedDomainName(input: string): string {
     );
   }
   return value;
+}
+
+/**
+ * WHAT: the path name for one domain: lowercase, and a wildcard domain drops
+ * the leading `*.` for a `wildcard.` prefix.
+ *
+ * WHY here: the plane renders this name into the node's certificate tree and
+ * into the manifest, and `*` must never reach a path. The domain is already
+ * normalized (`normalizedDomainName`) by the time it gets here; this only
+ * renames the wildcard form.
+ */
+export function certPathName(domainName: string): string {
+  return domainName.toLowerCase().replace(/^\*\./, "wildcard.");
 }
 
 /** WHAT: the JSON body for POST /api/admin/cert-domains. */

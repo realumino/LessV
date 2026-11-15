@@ -250,7 +250,6 @@ function certificate(domainId: string, environment: string, fingerprint: string)
     not_after: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString(),
     profile: "tlsserver",
     issued_at: now,
-    r2_prefix: `certs/${environment}/example.com/${environment}`,
     is_current: 0,
     purged_at: null,
     created_at: now,

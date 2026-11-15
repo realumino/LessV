@@ -98,11 +98,10 @@ describe("runs and certificates", () => {
     expect(response.status).toBe(404);
   });
 
-  it("certificate download: fullchain and key; missing artifacts 404", async () => {
+  it("certificate download: fullchain and key; missing artifacts 500", async () => {
     const domain = await seedDomain();
     await seedIssueRun(env.DB, domain.id, "manual", "production");
-    const cert = await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    const cert = await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: true,
       sans: [domain.name],
@@ -120,25 +119,28 @@ describe("runs and certificates", () => {
     const badFile = await planeFetch(`/api/admin/certificates/${cert.id}/download?file=oops`);
     expect(badFile.status).toBe(422);
 
-    // A purged row has no artifacts: 404, not 500.
+    // A row whose bytes were swept has no artifacts: 500 naming the row and
+    // the field, because the certificate exists and the request was valid.
     await env.DB.prepare("UPDATE certificates SET is_current = 0, purged_at = ? WHERE id = ?")
       .bind(new Date().toISOString(), cert.id).run();
-    await env.CERTS.delete(`${cert.r2_prefix}/fullchain.pem`);
+    await env.DB.prepare("DELETE FROM certificate_artifacts WHERE certificate_id = ?")
+      .bind(cert.id).run();
     const missing = await planeFetch(`/api/admin/certificates/${cert.id}/download?file=fullchain`);
-    expect(missing.status).toBe(404);
+    expect(missing.status).toBe(500);
+    const detail = (await missing.json()) as { detail?: string };
+    expect(detail.detail).toContain(cert.id);
+    expect(detail.detail).toContain("fullchain_pem");
   });
 
   it("domain certificate list separates environments with is_current", async () => {
     const domain = await seedDomain();
     await seedIssueRun(env.DB, domain.id, "manual", "production");
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: true,
       sans: [domain.name],
     });
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       environment: "staging",
       current: false,
       sans: [domain.name],

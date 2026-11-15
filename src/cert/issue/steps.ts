@@ -6,7 +6,7 @@
  * 1. The directory URL is chosen by `environment` from the ACME_DIRECTORIES
  *    constant — there is no `ACME_DIRECTORY` Worker variable to misread.
  * 2. The ACME account private key is sealed in D1 (`acme_accounts`,
- *    `key_cipher.seal`, `v1:` text) instead of R2 + binary envelope.
+ *    `key_cipher.seal`, `v1:` text) instead of a binary envelope.
  * 3. `newOrder` requests the one ACME profile the plane uses (`tlsserver`).
  */
 
@@ -28,28 +28,23 @@ import { exportPublicJwk, generateEcP256KeyPair, jwkThumbprint } from "../crypto
 import { seal, unseal } from "../../services/key_cipher";
 import {
   activateCertificate,
+  deleteCertificateArtifacts,
   findPendingChallengeRecord,
   getAcmeAccount,
   getCertificate,
+  getCertificateArtifacts,
   getCurrentCertificate,
   getCertDomain,
   insertChallengeRecord,
   listPendingChallengeRecords,
   markCertificatePurged,
   markChallengeRecordDeleted,
+  putCertificateArtifacts,
+  putCertificatePrivateKey,
   saveAcmeAccount,
   type CertificateRow,
   type CertDomainRow,
 } from "../store/d1";
-import {
-  certificatePrefix,
-  certificatePrivateKeyKey,
-  certPathName,
-  deletePrefix,
-  getObjectText,
-  putCertificateArtifacts,
-  putCertificatePrivateKey,
-} from "../store/r2";
 import { ACME_PROFILE } from "../models";
 import { ACME_DIRECTORIES, type AcmeEnvironment } from "./types";
 
@@ -69,12 +64,11 @@ export interface IssueTimings {
  * WHY the whole `env` rides along: `key_cipher.seal/unseal` reads
  * `env.KEY_SECRET`, and the cron/test seams pass the full binding object.
  */
-export type IssueEnv = Pick<Env, "DB" | "CERTS" | "KEY_SECRET" | "CF_DNS_API_TOKEN">;
+export type IssueEnv = Pick<Env, "DB" | "KEY_SECRET" | "CF_DNS_API_TOKEN">;
 
 export interface IssueDependencies {
   env: IssueEnv;
   db: D1Database;
-  bucket: R2Bucket;
   environment: AcmeEnvironment;
   directoryUrl: string;
   dnsApiToken: string;
@@ -116,14 +110,12 @@ export interface PublishedChallenges {
 
 export interface LeafKeyState {
   certificateId: string;
-  r2Prefix: string;
   csrB64u: string;
   publicJwk: Awaited<ReturnType<typeof exportPublicJwk>>;
 }
 
 export interface StoredCertificate {
   certificateId: string;
-  r2Prefix: string;
   serial: string;
   fingerprintSha256: string;
   sans: string[];
@@ -152,7 +144,6 @@ export function createIssueDependencies(
   return {
     env,
     db: env.DB,
-    bucket: env.CERTS,
     environment,
     directoryUrl,
     dnsApiToken: env.CF_DNS_API_TOKEN,
@@ -174,7 +165,7 @@ export async function loadIssue(
     );
   }
   if (!/^[A-Za-z0-9_-]+$/.test(runId)) {
-    throw new NonRetryableError("Issue run id is not safe for R2 object paths");
+    throw new NonRetryableError("Issue run id is not safe for a certificate id");
   }
 
   let normalized: string;
@@ -532,24 +523,22 @@ export async function checkOrderValidity(
 export async function createLeafKeyAndCsr(
   deps: IssueDependencies,
   runId: string,
-  domain: CertDomainRow,
   identifiers: AcmeIdentifier[],
 ): Promise<LeafKeyState> {
   const certificateId = runId;
-  const r2Prefix = certificatePrefix(
-    deps.environment,
-    certPathName(domain.name),
-    certificateId,
-  );
   const keyPair = await generateEcP256KeyPair();
   const publicJwk = await exportPublicJwk(keyPair.publicKey);
   const csr = await buildCsr(keyPair, identifiers.map(({ value }) => value));
   const key = await exportPrivateKeyPem(keyPair.privateKey);
-  await putCertificatePrivateKey(deps.bucket, r2Prefix, await seal(deps.env, key));
+  await putCertificatePrivateKey(
+    deps.db,
+    certificateId,
+    await seal(deps.env, key),
+    nowSeconds(),
+  );
 
   return {
     certificateId,
-    r2Prefix,
     csrB64u: b64uEncode(csr.der),
     publicJwk,
   };
@@ -560,7 +549,7 @@ export async function createLeafKeyAndCsr(
  *
  * WHY the order arrives as an argument: polling happens in durable workflow
  * steps; this function performs the single, non-idempotent-sensitive tail
- * (one download + R2 puts + the D1 commit).
+ * (one download + the artifacts rows + the activation).
  */
 export async function storeIssuedCertificate(
   deps: IssueDependencies,
@@ -604,27 +593,16 @@ export async function storeIssuedCertificate(
   await assertPrivateKeyMatchesCertificate(deps, leaf, parsed.publicKeyJwk, parsed.fingerprintSha256);
 
   const issuedAt = new Date().toISOString();
-  const metadata = {
-    certificate_id: leaf.certificateId,
-    domain: domain.name,
-    environment: deps.environment,
-    sans: parsed.sans,
-    serial: parsed.serial,
-    fingerprint_sha256: parsed.fingerprintSha256,
-    not_before: parsed.notBefore,
-    not_after: parsed.notAfter,
-    issued_at: issuedAt,
-    profile: order.profile,
-    key_type: "ecdsa_p256",
-  };
-  const metaJson = `${JSON.stringify(metadata, null, 2)}\n`;
-
-  await putCertificateArtifacts(deps.bucket, leaf.r2Prefix, {
-    certPem: chain.leafPem,
-    chainPem: chain.chainPem,
-    fullchainPem: chain.fullchainPem,
-    metaJson,
-  });
+  await putCertificateArtifacts(
+    deps.db,
+    leaf.certificateId,
+    {
+      certPem: chain.leafPem,
+      chainPem: chain.chainPem,
+      fullchainPem: chain.fullchainPem,
+    },
+    nowSeconds(),
+  );
 
   const certificate: CertificateRow = {
     id: leaf.certificateId,
@@ -637,7 +615,6 @@ export async function storeIssuedCertificate(
     not_after: parsed.notAfter,
     profile: order.profile,
     issued_at: issuedAt,
-    r2_prefix: leaf.r2Prefix,
     is_current: 0,
     purged_at: null,
     created_at: issuedAt,
@@ -647,7 +624,6 @@ export async function storeIssuedCertificate(
 
   return {
     certificateId: certificate.id,
-    r2Prefix: certificate.r2_prefix,
     serial: certificate.serial,
     fingerprintSha256: certificate.fingerprint_sha256,
     sans: parsed.sans,
@@ -662,22 +638,18 @@ export async function purgePreviousCertificate(
   previous: CertificateRow | null,
 ): Promise<{ purged: boolean }> {
   if (!previous) return { purged: false };
-  await deletePrefix(deps.bucket, previous.r2_prefix);
+  await deleteCertificateArtifacts(deps.db, previous.id);
   await markCertificatePurged(deps.db, previous.id);
   return { purged: true };
 }
 
 export async function cleanupFailedArtifacts(
   deps: IssueDependencies,
-  domainName: string,
   certificateId: string,
 ): Promise<{ deleted: boolean }> {
-  // Once D1 has a certificate row, the prefix is committed history and must stay intact.
+  // Once a certificates row exists, the artifacts are committed history and stay intact.
   if (await getCertificate(deps.db, certificateId)) return { deleted: false };
-  await deletePrefix(
-    deps.bucket,
-    certificatePrefix(deps.environment, certPathName(domainName), certificateId),
-  );
+  await deleteCertificateArtifacts(deps.db, certificateId);
   return { deleted: true };
 }
 
@@ -709,6 +681,10 @@ export async function cleanupTxtRecords(
     throw new Error(`Could not remove all ACME TXT records: ${failures.join("; ")}`);
   }
   return { deleted };
+}
+
+function nowSeconds(): number {
+  return Math.floor(Date.now() / 1000);
 }
 
 export function issueErrorMessage(error: unknown): string {
@@ -763,8 +739,11 @@ async function assertPrivateKeyMatchesCertificate(
   publicJwk: LeafKeyState["publicJwk"],
   fingerprint: string,
 ): Promise<void> {
-  const keyPath = certificatePrivateKeyKey(leaf.r2Prefix);
-  const privateKeyPem = await unseal(deps.env, await getObjectText(deps.bucket, keyPath));
+  const artifacts = await getCertificateArtifacts(deps.db, leaf.certificateId);
+  if (artifacts === null) {
+    throw new NonRetryableError(`Certificate ${leaf.certificateId} has no stored private key`);
+  }
+  const privateKeyPem = await unseal(deps.env, artifacts.private_key);
   const privateKey = await importPrivateKeyPem(privateKeyPem);
   const publicKey = await crypto.subtle.importKey(
     "jwk",
@@ -816,7 +795,6 @@ function storedCertificateFromRow(row: CertificateRow): StoredCertificate {
   }
   return {
     certificateId: row.id,
-    r2Prefix: row.r2_prefix,
     serial: row.serial,
     fingerprintSha256: row.fingerprint_sha256,
     sans,

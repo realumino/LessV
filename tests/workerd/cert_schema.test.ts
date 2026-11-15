@@ -23,12 +23,13 @@ describe("cert schema", () => {
   it("has every certificate table with its columns", async () => {
     const { results } = await env.DB.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table'
-        AND name IN ('cert_domains','certificates','acme_accounts','issue_runs',
-                     'challenge_records','node_cert_domains')`,
+        AND name IN ('cert_domains','certificates','certificate_artifacts','acme_accounts',
+                     'issue_runs','challenge_records','node_cert_domains')`,
     ).all<{ name: string }>();
     expect(results.map((r) => r.name).sort()).toEqual([
       "acme_accounts",
       "cert_domains",
+      "certificate_artifacts",
       "certificates",
       "challenge_records",
       "issue_runs",
@@ -42,9 +43,22 @@ describe("cert schema", () => {
       "is_current",
       "purged_at",
       "created_at",
-      "r2_prefix",
     ]) {
       expect(certColumns).toContain(column);
+    }
+    // WHY the absence is asserted: R2 paths are gone from the schema, and a
+    // reappearing column would mean the two-store model came back.
+    expect(certColumns).not.toContain("r2_prefix");
+    const artifactColumns = await tableColumns("certificate_artifacts");
+    for (const column of [
+      "certificate_id",
+      "private_key",
+      "cert_pem",
+      "chain_pem",
+      "fullchain_pem",
+      "updated_at",
+    ]) {
+      expect(artifactColumns).toContain(column);
     }
     const domainColumns = await tableColumns("cert_domains");
     expect(domainColumns).toContain("acme_profile");
@@ -136,8 +150,8 @@ describe("cert schema", () => {
       env.DB.prepare(
         `INSERT INTO certificates (
            id, domain_id, environment, serial, fingerprint_sha256, sans_json,
-           not_before, not_after, profile, issued_at, r2_prefix, is_current, created_at
-         ) VALUES (?, ?, 'staging', ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+           not_before, not_after, profile, issued_at, is_current, created_at
+         ) VALUES (?, ?, 'staging', ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
       ).bind(
         duplicate.id,
         domainId,
@@ -148,7 +162,6 @@ describe("cert schema", () => {
         duplicate.not_after,
         duplicate.profile,
         duplicate.issued_at,
-        duplicate.r2_prefix,
         duplicate.created_at,
       ).run(),
     ).rejects.toThrow(/UNIQUE|idx_cert_current/);
@@ -197,7 +210,6 @@ function certificate(domainId: string, environment: string, fingerprint: string)
     not_after: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString(),
     profile: "tlsserver",
     issued_at: now,
-    r2_prefix: `certs/production/example.com/${environment}`,
     is_current: 0,
     purged_at: null,
     created_at: now,

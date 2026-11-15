@@ -1,11 +1,13 @@
 /**
  * Daily-cron cleanup for state the normal pipeline could not finish:
  *
- * - production non-current certificates whose R2 objects still exist
- *   (purge-previous is best-effort) → delete objects, mark purged, keep the row;
- * - staging non-current certificates → delete objects and rows;
- * - staging current certificates older than 7 days → delete objects and rows
+ * - production non-current certificates whose artifacts still exist
+ *   (purge-previous is best-effort) → delete them, mark purged, keep the row;
+ * - staging non-current certificates → delete artifacts and rows;
+ * - staging current certificates older than 7 days → delete artifacts and rows
  *   (skipped while a run is active for the domain);
+ * - artifacts rows no certificate ever claimed (a run that died between
+ *   the key write and the activation) → delete the row;
  * - `_acme-challenge` TXT records a crashed workflow never deleted (24 h);
  * - finished issue runs older than 30 days (and their challenge rows).
  *
@@ -14,20 +16,20 @@
 
 import { deleteTxtRecord } from "../dns/cloudflare";
 import {
+  deleteCertificateArtifacts,
   deleteStagingCertificate,
   findActiveIssueRun,
   listOldFinishedRuns,
+  listOrphanedArtifacts,
   listStaleChallengeRecords,
   listUnpurgedProductionCertificates,
   listExpiredStagingCertificates,
   markChallengeRecordDeleted,
   markCertificatePurged,
 } from "../store/d1";
-import { deletePrefix } from "../store/r2";
 
 export interface SweeperDependencies {
   db: D1Database;
-  bucket: R2Bucket;
   dnsApiToken: string;
   fetcher: typeof fetch;
   now: () => Date;
@@ -38,6 +40,8 @@ export interface SweepResult {
   certificateFailures: number;
   stagingCertificatesDeleted: number;
   stagingFailures: number;
+  orphanedArtifactsDeleted: number;
+  orphanFailures: number;
   challengesDeleted: number;
   challengeFailures: number;
   runsDeleted: number;
@@ -52,9 +56,20 @@ export const STAGING_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 /** Finished-run retention. */
 export const RUN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
+/**
+ * How long an unclaimed artifacts row is left alone.
+ *
+ * WHY days and not minutes: a live issuance writes the key before it writes
+ * the certificate, so the row is an orphan for one run's duration. The
+ * sweeper only has to outlast a run that died, and an abandoned row costs
+ * a few kilobytes.
+ */
+export const ORPHANED_ARTIFACTS_MS = 7 * 24 * 60 * 60 * 1000;
+
 export async function sweep(deps: SweeperDependencies): Promise<SweepResult> {
   const production = await sweepUnpurgedCertificates(deps);
   const staging = await sweepStagingCertificates(deps);
+  const orphans = await sweepOrphanedArtifacts(deps);
   const challenges = await sweepStaleChallengeRecords(deps);
   const runs = await sweepOldRuns(deps);
   return {
@@ -62,13 +77,15 @@ export async function sweep(deps: SweeperDependencies): Promise<SweepResult> {
     certificateFailures: production.failed,
     stagingCertificatesDeleted: staging.deleted,
     stagingFailures: staging.failed,
+    orphanedArtifactsDeleted: orphans.deleted,
+    orphanFailures: orphans.failed,
     challengesDeleted: challenges.deleted,
     challengeFailures: challenges.failed,
     runsDeleted: runs.deleted,
   };
 }
 
-/** Production only: superseded prefixes whose R2 objects still exist. */
+/** Production only: superseded artifacts that still exist. */
 export async function sweepUnpurgedCertificates(
   deps: SweeperDependencies,
 ): Promise<{ purged: number; failed: number }> {
@@ -78,7 +95,7 @@ export async function sweepUnpurgedCertificates(
 
   for (const certificate of rows) {
     try {
-      await deletePrefix(deps.bucket, certificate.r2_prefix);
+      await deleteCertificateArtifacts(deps.db, certificate.id);
       await markCertificatePurged(deps.db, certificate.id);
       purged += 1;
     } catch (error) {
@@ -86,7 +103,6 @@ export async function sweepUnpurgedCertificates(
       console.warn(JSON.stringify({
         event: "sweeper.certificate_failed",
         certificateId: certificate.id,
-        r2Prefix: certificate.r2_prefix,
         error: errorMessage(error),
       }));
     }
@@ -107,9 +123,9 @@ export async function sweepStagingCertificates(
   for (const certificate of expired) {
     try {
       // A live run for the same domain may be re-using the challenge or the
-      // R2 prefix bookkeeping; leave this current to the next pass.
+      // certificate id; leave this current to the next pass.
       if (await findActiveIssueRun(deps.db, certificate.domain_id)) continue;
-      await deletePrefix(deps.bucket, certificate.r2_prefix);
+      await deleteCertificateArtifacts(deps.db, certificate.id);
       await deleteStagingCertificate(deps.db, certificate.id);
       deleted += 1;
     } catch (error) {
@@ -117,7 +133,30 @@ export async function sweepStagingCertificates(
       console.warn(JSON.stringify({
         event: "sweeper.staging_certificate_failed",
         certificateId: certificate.id,
-        r2Prefix: certificate.r2_prefix,
+        error: errorMessage(error),
+      }));
+    }
+  }
+
+  return { deleted, failed };
+}
+
+export async function sweepOrphanedArtifacts(
+  deps: SweeperDependencies,
+): Promise<{ deleted: number; failed: number }> {
+  const cutoff = Math.floor((deps.now().getTime() - ORPHANED_ARTIFACTS_MS) / 1000);
+  let deleted = 0;
+  let failed = 0;
+
+  for (const certificateId of await listOrphanedArtifacts(deps.db, cutoff)) {
+    try {
+      await deleteCertificateArtifacts(deps.db, certificateId);
+      deleted += 1;
+    } catch (error) {
+      failed += 1;
+      console.warn(JSON.stringify({
+        event: "sweeper.orphaned_artifacts_failed",
+        certificateId,
         error: errorMessage(error),
       }));
     }

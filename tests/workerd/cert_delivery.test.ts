@@ -58,8 +58,7 @@ describe("GET /api/node/certs", () => {
     const token = await mintToken(nodeId);
     const domain = await seedDomain();
     await seedIssueRun(env.DB, domain.id, "manual", "production");
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: true,
       sans: [domain.name],
@@ -108,8 +107,7 @@ describe("GET /api/node/certs", () => {
     const token = await mintToken(nodeId);
     const domain = await seedDomain();
     await seedIssueRun(env.DB, domain.id, "test", "staging");
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       environment: "staging",
       current: true,
       sans: [domain.name],
@@ -131,8 +129,7 @@ describe("GET /api/node/certs", () => {
     const tokenB = await mintToken(nodeB);
     const domain = await seedDomain();
     await seedIssueRun(env.DB, domain.id, "manual", "production");
-    await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: true,
     });
@@ -152,13 +149,11 @@ describe("GET /api/node/certs", () => {
     const domain2 = await seedDomain();
     await seedIssueRun(env.DB, domain1.id, "manual", "production");
     await seedIssueRun(env.DB, domain2.id, "manual", "production");
-    await seedCertificate(env.DB, env.CERTS, domain1.id, {
-      domainName: domain1.name,
+    await seedCertificate(env.DB, domain1.id, {
       environment: "production",
       current: true,
     });
-    await seedCertificate(env.DB, env.CERTS, domain2.id, {
-      domainName: domain2.name,
+    await seedCertificate(env.DB, domain2.id, {
       environment: "production",
       current: true,
     });
@@ -185,8 +180,7 @@ describe("GET /api/node/certs", () => {
     const token = await mintToken(nodeId);
     const domain = await seedDomain();
     await seedIssueRun(env.DB, domain.id, "manual", "production");
-    const cert = await seedCertificate(env.DB, env.CERTS, domain.id, {
-      domainName: domain.name,
+    const cert = await seedCertificate(env.DB, domain.id, {
       environment: "production",
       current: true,
       storeArtifacts: false,
@@ -196,7 +190,8 @@ describe("GET /api/node/certs", () => {
     const response = await authedFetch(nodeId, token!, "/api/node/certs");
     expect(response.status).toBe(500);
     const detail = (await response.json()) as { detail?: string };
-    expect(detail.detail).toContain(cert.r2_prefix);
+    expect(detail.detail).toContain(cert.id);
+    expect(detail.detail).toContain("artifacts");
 
     const anonymous = await planeFetch("/api/node/certs");
     expect(anonymous.status).toBe(401);

@@ -9,6 +9,11 @@
  * query follows. The UI parses ISO strings, the node report columns parse
  * seconds — the conversion is confined to the service layer's boundary.
  *
+ * WHY artifacts (PEMs and the sealed leaf key) live in a table here instead
+ * of an object store: a certificate set is a few kilobytes of text, three
+ * orders of magnitude below D1's row limit, and one store cannot disagree
+ * with itself about which certificate is current.
+ *
  * WHY environment is a parameter on every current-certificate read: the
  * staging/production isolation is enforced here — one
  * partial unique index per `(domain_id, environment)`, and the delivery
@@ -45,7 +50,6 @@ export interface CertificateRow {
   not_after: string;
   profile: string;
   issued_at: string;
-  r2_prefix: string;
   is_current: number;
   purged_at: string | null;
   created_at: string;
@@ -390,8 +394,8 @@ export async function listCurrentCertificates(
  *
  * WHY a batch and not two statements: readers must never observe "two
  * currents" or "no current" — the demotion and promotion commit together.
- * R2 objects are written before this is called, so a crash here leaves
- * current pointing at objects that exist.
+ * The artifacts row is written before this is called, so a crash here
+ * leaves current pointing at artifacts that exist.
  */
 export async function activateCertificate(db: D1Database, certificate: CertificateRow): Promise<void> {
   const existing = await getCertificate(db, certificate.id);
@@ -415,8 +419,8 @@ export async function activateCertificate(db: D1Database, certificate: Certifica
     db.prepare(
       `INSERT INTO certificates (
          id, domain_id, environment, serial, fingerprint_sha256, sans_json,
-         not_before, not_after, profile, issued_at, r2_prefix, is_current, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+         not_before, not_after, profile, issued_at, is_current, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
     ).bind(
       certificate.id,
       certificate.domain_id,
@@ -428,14 +432,129 @@ export async function activateCertificate(db: D1Database, certificate: Certifica
       certificate.not_after,
       certificate.profile,
       certificate.issued_at,
-      certificate.r2_prefix,
       certificate.created_at,
     ),
   ]);
 }
 
+// ------------------------------------------------------------- artifacts
+
 /**
- * WHAT: mark one non-current certificate's R2 artifacts as deleted.
+ * WHAT: the stored artifacts of one certificate, keyed by certificate id.
+ *
+ * WHY a separate table: the sealed leaf key is written before the order runs
+ * (a retry has to find the key it already generated), so it cannot be a
+ * column of a `certificates` row that does not exist yet.
+ */
+export interface CertificateArtifactsRow {
+  certificate_id: string;
+  private_key: string;
+  cert_pem: string | null;
+  chain_pem: string | null;
+  fullchain_pem: string | null;
+  updated_at: number;
+}
+
+/** WHAT: the leaf PEMs, absent until the order is finalized. */
+export interface CertificatePems {
+  certPem: string;
+  chainPem: string;
+  fullchainPem: string;
+}
+
+/**
+ * WHAT: store the sealed leaf private key for one certificate id.
+ *
+ * WHY an upsert on the id: a Workflow retry runs this step again with a new
+ * key — the newest one is the one the CSR was built from, and nothing can
+ * have consumed the old key because no certificate row exists yet.
+ */
+export async function putCertificatePrivateKey(
+  db: D1Database,
+  certificateId: string,
+  sealedPrivateKey: string,
+  now: number,
+): Promise<void> {
+  await db.prepare(
+    `INSERT INTO certificate_artifacts (certificate_id, private_key, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(certificate_id) DO UPDATE SET
+       private_key = excluded.private_key,
+       updated_at = excluded.updated_at`,
+  ).bind(certificateId, sealedPrivateKey, now).run();
+}
+
+/**
+ * WHAT: fill the three leaf PEMs of an existing artifacts row.
+ *
+ * WHY an UPDATE and not an upsert: the key row must already exist, and a
+ * missing one means the issuance steps ran out of order — an error worth
+ * failing on rather than a silently half-populated row.
+ */
+export async function putCertificateArtifacts(
+  db: D1Database,
+  certificateId: string,
+  pems: CertificatePems,
+  now: number,
+): Promise<void> {
+  const result = await db.prepare(
+    `UPDATE certificate_artifacts
+        SET cert_pem = ?, chain_pem = ?, fullchain_pem = ?, updated_at = ?
+      WHERE certificate_id = ?`,
+  ).bind(pems.certPem, pems.chainPem, pems.fullchainPem, now, certificateId).run();
+  if (result.meta.changes !== 1) {
+    throw new Error(`Certificate artifacts for ${certificateId} do not exist`);
+  }
+}
+
+export async function getCertificateArtifacts(
+  db: D1Database,
+  certificateId: string,
+): Promise<CertificateArtifactsRow | null> {
+  return db.prepare("SELECT * FROM certificate_artifacts WHERE certificate_id = ?")
+    .bind(certificateId)
+    .first<CertificateArtifactsRow>();
+}
+
+/**
+ * WHAT: drop the artifacts of one certificate.
+ *
+ * WHY deletion is the purge: there is no second store to leave behind, and
+ * the `certificates.purged_at` marker keeps its meaning — the row is history,
+ * the bytes are gone.
+ */
+export async function deleteCertificateArtifacts(
+  db: D1Database,
+  certificateId: string,
+): Promise<void> {
+  await db.prepare("DELETE FROM certificate_artifacts WHERE certificate_id = ?")
+    .bind(certificateId)
+    .run();
+}
+
+/**
+ * WHAT: ids of artifacts rows with no `certificates` row whose last write is
+ * older than the cutoff.
+ *
+ * WHY they exist: issuance writes the key first, so a run that dies between
+ * the key write and the activation leaves one behind. A live run is minutes
+ * old; the cutoff keeps the sweeper away from it.
+ */
+export async function listOrphanedArtifacts(
+  db: D1Database,
+  olderThanSeconds: number,
+): Promise<string[]> {
+  const { results } = await db.prepare(
+    `SELECT a.certificate_id FROM certificate_artifacts a
+       LEFT JOIN certificates c ON c.id = a.certificate_id
+      WHERE c.id IS NULL AND a.updated_at < ?
+      ORDER BY a.updated_at, a.certificate_id`,
+  ).bind(olderThanSeconds).all<{ certificate_id: string }>();
+  return results.map((row) => row.certificate_id);
+}
+
+/**
+ * WHAT: mark one non-current certificate's artifacts as deleted.
  *
  * WHY the WHERE guard: the current certificate is never purgeable —
  * marking it would let the sweeper "complete" a purge that broke delivery.
@@ -451,7 +570,7 @@ export async function markCertificatePurged(db: D1Database, id: string): Promise
   }
 }
 
-/** WHAT: all production non-current certificates whose R2 may still exist. */
+/** WHAT: all production non-current certificates whose artifacts may still exist. */
 export async function listUnpurgedProductionCertificates(db: D1Database): Promise<CertificateRow[]> {
   const { results } = await db.prepare(
     `SELECT * FROM certificates
@@ -867,8 +986,7 @@ export async function listNodeAssignedDomains(
             c.fingerprint_sha256 AS certificate_fingerprint_sha256,
             c.sans_json AS certificate_sans_json,
             c.not_before AS certificate_not_before, c.not_after AS certificate_not_after,
-            c.profile AS certificate_profile, c.r2_prefix AS certificate_r2_prefix,
-            c.created_at AS certificate_created_at
+            c.profile AS certificate_profile, c.created_at AS certificate_created_at
        FROM node_cert_domains n
        JOIN cert_domains d ON d.id = n.domain_id
        LEFT JOIN certificates c ON c.domain_id = d.id
@@ -890,7 +1008,6 @@ export interface NodeAssignedDomainRow {
   certificate_not_before: string | null;
   certificate_not_after: string | null;
   certificate_profile: string | null;
-  certificate_r2_prefix: string | null;
   certificate_created_at: string | null;
 }
 
