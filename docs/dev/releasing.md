@@ -7,7 +7,7 @@ Two artifacts are versioned independently, in two repositories:
 - **Server** — the node image. Version in the server repository; published
   there by its own workflow.
 
-The node↔plane protocol is a third, separate number. `docs/PROTOCOL.md` and
+The server↔plane protocol is a third, separate number. `docs/PROTOCOL.md` and
 `PROTOCOL_VERSION` in `src/routers/node.ts` (plus the server repo's
 `Cargo.toml`) move together only when the wire contract changes; the version is
 pinned by `tests/pure/protocol_freeze.test.ts`. A plane deploy that changes the

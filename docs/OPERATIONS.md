@@ -1,4 +1,4 @@
-# Operations — certificates, nginx, node troubleshooting
+# Operations — certificates, nginx, server troubleshooting
 
 Runbook for the product shape: Xray REALITY on 443 with self-steal over a
 local Unix socket (`dest=/dev/shm/lessv-decoy.sock`), nginx serving the
@@ -15,7 +15,7 @@ Internet ── :443 ──► Xray (REALITY, stream proxy)
                      nginx (TLS, decoy site; Unix socket only, :80 = 301)
                         │ ssl_certificate = /etc/lessv/certs/<path>/current/fullchain.pem
                         ▼
-                     certificate files ← lessv-node sync ← GET /api/node/certs
+                     certificate files ← vela-server sync ← GET /api/node/certs
 ```
 
 - 443 belongs to Xray. Never configure nginx to listen on 443.
@@ -23,8 +23,8 @@ Internet ── :443 ──► Xray (REALITY, stream proxy)
   so the handshake relay never leaves the kernel. The decoy listens on the
   socket only (no TCP listener) and :80 answers a 301.
 - Certificates belong to nginx (the self-stealed origin); Xray has none.
-- GeoIP/GeoSite data belongs to lessv-node (`geodata_dir`, default
-  `/var/lib/lessv/assets`; the Xray unit exports `XRAY_LOCATION_ASSET`).
+- GeoIP/GeoSite data belongs to the server (`geodata_dir`, default
+  `/var/lib/lessv/assets`; Xray reads it through `XRAY_LOCATION_ASSET`).
 
 ## Presets and the base document (plane)
 
@@ -39,12 +39,18 @@ presses Save config.
   `inbounds: []`, `outbounds: [{tag: "BLOCK", protocol: "blackhole"}]`,
   `routing: {rules: []}`, `log: {loglevel: "warning"}`.
 - **REALITY inbound** — one VLESS + REALITY inbound on 443,
-  `dest=/dev/shm/lessv-decoy.sock`, `serverNames=[domain]`, a fresh
-  even-length-hex `shortId`, chrome fingerprint, vision flow.
+  `network: raw`, `dest=/dev/shm/lessv-decoy.sock`, `serverNames=[domain]`,
+  a fresh even-length-hex `shortId`, chrome fingerprint, vision flow.
   `privateKey` stays empty; the plane injects/stores keys per inbound at
   render time (`ensureKeys`), so the private key never appears in the
   frontend. Fields (tag, domain, socket, shortId, flow) default from the
   node's configured domain and the decoy socket.
+  - `raw` is Xray's current name for the transport it used to call `tcp`;
+    the renderer normalises an authored `tcp` too, so the node always applies
+    the same spelling. A `tcpSettings` block keeps working next to it.
+  - The socket path is a wire constant, not branding: the server creates its
+    decoy socket there and the plane renders it as REALITY `dest`. Renaming
+    it requires a server release and a protocol bump.
 - **WARP outbound** — the plane registers a free Cloudflare WARP device
   (`POST https://api.cloudflareclient.com/v0a2158/reg`, the exchange wgcf
   performs), switches it to MASQUE with a P-256 key
@@ -52,9 +58,10 @@ presses Save config.
   returns a `masque` outbound (CONNECT-IP over HTTP/3, edge certificate
   pinned to the key the registration returns). Every build creates a new
   device. The node's Xray must be 26.10.21 or newer — the preset warns when
-  the reported version is older, because the apply's config test would
-  otherwise reject the outbound and roll back. `h3` only: the tunnel is
-  QUIC, so a node whose uplink blocks UDP/443 cannot use it.
+  a reported version is older, because the apply's config test would
+  otherwise reject the outbound and roll back. A node that reports no version
+  gets no warning: unknown is not the same as too old. `h3` only: the tunnel
+  is QUIC, so a node whose uplink blocks UDP/443 cannot use it.
 - **Geo block routing** — appends `geoip:<code>` and/or `geosite:<category>`
   rules that send matches to `BLOCK` (or another chosen tag). Two rules,
   because Xray ANDs the matchers inside one rule (`ip` + `domain` in one rule
@@ -158,42 +165,45 @@ first place to look.
 
 ## Alpine cloud-init nodes
 
-`scripts/alpine_cloud_init.yaml` is a complete cloud-config for a disposable
-Alpine 3.22+ node. The operator creates the plane row and token, fills the
-four values in the marked `/root/lessv.env` block (`NODE_ID`, `CP_URL`,
-`TOKEN`, `VERSION`), and boots an Alpine image with cloud-init using the
-edited file as user data. `VERSION` also derives the Gitee release URL. The
-template is Alpine/OpenRC-specific; Debian/Ubuntu hosts use the manual
-`install.sh` path instead. There is no SSH and no Tailscale: the plane is the
-management interface and the provider console is the rescue path.
+`scripts/vela_node_cloud_init.yaml` is a complete cloud-config for a
+disposable Alpine 3.22+ node. The operator creates the plane row and token,
+fills the five values in the marked `/root/vela.env` block (`NODE_ID`,
+`CP_URL`, `TOKEN`, `IMAGE`, `BINARY`), and boots an Alpine image with
+cloud-init using the edited file as user data. `IMAGE` is a full reference
+including its tag; the bootstrap pulls exactly that reference and never
+resolves a tag on the operator's behalf. The template is Alpine/OpenRC
+specific; any host with Docker can run the same compose file by hand. There
+is no SSH and no Tailscale: the plane is the management interface and the
+provider console is the rescue path.
 
 First boot sets:
 
-- `/etc/sysctl.d/99-lessv.conf` — BBR/fq, `fs.file-max`, socket backlog,
+- `/etc/sysctl.d/99-vela.conf` — BBR/fq, `fs.file-max`, socket backlog,
   keepalive. The bootstrap applies it once; the OpenRC `sysctl` service
   applies it on later boots. `ip_forward` is deliberately absent: the host
   terminates its own TLS and is not a router.
 - `/etc/nftables.nft` — an inbound fallback that drops everything except TCP
   80/443. ICMP errors, IPv6 neighbour discovery, and DHCP client replies are
   allowed because TCP/IP and boot need them; no service listens on those
-  ports. The service runs from `boot` before `net`, and `lessv-node`/`xray`
-  already declare `after firewall`. `22` is not open. The bootstrap starts it
-  before `install.sh`; a ruleset that will not load aborts the enrollment
-  instead of leaving an unfirewalled node.
+  ports. There is deliberately no `forward` chain: the container's traffic is
+  DNAT'd onto the Docker bridge and crosses that hook, which Docker manages in
+  its own table — a second drop verdict there would race Docker's accepts and
+  break the published ports. `22` is not open.
 - `/etc/init.d/sshd` is replaced by a no-op. Stopping the service alone is not
   enough: cloud-init's `cc_ssh` calls `rc-service sshd restart`, and the
   default runlevel can start it after the bootstrap's cleanup. The no-op makes
   both paths inert; there is no SSH listener even if a runlevel link survives.
-- The fd ceiling lives in the shipped units (`rc_ulimit` in the OpenRC init
-  scripts, `LimitNOFILE` in the systemd units), not in cloud-init, so nodes
-  installed by `install.sh` alone get it too.
-- Release install: Gitee tarball plus `SHA256SUMS`, then `install.sh`
-  (nginx, Xray, units, enroll). Before the download loop the bootstrap
-  requests `SHA256SUMS` once: an address that cannot reach Gitee fails with
-  the curl cause instead of five silent 120-second attempts, and a wrong
-  `VERSION` surfaces as an HTTP status rather than a timeout. cloud-init is
-  one-shot and does not run `apk upgrade`; a node's package set is its image
-  plus these installs.
+- Docker plus the compose plugin, started from the default runlevel. The
+  compose file is written to `/etc/vela/compose.yaml`: one service, bridge
+  networking, `ports: ["80:80", "443:443/tcp"]`, `restart:
+  unless-stopped`, a 90-second stop grace period, a 1M `nofile` ulimit,
+  `no-new-privileges`, and two named volumes (`vela-etc` on `/etc/lessv`,
+  `vela-state` on `/var/lib/lessv`). The mount points are the image's
+  contract; the volume names are the operator's.
+- Enrollment runs once in a throwaway container with the token on stdin, so
+  the token never lands in a shell history, an argument list, or the host's
+  filesystem. `docker compose up -d` then starts the service, and the
+  bootstrap fails loudly if the container is not running afterwards.
 
 Failure policy: a node that does not enroll is destroyed and rebuilt with a
 new node id; user data is not retained for an in-place rebuild. Read
@@ -206,7 +216,33 @@ revocation is deleting the plane row, not rotating in place; the token's
 blast radius is that node's rendered config and certificate private keys.
 Keep rendered user data and inventories out of the tree.
 
-## Node delivery layout (lessv-node)
+## Server delivery
+
+The server is a container image built and tested in
+[LessV-Node](https://github.com/realumino/LessV-Node). It carries the
+reconciler, Xray, nginx and the s6 supervisor; the host carries Docker, the
+firewall and the two published ports.
+
+- **Upgrades replace the image.** Nothing on the host or in the plane updates
+  Xray, nginx or the reconciler in place. Pin a tag in the compose file for a
+  deliberate upgrade, or run `latest` and let a watchtower-style updater pull
+  and recreate the container. Recreating a container resets any drift inside
+  it — a hand-edited Xray binary or nginx config disappears, which is the
+  point: the image is the truth and the plane is the configuration.
+- **The two volumes are the node's identity.** `vela-etc` holds
+  `/etc/lessv`: the enrollment token file, the certificate tree and the nginx
+  decoy configuration. Losing it means re-enrolling (the plane mints a new
+  token) and re-fetching every certificate. `vela-state` holds
+  `/var/lib/lessv`: the state file, the live Xray config and the geodata
+  files. Losing it costs one reconcile — the server re-fetches the config and
+  the certificates and re-downloads geodata on its next poll.
+- **One volume cannot be shared.** Two containers mounting the same
+  `vela-etc` are two servers with one identity; the plane sees one row.
+- `docker compose up -d` after editing the image tag is the upgrade;
+  `docker restart` re-converges without re-enrolling because the applied hash
+  still matches.
+
+### On-disk layout inside the container
 
 ```
 /etc/lessv/certs/<domain path>/
@@ -216,7 +252,7 @@ Keep rendered user data and inventories out of the tree.
 └── current -> <fingerprint>/    # symlink, swapped atomically
 ```
 
-- The node validates the manifest (ETag + fingerprint shape + safe
+- The server validates the manifest (ETag + fingerprint shape + safe
   domain paths) before writing; any invalid entry aborts the whole sync.
 - Files are written straight into the content-addressed version directory
   (`<fingerprint>/`, so re-syncing the same certificate is idempotent and a
@@ -227,26 +263,26 @@ Keep rendered user data and inventories out of the tree.
 - On any write/test/reload failure the node rolls the symlinks back to
   the previous state and does NOT advance its stored ETag; the next loop
   retries.
-- The node also writes the decoy nginx configuration (next section) and
+- The server also writes the decoy nginx configuration (next section) and
   restarts nginx when it is found stopped, on every poll.
 - GeoIP/GeoSite data lives in `/var/lib/lessv/assets/geoip.dat` and
   `geosite.dat` (see the update section above); a stale `.prev` sibling is
   the last rollback copy.
 
-## nginx decoy configuration (generated by lessv-node)
+## nginx decoy configuration (generated by vela-server)
 
-`install.sh` removes the distribution's default site and writes nothing
-else; the node renders one file from the certificate manifest:
-
-- Debian/Ubuntu/RHEL: `/etc/nginx/conf.d/lessv-decoy.conf`
-- Alpine: `/etc/nginx/http.d/lessv-decoy.conf`
+The image ships nginx with no default site; the server renders exactly one
+file from the certificate manifest at the path it was enrolled with
+(`--nginx-conf-path`). The provisioning template uses
+`/etc/nginx/http.d/lessv-decoy.conf`; a container built on a
+Debian/Ubuntu/RHEL base uses `/etc/nginx/conf.d/lessv-decoy.conf`.
 
 One `server` block per assigned certificate, listening **only** on the
 decoy's Unix socket, plus one plain-HTTP block that redirects everything to
 HTTPS:
 
 ```nginx
-# Managed by lessv-node. Regenerated from GET /api/node/certs on every sync;
+# Managed by vela-server. Regenerated from GET /api/node/certs on every sync;
 # edits are overwritten. Xray owns 443 — this decoy listens on a Unix socket
 # (REALITY's dest) only, and redirects plain HTTP on :80 to HTTPS.
 
@@ -293,14 +329,14 @@ Disallow: /
   X25519MLKEM768:X25519` makes a TLS 1.3 handshake prefer the ML-KEM-768 +
   X25519 hybrid and fall back to X25519 for clients that do not offer it.
   The linked TLS library resolves the group at `nginx -t` time: OpenSSL ≥ 3.5
-  (Debian 13, Ubuntu 25.10, Alpine 3.22, current nginx images) knows it;
-  older hosts reject the whole file. There is **no classical-only render**:
-  the apply fails, the previous nginx config is restored, and the node reports
-  `nginx_ok: false` with the `nginx -t` output. `install.sh` refuses to
-  install on a host whose nginx links an older OpenSSL.
+  knows it, and the image pins one that does. There is **no classical-only
+  render**: the apply fails, the previous nginx config is restored, and the
+  server reports `nginx_ok: false` with the `nginx -t` output.
 - **Local socket, not a port.** The decoy's only listener is
   `/dev/shm/lessv-decoy.sock`; REALITY relays every handshake there, so the
-  stolen origin never touches the network stack. An authored `dest` that is
+  stolen origin never touches the network stack. The path is shared memory
+  inside the container and the plane renders it as `dest`, so it is part of
+  the wire contract. An authored `dest` that is
   not this socket (for example `127.0.0.1:8443`) is a lint warning and a
   broken fallback — the compatibility loopback listener was removed.
 - **Plain HTTP only redirects.** The `:80` block answers every assigned name
@@ -311,17 +347,16 @@ Disallow: /
 - **Anti-crawl headers and a managed page.** The decoy sends `X-Robots-Tag:
   noindex, nofollow, noarchive, nosnippet`, `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer`, `nosniff`, a restrictive CSP, and a
-  `robots.txt` that disallows everything. `index.html` is rendered by
-  lessv-node from a template that starts with
-  `<!-- lessv-node-decoy-page -->`: while that marker is present the page
-  follows upgrades; delete the marker to keep your own page untouched.
+  `robots.txt` that disallows everything. `index.html` is rendered by the
+  server from a template that starts with `<!-- lessv-node-decoy-page -->`:
+  while that marker is present the page follows image upgrades; delete the
+  marker to keep your own page untouched.
 - `nginx_socket` in `/etc/lessv/node.toml` moves the socket (absolute path;
   keep the preset's `dest` in sync). Both services run as root here, so the
   socket's default ownership is enough; with a non-root Xray, set
   `user=`/`group=` on the `listen` line instead.
-- `xray.service` starts after `nginx.service` (`after nginx` + `want nginx`
-  under OpenRC) because the socket must exist before the first handshake;
-  `install.sh` enables nginx so it comes up at boot.
+- nginx starts before Xray in the image (the socket must exist before the
+  first handshake) and s6 restarts either process that dies.
 - Wildcard certificates use `wildcard.<zone>` as the `path` and the wildcard
   name as `server_name`.
 - The file references `current`, so certificate renewals need no nginx config
@@ -360,17 +395,15 @@ curl -sS -H "Authorization: Bearer $ADMIN_KEY" https://<cp>/api/admin/cert-domai
 curl -sS -H "Authorization: Bearer $ADMIN_KEY" https://<cp>/api/admin/nodes/<id>/certs
 ```
 
-Node side (systemd, then OpenRC equivalents):
+Server side, from the host (the compose file lives at `/etc/vela/compose.yaml`):
 
 ```bash
-systemctl status lessv-node
-journalctl -u lessv-node -n 100 --no-pager
-# Alpine/OpenRC:
-#   rc-service lessv-node status
-#   tail -n 100 /var/log/lessv-node.log
-ls -l /etc/lessv/certs/<path>/          # versions
-readlink -f /etc/lessv/certs/<path>/current
-nginx -t && systemctl reload nginx      # rc-service nginx reload on Alpine
+docker compose -f /etc/vela/compose.yaml ps
+docker compose -f /etc/vela/compose.yaml logs -n 100 vela-server
+docker exec vela-server xray run -test -c /var/lib/lessv/config.json
+docker exec vela-server nginx -t
+docker exec vela-server ls -l /etc/lessv/certs/<path>/
+docker exec vela-server readlink -f /etc/lessv/certs/<path>/current
 ```
 
 ## Troubleshooting playbook (in order)
@@ -382,25 +415,28 @@ nginx -t && systemctl reload nginx      # rc-service nginx reload on Alpine
    `nginx_error`, and certificate lint warnings (`serverNames ... is not
    covered by an assigned certificate`, `dest ... is not a local Unix socket
    or 127.0.0.1:<port>`, invalid `shortIds`).
-3. **Node**: `journalctl -u lessv-node -n 100` (OpenRC:
-   `tail -n 100 /var/log/lessv-node.log`); `ls -l /etc/lessv/certs/<path>/`;
-   `readlink -f .../current`. The node's state file
-   (`/var/lib/lessv/state.json`) carries `cert_etag`, `cert_synced_at`,
-   `last_nginx_ok`, and `certs` (the certificate set the decoy config was
-   rendered from; used to notice that a renderer upgrade made the generated
-   file stale). The decoy page lives at `/var/www/lessv-decoy/index.html`.
-4. **nginx**: `nginx -t`; `systemctl status nginx` (`rc-service nginx status` on
-   Alpine); `journalctl -u nginx -n 50` (`tail -n 50 /var/log/nginx/error.log`).
+3. **Server**: `docker compose -f /etc/vela/compose.yaml logs -n 100`;
+   `docker exec vela-server ls -l /etc/lessv/certs/<path>/`;
+   `docker exec vela-server readlink -f .../current`. The state file
+   (`/var/lib/lessv/state.json` inside the `vela-state` volume) carries
+   `cert_etag`, `cert_synced_at`, `last_nginx_ok`, and `certs` (the
+   certificate set the decoy config was rendered from; used to notice that a
+   server upgrade made the generated file stale). The decoy page lives at
+   `/var/www/lessv-decoy/index.html`.
+4. **nginx**: `docker exec vela-server nginx -t`; the error log is in
+   `docker compose logs`.
 5. **HTTP checks**: `curl -v https://<domain>` (must validate without
    `-k`); `openssl s_client -connect <host>:443 -servername <domain>`.
-6. **Xray**: `systemctl status xray` (`rc-service xray status`); `xray run
-   -test -c /var/lib/lessv/config.json`; `journalctl -u xray -n 30`
-   (`tail -n 30 /var/log/xray.log`). Cert issuance and nginx reload must never
-   restart Xray (`systemctl show xray -p MainPID` stays constant).
-7. **Artifacts missing**: check R2 under `certs/<env>/<path>/<cert id>/`
-   (binding `CERTS`, bucket `lessv-certs`). Do not hand-edit `current` —
-   `lessv-node` reconciles it; a manual pointer will be overwritten or rolled
-   back on the next sync.
+6. **Xray**: `docker exec vela-server xray run -test -c
+   /var/lib/lessv/config.json`; its log is in `docker compose logs`. Cert
+   issuance and nginx reload must never restart Xray.
+7. **Artifacts missing**: the bytes live in D1, in `certificate_artifacts`,
+   keyed by certificate id (`SELECT certificate_id, cert_pem IS NOT NULL,
+   chain_pem IS NOT NULL, fullchain_pem IS NOT NULL FROM certificate_artifacts
+   WHERE certificate_id = '<id>'`). The admin download endpoint reads the same
+   rows, so it answers 500 with the same id and field names. Do not hand-edit
+   `current` — the server reconciles it; a manual pointer will be overwritten
+   or rolled back on the next sync.
 
 ### Failure cookbook
 
@@ -409,18 +445,26 @@ nginx -t && systemctl reload nginx      # rc-service nginx reload on Alpine
 | `wait-propagation` loops then fails | TXT record not visible to DoH resolvers | check the `_acme-challenge` TXT in the Cloudflare dashboard; check the DNS token's zone scope |
 | LE CAA error on a name | a CAA record forbids issuance | fix/remove the CAA record (`0 issue "none"` blocks everything) |
 | `too many certificates already issued` | production rate limit | wait; use staging for any further testing |
-| panel warning `nginx is not healthy: nginx unit is not active` | nginx stopped/crashed — the text after the colon is the node's `nginx_error` field | the node restarts nginx on its next poll; if it stays down, `systemctl start nginx` / `rc-service nginx start` and read the node log |
-| `nginx -t rejected the decoy (post-quantum X25519MLKEM768:X25519 requires OpenSSL >= 3.5): SSL_CTX_set1_curves_list(...) failed` | the host's TLS library cannot negotiate the hybrid group; the node refuses to serve classical-only TLS and restored the previous decoy config | move the node to Debian 13+/Ubuntu 25.10+/Alpine 3.22+ (or build nginx against OpenSSL ≥ 3.5). There is no fallback to enable |
-| node reports cert failure, files unchanged | artifact read/validate failed | check the object path from the error; do not edit files by hand |
+| panel warning `nginx is not healthy: nginx unit is not active` | nginx stopped/crashed — the text after the colon is the server's `nginx_error` field | the server restarts nginx on its next poll; if it stays down, read `docker compose logs` |
+| `nginx -t rejected the decoy (post-quantum X25519MLKEM768:X25519 requires OpenSSL >= 3.5): SSL_CTX_set1_curves_list(...) failed` | the nginx inside the image cannot negotiate the hybrid group; the server refuses to serve classical-only TLS and restored the previous decoy config | unexpected in a shipped image (it pins a TLS library that knows the group); check which image tag runs and rebuild |
+| server reports cert failure, files unchanged | artifact read/validate failed | the error names the certificate id and the missing field; the admin download endpoint reads the same rows — do not edit files by hand |
 | renewed cert never appears on the node | assignment changed or ETag stuck | re-check assignment; compare `nodes.cert_etag` (the node's adopted ETag) with the manifest ETag from `GET /api/node/certs` — equal means the node already has this version |
 
 ## Tearing down a node VPS
 
-Destroy the VPS through its provider, then delete the node with
+Stop the container and remove its volumes first, so nothing keeps running
+with a revoked identity:
+
+```bash
+docker compose -f /etc/vela/compose.yaml down -v
+```
+
+Then destroy the VPS through its provider, then delete the node with
 `DELETE /api/admin/nodes/<id>` (or the node page's **Delete node**): one
 batch removes the row plus its token, config, user access, endpoint
 registry, REALITY keys, and certificate assignments.
 Domain-scoped evidence (cert domains, certificates, issue runs) is untouched,
-and the machine keeps running its last applied config — decommission it
-separately. The plane keeps domain/cert records; soft-deleted cert
-domains disappear from the UI but their history stays in the database.
+and the machine keeps running its last applied config until the container
+stops — decommission it separately. The plane keeps domain/cert records;
+soft-deleted cert domains disappear from the UI but their history stays in
+the database.

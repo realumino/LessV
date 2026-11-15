@@ -21,7 +21,7 @@ certificate environments) lives in [`../PROTOCOL.md`](../PROTOCOL.md) and in
 |---|---|---|---|---|
 | A | hermetic workerd tests | routes, D1 schema, render, ACME state machine | none | seconds |
 | B | `wrangler dev` (local) | the real renderer + a real agent, no cloud | none | minutes |
-| C | `lessv-staging` Worker | everything except production certificates, with automation | test rows only | ~free |
+| C | `vela-staging` Worker | everything except production certificates, with automation | test rows only | ~free |
 | D | one node under test | real 443, real ACME (staging CA), real decoy | test domain only | cents–5 USD |
 | — | production | *not a test environment* | real certificates, users | — |
 
@@ -51,8 +51,8 @@ Consequences to keep in mind when reading a green run:
 ## Tier B — local plane, real renderer, no cloud
 
 ```sh
-npx wrangler d1 migrations apply DB --local --persist-to /tmp/lessv-dev
-npx wrangler dev --port 8788 --persist-to /tmp/lessv-dev --ip 0.0.0.0
+npx wrangler d1 migrations apply DB --local --persist-to /tmp/vela-dev
+npx wrangler dev --port 8788 --persist-to /tmp/vela-dev --ip 0.0.0.0
 ```
 
 `--persist-to` keeps all local state out of the repository; `--ip 0.0.0.0` is
@@ -120,16 +120,14 @@ Then edit, in that copy only:
 
 | Key | Staging value |
 |---|---|
-| `name` | `lessv-staging` |
+| `name` | `vela-staging` |
 | `routes[0].pattern` | `staging.<your-zone>` (custom domain) |
 | `d1_databases[0]` | its own `database_name` + id |
-| `r2_buckets[0].bucket_name` | `lessv-staging-certs` |
-| `workflows[0].name` | `lessv-staging-cert-issuance` |
+| `workflows[0].name` | `vela-staging-cert-issuance` |
 | `triggers.crons` | removed — a test plane has no daily renewer |
 
 ```sh
-npx wrangler d1 create lessv-staging
-npx wrangler r2 bucket create lessv-staging-certs
+npx wrangler d1 create vela-staging
 npx wrangler d1 migrations apply DB --remote --config wrangler.staging.jsonc
 npx wrangler deploy --config wrangler.staging.jsonc --secrets-file .env.staging
 ```
@@ -138,7 +136,7 @@ npx wrangler deploy --config wrangler.staging.jsonc --secrets-file .env.staging
 `wrangler` call above — no code change is needed for a second environment.
 
 Isolation is structural, not procedural: separate D1 (no production rows),
-separate R2 (no production certificates), separate `ADMIN_KEY`, separate
+separate database (no production rows), separate `ADMIN_KEY`, separate
 `KEY_SECRET`. `.env.staging` holds the values and is gitignored; the DNS token
 in it should be scoped to the test zone only.
 
@@ -152,8 +150,7 @@ Teardown is one command each:
 
 ```sh
 npx wrangler delete --config wrangler.staging.jsonc
-npx wrangler d1 delete lessv-staging
-npx wrangler r2 bucket delete lessv-staging-certs
+npx wrangler d1 delete vela-staging
 ```
 
 ## Tier D — a node under test
@@ -186,7 +183,7 @@ The plane-side rules that make tier D safe:
    works unmodified.
 
 Ephemeral beats permanent. A node can be created, enrolled, tested and destroyed
-inside one release cycle (`scripts/alpine_cloud_init.yaml` is the existing
+inside one release cycle (`scripts/vela_node_cloud_init.yaml` is the existing
 environment-as-code starting point); a permanent test node is only worth it when
 it is also the canary that runs every release first.
 
@@ -235,12 +232,11 @@ That leaves two credentials that can still reach something you own:
 
    ```sh
    npx wrangler delete --config wrangler.staging.jsonc
-   npx wrangler d1 delete lessv-staging
-   npx wrangler r2 bucket delete lessv-staging-certs
-   rm -rf /tmp/lessv-dev        # any --persist-to directory
+   npx wrangler d1 delete vela-staging
+   rm -rf /tmp/vela-dev         # any --persist-to directory
    ```
 
-   A leftover D1 export or R2 bucket is exactly what a "trashed" secret still
+   A leftover D1 export is exactly what a "trashed" secret still
    opens. Delete the data, then forget the key.
 
 ### In production, all of it matters — ranked by blast radius
@@ -263,16 +259,16 @@ so an invented value would only mislead you.
 
 | Name | Minimum permission | Never grant |
 |---|---|---|
-| `CF_DNS_API_TOKEN` | **Zone → Zone → Read** + **Zone → DNS → Edit**, Zone Resources: *Include → Specific zone → that zone* | Account-scoped tokens, `Zone → Zone → Edit`, `API Tokens → Edit`, Workers or R2 permissions |
+| `CF_DNS_API_TOKEN` | **Zone → Zone → Read** + **Zone → DNS → Edit**, Zone Resources: *Include → Specific zone → that zone* | Account-scoped tokens, `Zone → Zone → Edit`, `API Tokens → Edit`, Workers permissions |
 | provider token | Linode: `linodes:read_write`, with an expiry | account, volume, firewall or domain scopes |
 | registry token (private package only) | `read:packages` | `write:packages` outside the release workflow |
 
 Why exactly those two Cloudflare permissions: the code calls zone lookup by
 name (`GET /zones?name=…`, also the SPA's zone picker) and DNS record
 create/delete (`POST`/`DELETE /zones/{id}/dns_records`). It never calls
-`/accounts/*`, never verifies the token, and never touches Workers, R2 or zone
-settings — `src/cert/dns/cloudflare.ts` is the complete list. R2 and D1 are
-Worker **bindings**, so they need no token at all.
+`/accounts/*`, never verifies the token, and never touches Workers or zone
+settings — `src/cert/dns/cloudflare.ts` is the complete list. D1 is a Worker
+**binding**, so it needs no token at all.
 
 Verify a token before trusting it, against the **test** zone:
 
@@ -301,7 +297,7 @@ avoidable entirely by automating against tier C instead.
 | protocol version and endpoint shapes | DNS zone (a test subdomain is enough) |
 | the certificate *environment* semantics | certificate authority (staging CA) |
 | the node image digest under test | node count, traffic |
-| D1/R2 binding names | storage size |
+| D1 binding names | storage size |
 
 ## Failure policy
 

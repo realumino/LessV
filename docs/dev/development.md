@@ -32,7 +32,7 @@ will not bind it at runtime.
 ## Local loop
 
 ```bash
-npm run dev                         # Worker + D1 + R2 + Workflow at 127.0.0.1:8787
+npm run dev                         # Worker + D1 + Workflow at 127.0.0.1:8787
 npm --prefix frontend run dev       # Vite at 5173, proxies /api to 8787
 ```
 
@@ -104,7 +104,7 @@ production allows 5 certificates per week per domain.
 
 The node server is a separate repository; this tree never contains its source.
 Do not put SQL in routers or services. Do not put HTTP concerns in services.
-Do not add a fourth data store; D1, R2, and the Workflow are the backend.
+Do not add a second data store; D1 and the Workflow are the backend.
 
 ## Adding a route
 
