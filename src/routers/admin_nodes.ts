@@ -407,8 +407,10 @@ adminNodes.post("/api/admin/nodes/:node_id/presets/:preset_id", async (c) => {
     // WHY a warning and not a refusal: the config is the operator's document
     // and the node's core is what actually rejects an unknown protocol. The
     // preset is the only writer that knows this requirement, so it names the
-    // version the node must run before the config can apply.
-    if (presetId === "warp" && !supportsWarpMasque(node.xray_version)) {
+    // version the node must run before the config can apply. A node that has
+    // not reported a version is silent: unknown is not the same as too old,
+    // and a misleading warning would outlive the reason for it.
+    if (presetId === "warp" && node.xray_version !== null && !supportsWarpMasque(node.xray_version)) {
       warnings.push(
         `node reports Xray ${node.xray_version ?? "unknown"}; a MASQUE WARP ` +
           `outbound needs ${WARP_MASQUE_MIN_XRAY} or newer — update the core ` +

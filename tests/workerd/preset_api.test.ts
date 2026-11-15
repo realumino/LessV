@@ -223,8 +223,7 @@ describe("the preset catalog", () => {
   });
 
   it("warns when the node core predates MASQUE WARP support", async () => {
-    // A node that never reported a version is the same failure mode as an
-    // old one: the apply's config test would reject the outbound.
+    await reportXrayVersion("26.1.1");
     const response = await planeJson(
       "POST",
       `/api/admin/nodes/${node}/presets/warp`,
@@ -233,6 +232,19 @@ describe("the preset catalog", () => {
     const result = await body<PresetBuildOut>(response);
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toMatch(/needs 26\.10\.21 or newer/);
+  });
+
+  it("stays silent about the core when the node never reported one", async () => {
+    // WHY: a server may stop reporting `xray_version`; unknown is not the same
+    // as too old, and a permanent warning would teach the operator to ignore it.
+    const response = await planeJson(
+      "POST",
+      `/api/admin/nodes/${node}/presets/warp`,
+      { config: null, options: { tag: "warp" } },
+    );
+    expect(response.status, await response.clone().text()).toBe(200);
+    const result = await body<PresetBuildOut>(response);
+    expect(result.warnings).toEqual([]);
   });
 
   it("404s an unknown preset and 422s a non-object document", async () => {

@@ -40,6 +40,52 @@ describe("reportedAddressFor", () => {
     // WHY: a value with embedded whitespace is garbage, not an address.
     expect(reportedAddressFor("203.0.113.7\n198.51.100.9", null)).toBeNull();
   });
+
+  it("ignores a private or loopback detection and uses the edge address", () => {
+    // WHY: a bridge-networked server detects its container address, and a
+    // NATed host can detect a private one; the edge already knows the public
+    // address the node reached it from.
+    for (const detected of [
+      "10.1.2.3",
+      "172.16.0.2",
+      "172.31.255.254",
+      "192.168.1.10",
+      "127.0.0.1",
+      "169.254.10.10",
+      "100.64.0.9",
+      "0.0.0.0",
+      "::1",
+      "fc00::1",
+      "fd12:3456::1",
+      "fe80::1",
+      "::ffff:172.17.0.2",
+      "::ffff:10.0.0.1",
+    ]) {
+      expect(reportedAddressFor(detected, "198.51.100.9"), detected).toBe(
+        "198.51.100.9",
+      );
+    }
+  });
+
+  it("adopts a public IPv4 or IPv6 detection", () => {
+    expect(reportedAddressFor("203.0.113.7", "198.51.100.9")).toBe(
+      "203.0.113.7",
+    );
+    expect(reportedAddressFor("2606:4700:4700::1111", "198.51.100.9")).toBe(
+      "2606:4700:4700::1111",
+    );
+    expect(reportedAddressFor("2001:db8::1", null)).toBe("2001:db8::1");
+  });
+
+  it("ignores a report that is not an IP literal", () => {
+    // WHY: the field is a literal by contract; a hostname there is either a
+    // bug or an attempt to put arbitrary text in the fleet view.
+    expect(reportedAddressFor("vpn.example.org", "198.51.100.9")).toBe(
+      "198.51.100.9",
+    );
+    expect(reportedAddressFor("not-an-ip", null)).toBeNull();
+    expect(reportedAddressFor("" + "1".repeat(255), null)).toBeNull();
+  });
 });
 
 describe("toOut", () => {
