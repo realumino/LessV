@@ -1,9 +1,9 @@
 # Architecture
 
-LessV is a self-hosted Xray management plane. One Cloudflare Worker serves the
-admin SPA, the admin API, the node pull API, and subscription URLs. Nodes run
-`lessv-node`, a static Rust reconciler that pulls its desired state from the
-plane and converges Xray, nginx, and certificates on the host.
+Vela is a self-hosted Xray management plane. One Cloudflare Worker serves the
+admin SPA, the admin API, the server pull API, and subscription URLs. Each node
+runs `vela-server`, a container image that pulls its desired state from the
+plane and converges Xray, nginx, and certificates inside the container.
 
 This document describes the system as implemented. Protocol details live in
 [`docs/PROTOCOL.md`](../PROTOCOL.md); certificate and nginx operations live in
@@ -14,11 +14,11 @@ top-level `README.md`.
 
 - **Pull only.** The plane never connects to a node. A node polls the plane;
   the plane being unavailable costs staleness, not access.
-- **One deployable unit.** Worker, SPA, D1 schema, R2 binding, and Workflow
-  ship together from this repository.
-- **No runtime dependency on the node.** `lessv-node` is one static musl
-  binary. nginx and Xray are provisioned from their vendors by `install.sh`,
-  not linked into the agent.
+- **One deployable unit.** Worker, SPA, D1 schema, and Workflow ship
+  together from this repository.
+- **The plane never ships the node's software.** The server is an image built
+  and tested in its own repository; Xray, nginx and the reconciler are inside
+  it. The plane owns the contract and the data, not the host.
 - **Deterministic rendering.** A node's desired Xray config is a pure function
   of database state plus stored keys; the same state must hash identically
   every time.
@@ -39,13 +39,12 @@ Browser ── /admin ──────────────► Worker (Hono
                                      │  /api/node/*   ← node token
                                      │  /sub/{token}  ← subscription token
                                      ▼
-                                    D1 (state)
-                                    R2 (certificate artifacts)
+                                    D1 (state + certificate artifacts)
                                     Workflow (ACME issuance)
 
 User ── /sub/{token} ──► subscription ──► links (rendered from D1)
 
-Node ── Xray (REALITY :443) ──► lessv-node (Rust, systemd/OpenRC)
+Node ── Xray (REALITY :443) ──► vela-server (container image)
          ▲ nginx decoy (Unix socket) │
          └── certificate files ◄── GET /api/node/certs ◄── ACME (DNS-01)
 ```
@@ -108,7 +107,7 @@ subscription renderer.
 
 Routers translate HTTP to service calls; services hold rules; `src/db.ts` is
 the only module that speaks SQL. `src/cert/` is a self-contained ACME
-subsystem with its own D1 and R2 access modules.
+subsystem with its own D1 access module.
 
 ### Rendering pipeline
 
@@ -158,7 +157,7 @@ aggregates links, and chooses a format:
 - default: base64 of the newline-joined VLESS URI list;
 - Clash family (`clash`, `mihomo`, `stash` user agents) or `?target=clash`:
   a mihomo profile with one `vless` proxy per link, one `select` group, and
-  `MATCH,LESSV`;
+  `MATCH,VELA`;
 - `?target=uri` forces the URI list.
 
 Every failure (unknown, disabled, expired, nothing configured) is an empty
@@ -187,7 +186,8 @@ declare no foreign keys by convention; deletion order is explicit in
 | `inbound_links` | (node, id) | client-side link variants (CDN front, port, SNI overrides) |
 | `node_actions` | (node, action) | pending/ok/failed maintenance requests |
 | `cert_domains` | plane | certificate names, zone, profile, renewal policy |
-| `certificates` | domain | issued artifacts, environment, serial/fingerprint, R2 prefix, current flag |
+| `certificate_artifacts` | certificate id | the three leaf PEMs and the sealed leaf private key |
+| `certificates` | domain | environment, serial/fingerprint, SANs, validity, current flag |
 | `acme_accounts` | environment | one ACME account per staging/production, sealed key |
 | `issue_runs` | domain | workflow run, phase, error, timing |
 | `challenge_records` | run | DNS-01 TXT records created and cleaned up |
@@ -196,7 +196,9 @@ declare no foreign keys by convention; deletion order is explicit in
 The certificate subsystem keeps two independent `current` pointers per domain
 (production and staging); `nodes.cert_environment` selects which one
 `GET /api/node/certs` serves. Assignment is per node; renewal follows the
-assignment automatically.
+assignment automatically. Artifacts are rows in `certificate_artifacts`
+(one per certificate id, deleted on purge), so the database is the only store
+the subsystem reads.
 
 ## Certificate subsystem
 
@@ -212,10 +214,16 @@ assignment automatically.
   whose remaining lifetime is under one third (45-day `tlsserver` profile, so
   around day 15). Staging certificates are never renewed and are swept seven
   days after issuance.
-- `store/r2.ts` stores certificate artifacts under a content-addressed prefix;
-  D1 stores metadata and the current pointer. The node pulls a manifest with
-  an ETag, validates fingerprints and safe domain paths, writes each version
-  into its own directory, and swaps `current` atomically.
+- `store/d1.ts` also stores the artifacts: the three PEMs and the sealed
+  leaf private key live in `certificate_artifacts`, keyed by certificate id.
+  The sealed key is written before the order runs, because a retried workflow
+  has to find the key it already generated; the PEMs are filled in when the
+  order becomes valid, and the row is deleted when the certificate is purged.
+  A certificate set is a few kilobytes, three orders of magnitude inside D1's
+  row limit, and one store cannot disagree with itself about which certificate
+  is current. The server pulls a manifest with an ETag, validates fingerprints
+  and safe domain paths, writes each version into its own directory, and swaps
+  `current` atomically.
 
 Issuance is serialized per domain by an active-run unique index. The
 `_acme-challenge` TXT names collide across environments, so one run per domain
@@ -240,10 +248,40 @@ plane if it:
    renders as REALITY `dest`, `/dev/shm/lessv-decoy.sock`;
 5. executes advertised actions and answers through `POST /api/node/action`.
 
-How the process is supervised — s6, systemd, OpenRC, a bare binary or a
-container — is invisible to the plane. The plane never connects to a node: every
-call is server-initiated, so a node behind NAT needs no inbound port except the
-two it serves traffic on.
+The image is the delivery vehicle, and it has one operator-facing requirement:
+publish port 80 and port 443/tcp and nothing else needs exposing. Inside, the
+server owns Xray on 443 and nginx on the decoy's Unix socket, and it keeps its
+two directories as volumes (`/etc/lessv` for identity and certificates,
+`/var/lib/lessv` for state, the live config and geodata). How the process is
+supervised — s6 in the image, systemd or OpenRC outside it, a bare binary on a
+developer machine — is invisible to the plane. The plane never connects to a
+node: every call is server-initiated, so a node behind NAT needs no inbound
+port except the two it serves traffic on.
+
+A server is upgraded by replacing its image. The plane cannot and does not
+update Xray, nginx or the reconciler on a running host.
+
+## Reported addresses
+
+`reported_address` is display data: the fleet view's answer to "where is this
+node". The plane prefers the server's `detected_ip` only when it is a globally
+routable IP literal, and otherwise falls back to `cf-connecting-ip`. A
+container reports its bridge address and a NATed host can report a private one;
+neither is a fact about how the node is reached, while the edge header is.
+Nothing else reads the field.
+
+## Secrets
+
+`KEY_SECRET` is a Worker secret, not a Secrets Store binding. The store is an
+account-level resource whose id every deployment — including a second,
+staging one — would have to carry, its value is read through an async hop on
+the hottest crypto path (render, delivery, issuance, admin download), and its
+only real benefit is rotation across Workers. `KEY_SECRET` is never rotated by
+design; it seals REALITY, certificate and ACME account keys, and rotating it
+makes every sealed value unreadable. Revisit only if a second Workers-side
+consumer of the same secret appears.
+
+## Failure model
 
 - **Plane unavailable:** nodes keep serving their current config and retry
   with backoff. Subscriptions and admin UI are unavailable.

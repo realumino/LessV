@@ -1,18 +1,25 @@
-# Cloud API — pull contract v3
+# Vela ↔ vela-server — pull contract v3
 
-The node ↔ plane contract. Protocol 1 was the original pull contract
+The server ↔ plane contract. Protocol 1 was the original pull contract
 (`X-Lesserv-Node`); protocol 2 added the certificate endpoint, the
-`stage: "cert"` report, and renamed the node-identity header to
+`stage: "cert"` report, and renamed the server-identity header to
 `X-Lessv-Node`; protocol 3 replaces the heartbeat's string actions with
 structured objects, adds version reporting on the heartbeat, and adds the
-action-result endpoint. Every node implementation in this repository speaks
-protocol 3 from the 0.6.0 line; a protocol-2 node is rejected with
-`400` and keeps serving its current config until it is upgraded.
+action-result endpoint.
 
-Changes are made in three places at once: this file, `src/routers/node.ts`
-(`PROTOCOL_VERSION`), and the node version in `node/Cargo.toml`. The wire
-field names `agent_version` and `agent_uptime` predate the rename of the
-node binary to `lessv-node`; the names stay for the same reason.
+`X-Lessv-Node` is frozen: deployed servers send it, so it is the contract's
+name for "which node row this token must prove", not a product name. A
+renamed header means a protocol bump and a server release that sends both.
+
+The server is maintained in
+[LessV-Node](https://github.com/realumino/LessV-Node); the plane's code is
+this repository. Changes to the number are made in three places at once: this
+file, `PROTOCOL_VERSION` in `src/routers/node.ts`, and the crate version in
+the server repository. A protocol-2 server is rejected with `400` and keeps
+serving its current config until it is upgraded.
+
+The wire field names `agent_version` and `agent_uptime` predate every rename
+the artifact has had; they stay for the same reason as the header.
 
 ## Transport and authentication
 
@@ -52,7 +59,11 @@ Request:
 ```
 
 `detected_ip` is display data for the fleet view (who reported in from
-where); it never feeds share links.
+where); it never feeds share links. The plane accepts it only when it is a
+globally routable IP literal and otherwise falls back to `cf-connecting-ip` —
+a bridge-networked or NATed server detects a private address, which says
+nothing about how the node is reached. Sending the field is optional; sending
+a hostname or a private address is not an error, it is ignored.
 
 Response:
 
@@ -95,10 +106,16 @@ Response: `{ "desired_hash": <hex|null>, "actions": [...] }`.
   `last_error` from a heartbeat. ALWAYS send `applied_hash`: omitting it
   sends `null` and clears the column. The node always sends it.
 - `agent_version`, `xray_version`, and `geodata_version` are the facts the
-  node currently runs; a missing field means "nothing to report" and
+  server currently runs; a missing field means "nothing to report" and
   preserves the stored value. The plane shows them in the fleet view and
   stores a successful update's version without waiting for the next
   heartbeat.
+- Fields a server may stop reporting: every heartbeat field except
+  `applied_hash` is optional, and the plane's behaviour for each is "keep
+  what is stored". The only coupling is the version check: a preset that
+  needs a minimum core version warns only when `xray_version` is reported
+  and too old. Unknown is not the same as old, and a permanent warning about
+  a field a server no longer sends would outlive its reason.
 - The request's `last_error` is accepted for forward compatibility but not
   stored; the plane keeps the error from the last report.
 - `actions` carries every maintenance request the admin confirmed that is
@@ -162,9 +179,9 @@ current certificate **in the node's own ACME environment** exists.
   `(domain, fingerprint)` pairs, sorted; any renewal or assignment change
   rotates it. Send `If-None-Match: "<64-hex>"` and the plane answers
   `304` with no body when nothing changed.
-- Failure is all-or-nothing: an unreadable artifact answers `500` with the
-  object path in the message, never a partial manifest. The node keeps its
-  previous files on any failure.
+- Failure is all-or-nothing: a missing artifact answers `500` naming the
+  certificate id and the missing field, never a partial manifest. The server
+  keeps its previous files on any failure.
 
 Response:
 
@@ -236,8 +253,8 @@ on a plain report, or whenever `stage` is `cert`:
 
 Absent cert fields stay untouched on a plain report. A `stage:"cert"`
 report writes every cert field it carries, NULLs included when the node
-state has nothing to repeat yet. From lessv-node 0.3.0 the node never clears
-`cert_synced_at`: nginx state flips and cert failures repeat the last
+state has nothing to repeat yet. From server 0.3.0 the server never
+clears `cert_synced_at`: nginx state flips and cert failures repeat the last
 successful epoch.
 
 `nginx_error` carries the failure reason only: a node whose nginx is serving
@@ -273,6 +290,10 @@ result for a row written before the plane stopped requesting it):
 - The action row is visible in `GET /api/admin/nodes/{id}/sync` under
   `actions`; a failed row stays visible until the admin requests the action
   again.
+- `update_xray` is gone from the request list because the plane no longer
+  owns the binary: Xray is part of the server image, and replacing it means
+  replacing the image. The result stays accepted so a server that finishes a
+  row written by an older plane is not refused.
 
 ### `POST /api/node/stats`
 
@@ -287,7 +308,20 @@ storage starts in a later milestone, so nothing is stored yet. The node
 ships this shape from v1 so history can begin the day the plane learns to
 keep it.
 
-## Renewal contract (node-visible behavior)
+## The config the plane renders
+
+The document is the operator's, with three additions the plane owns: the
+client list and per-user routing rules, the REALITY private keys (generated
+per inbound and sealed at rest), and the transport name. `tcp` is rendered as
+`raw`; Xray renamed the transport and still accepts both, and `tcpSettings`
+stays next to the renamed value. The decoy socket path
+`/dev/shm/lessv-decoy.sock` is rendered as REALITY `dest` and is as frozen as
+the identity header: the server creates its decoy there.
+
+A server must treat the body as opaque: it validates and tests the document
+before swapping, and never merges or rewrites it.
+
+## Renewal contract (server-visible behavior)
 
 - The daily cron (03:17 UTC) renews production certificates whose age
   exceeds 1/3 of their actual lifetime (45-day LE `tlsserver` → renew at
@@ -307,5 +341,5 @@ Every 4xx/5xx body is `{ "detail": <string | object | array> }`:
 - schema failures (`parseJsonBody`) → `422 {"detail":[{"msg":"..."}]}`;
 - protocol mismatch → `400 {"detail":"unsupported protocol N"}`;
 - stale config fetch → `409 {"detail":{"message":"...","desired_hash":"..."}}`;
-- an unreadable certificate artifact → `500 {"detail":"<R2 object path>"}`,
-  never a partial manifest.
+- an unreadable certificate artifact → `500`, naming the certificate id and
+  the missing field, never a partial manifest.
