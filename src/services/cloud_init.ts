@@ -297,12 +297,29 @@ write_files:
       # image loads it first; the pull is the published path.
       if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
           echo "image $IMAGE is not present; pulling exactly that reference"
-          if ! docker pull "$IMAGE"; then
-              echo "cannot pull $IMAGE" >&2
-              echo "for a locally built image: docker load < <file>, then rerun:" >&2
-              echo "  rc-service docker start && docker compose -f /etc/vela/compose.yaml up -d" >&2
-              exit 1
-          fi
+          # The registry is the one network dependency this boot cannot avoid,
+          # and a stalled layer ("failed to copy: ... read tcp ...") is usually
+          # transient: completed layers stay in the daemon's cache, so a retry
+          # only fetches what is missing.
+          attempt=0
+          while :; do
+              if docker pull "$IMAGE"; then
+                  break
+              fi
+              attempt=$((attempt + 1))
+              if [ "$attempt" -ge 3 ]; then
+                  echo "cannot pull $IMAGE after $attempt attempts" >&2
+                  echo "if the log above shows 'failed to copy' or a read timeout, the" >&2
+                  echo "registry path is stalling on this network while the image is public." >&2
+                  echo "Retry the pull on the host, or load it there and rerun:" >&2
+                  echo "  docker pull $IMAGE   # cheap: finished layers are cached" >&2
+                  echo "  docker load < <file>" >&2
+                  echo "  rc-service docker start && docker compose -f /etc/vela/compose.yaml up -d" >&2
+                  exit 1
+              fi
+              echo "pull attempt $attempt failed; retrying in 10s" >&2
+              sleep 10
+          done
       fi
 
       mkdir -p /etc/vela

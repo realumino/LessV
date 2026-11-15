@@ -55,6 +55,9 @@ describe("renderCloudInit", () => {
     // service; the document mounts the hierarchy itself.
     expect(doc).toContain("mount -t cgroup2 cgroup2 /sys/fs/cgroup");
     expect(doc).toContain("docker image inspect");
+    // A stalled layer must not cost the boot: the pull is retried.
+    expect(doc).toContain("pull attempt");
+    expect(doc).toContain("while :; do");
     expect(doc).toContain("docker compose -f /etc/vela/compose.yaml up -d");
   });
 });
