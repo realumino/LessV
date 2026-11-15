@@ -36,7 +36,8 @@ write_files:
   # CP_URL   control-plane base URL, no trailing slash
   # TOKEN    value returned once by POST /api/admin/nodes/<NODE_ID>/token
   # IMAGE    container image, registry and tag included
-  # BINARY   the server binary inside the image (the enrollment entrypoint)
+  # BINARY   the server binary inside the image (the enrollment entrypoint);
+  #          /usr/local/bin/vela-server for the published image
   # Everything below this block is generic and should not be edited.
   # ===========================================================
   - path: /root/vela.env
