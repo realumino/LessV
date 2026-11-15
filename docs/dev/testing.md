@@ -159,12 +159,38 @@ custom-domain DNS record goes with the Worker.
 
 ## Tier D — a node under test
 
-Boot a host with the cloud-config the plane renders (Tier C's plane, or a
-production one if you are testing a release): **Nodes → Add node → Re-generate
-token** returns the document beside the token, with the node id, the
-control-plane URL, the token, the image and the entrypoint already filled in.
-Paste it as the provider's user-data. There is nothing to edit, and the whole
-first boot is the thing under test.
+One command runs the whole tier — node row, staging certificate, a disposable
+host booted with the document the plane renders, the assertions, the report, and
+a teardown that happens even when a check fails:
+
+```sh
+node scripts/accept.mjs --plane https://staging.example.com \
+  --admin-key-file .env.staging --zone example.com \
+  --linode-token-file .plans/KEYS \
+  --image ghcr.io/owner/vela-server:latest \
+  [--proxy socks5://127.0.0.1:7890] [--keep] [--timeout 900]
+```
+
+It creates everything under a per-run name (`acc<suffix>`, certificate
+`*.lvtest-<suffix>.<zone>`), prints `PASS`/`FAIL` per check, writes
+`.plans/accept/<timestamp>/report.json`, and deletes the host, the node row and
+the certificate domain afterwards — `--keep` leaves them and prints the ids.
+Only `test-issue` is ever used; a production certificate is never requested.
+`--proxy` exists because an operator machine may not reach the provider's
+addresses directly; the TLS checks are the only steps that need it.
+
+The checks are: plane health, the zone visible to its DNS token, node + preset,
+staging issuance to `complete`, the certificate assigned in the staging
+environment, the rendered document, the host booting from it, `in_sync` with
+`health: ok`, no render warnings, `nginx_ok: 1`, the certificate in the
+manifest, `:80` answering 301, and `:443` presenting the staging issuer with
+`X25519MLKEM768`.
+
+By hand, if you want to watch it: **Nodes → Add node → Re-generate token**
+returns the document beside the token, with the node id, the control-plane URL,
+the token, the image and the entrypoint already filled in. Paste it as the
+provider's user-data — nothing to edit, and the whole first boot is the thing
+under test.
 
 The node-side procedure (what the image asserts about itself, and the stub-plane
 tier) is [`docs/testing.md` in
@@ -217,8 +243,10 @@ The plane-side rules that make tier D safe:
    works unmodified.
 
 Ephemeral beats permanent. A node can be created, booted, tested and destroyed
-inside one release cycle: the document from the token dialog *is* the
-environment-as-code. A permanent test node is only worth it when it is also the
+inside one release cycle by one command: the document from the token dialog
+*is* the environment-as-code. A cert domain row is unique by name even after it
+is soft-deleted, which is why every run uses its own `lvtest-<suffix>` label —
+a test plane accumulates deleted rows, not live ones. A permanent test node is only worth it when it is also the
 canary that runs every release first. Destroy in this order: the instance, the
 node row, the certificate domain (which takes its certificate and artifact rows
 and the TXT records with it), then the DNS records you added.
