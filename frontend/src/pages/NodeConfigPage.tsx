@@ -25,7 +25,6 @@ import {
   getNodeRuntime,
   putNodeConfig,
   updateNodeGeodata,
-  updateNodeXray,
 } from "../api";
 import Badge from "../components/Badge";
 import ConfirmButton from "../components/ConfirmButton";
@@ -368,12 +367,13 @@ export default function NodeConfigPage() {
 }
 
 /**
- * The node's maintenance controls: update Xray, refresh Geodata.
+ * The node's maintenance control: refresh Geodata.
  *
- * WHY confirmation before the request: both actions replace files on a live
- * host and restart Xray, so the button that records the request is the
+ * WHY confirmation before the request: the action replaces files on a live
+ * host and restarts Xray, so the button that records the request is the
  * operator's sign-off. The node still does the download and its own
- * rollback; the panel only shows what it reported.
+ * rollback; the panel only shows what it reported. Xray itself belongs to
+ * the node image — see the action list for what the node last reported.
  */
 function Maintenance({
   nodeId,
@@ -384,7 +384,6 @@ function Maintenance({
   sync: NodeOutletContext["sync"];
   onChanged: () => void;
 }) {
-  const [version, setVersion] = useState("latest");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -407,29 +406,6 @@ function Maintenance({
         <h2 className="cf-card__title">Maintenance</h2>
       </div>
       <div className="cf-card__body cf-card__body--flush">
-        <div className="cf-maintrow">
-          <div className="cf-maintrow__text">
-            <span className="cf-preset__name">Xray</span>
-            <span className="cf-preset__desc">
-              Installed {sync?.xray_version ?? "—"}
-            </span>
-          </div>
-          <input
-            className="cf-input cf-input--mono"
-            value={version}
-            onChange={(event) => setVersion(event.target.value)}
-            placeholder="latest"
-            aria-label="Xray version"
-          />
-          <ConfirmButton
-            className="cf-btn cf-btn--secondary cf-btn--sm"
-            disabled={busy || version.trim() === ""}
-            message={`Ask ${nodeId} to install Xray ${version.trim()}? The node verifies the vendor SHA-256, tests the new binary against its live config, restarts, and rolls back if it does not stay up.`}
-            onConfirm={() => void run(() => updateNodeXray(nodeId, version.trim()))}
-          >
-            Update Xray
-          </ConfirmButton>
-        </div>
         <div className="cf-maintrow">
           <div className="cf-maintrow__text">
             <span className="cf-preset__name">Geodata</span>
@@ -457,7 +433,7 @@ function Maintenance({
               {actions.map((action) => (
                 <li key={action.action}>
                   <span className="cf-mono">{action.action}</span>
-                  {action.target && action.action === "update_xray" && (
+                  {action.target && (
                     <span className="cf-mono">→ {action.target}</span>
                   )}
                   {action.state === "pending" && (

@@ -177,6 +177,11 @@ export async function touchFromValues(
  * sync view, not a command. An action whose report never arrived stays
  * pending and is re-advertised — the node remembers the last outcome, so a
  * repeated advertisement does not mean a repeated download.
+ *
+ * WHY a pending `update_xray` row would still be advertised: the plane no
+ * longer creates one, but a row written before the action was withdrawn has
+ * to reach the server that is still waiting for it. Keeping the row and the
+ * advertisement is what makes the removal invisible to a legacy server.
  */
 export function pendingActions(
   rows: db.NodeActionRow[],

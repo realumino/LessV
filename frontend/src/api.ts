@@ -230,18 +230,13 @@ export const getNodeRuntime = (nodeId: string) =>
   );
 
 /**
- * WHAT: ask one node to update its Xray binary (or refresh its Geodata).
+ * WHAT: ask one node to refresh its Geodata files.
  *
  * WHY a request and not an immediate change: the node downloads, verifies,
  * and tests the artifact itself; the call only records what the admin
- * confirmed, and the next heartbeat delivers it.
+ * confirmed, and the next heartbeat delivers it. Xray is part of the node
+ * image, so there is no binary update to request.
  */
-export const updateNodeXray = (nodeId: string, version: string) =>
-  request<unknown>(`/nodes/${encodeURIComponent(nodeId)}/xray-update`, {
-    method: "POST",
-    body: JSON.stringify({ version }),
-  });
-
 export const updateNodeGeodata = (nodeId: string) =>
   request<unknown>(`/nodes/${encodeURIComponent(nodeId)}/geodata-update`, {
     method: "POST",

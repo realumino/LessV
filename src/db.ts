@@ -94,7 +94,14 @@ export type NodeInboundRow = {
 /** WHAT: one registered outbound: plane identity plus its current config tag. */
 export type NodeOutboundRow = NodeInboundRow;
 
-/** WHAT: the two maintenance actions a node can be asked to perform. */
+/**
+ * WHAT: the two maintenance actions a node action row can name.
+ *
+ * WHY `update_xray` stays in the list even though nothing requests it: rows
+ * written before the action was withdrawn are still read, and a server may
+ * still report a result for one of them. `update_geodata` is the only
+ * requestable action.
+ */
 export const NODE_ACTIONS = ["update_xray", "update_geodata"] as const;
 export type NodeAction = (typeof NODE_ACTIONS)[number];
 
@@ -423,6 +430,10 @@ export async function listNodeActions(
  *
  * WHY replace: asking twice for the same action means "do it again" — the
  * previous outcome, success or failure, is superseded rather than stacked.
+ *
+ * WHY generic over the action name: the row type still admits `update_xray`
+ * so historical rows stay readable; `update_geodata` is the only action the
+ * plane creates.
  */
 export async function requestNodeAction(
   db: D1Database,

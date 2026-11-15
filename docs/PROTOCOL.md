@@ -105,11 +105,14 @@ Response: `{ "desired_hash": <hex|null>, "actions": [...] }`.
   still `pending`. An action is an object:
 
   ```json
-  {"action": "update_xray", "version": "latest"}
   {"action": "update_geodata"}
-  {"action": "restart_xray"}
   ```
 
+  `update_geodata` is the only action the plane requests. `update_xray` was
+  withdrawn when Xray moved into the node image: a binary update is an image
+  update now, so there is nothing for the plane to ask for. A result for it is
+  still accepted (see `POST /api/node/action`) so a server that finishes a
+  leftover row is not refused.
   A node must answer every action with `POST /api/node/action`, including
   failures. The plane only stops advertising an action when its result
   arrives; a result that never arrives leaves the action pending, so the
@@ -248,21 +251,22 @@ reports `nginx_ok: false`.
 The result of one maintenance action. Idempotent: a result for an action the
 plane no longer tracks is accepted and changes nothing.
 
-Request (`action` is `update_xray` or `update_geodata`):
+Request (`action` is `update_geodata`; `update_xray` is accepted only as a
+result for a row written before the plane stopped requesting it):
 
 ```json
 {
   "protocol": 3,
-  "action": "update_xray",
+  "action": "update_geodata",
   "ok": true,
-  "version": "26.11.9",
+  "version": "20261110230135",
   "error": null
 }
 ```
 
-- `ok: true` finishes the action as `ok` and stores `version` as the node's
-  `xray_version` (for `update_xray`) or `geodata_version` (for
-  `update_geodata`).
+- `ok: true` finishes the action as `ok` and stores `version` as
+  `geodata_version` for `update_geodata`; a legacy `update_xray` result stores
+  `xray_version` the same way.
 - `ok: false` finishes it as `failed` with `error` as the message. The
   installed versions do not move: the node rolls back (or never swaps), so
   the previous value is still the truth.

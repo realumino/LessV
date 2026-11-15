@@ -20,7 +20,6 @@ import {
   parseJsonBody,
   parseJsonObject,
   PresetBuildIn,
-  XrayUpdateIn,
 } from "../models";
 import * as nodeService from "../services/node_service";
 import * as nodeStateService from "../services/node_state_service";
@@ -349,27 +348,15 @@ adminNodes.get("/api/admin/status", async (c) => {
 });
 
 /**
- * WHAT: ask one node to update its Xray binary (`latest` or a release tag).
- *
- * WHY the plane only records the request: the node downloads and verifies
- * the archive from the vendor itself, then reports what it installed. The
- * admin-confirmed act is *this* call; the node never updates on its own.
- * Repeating the call is a retry.
- */
-adminNodes.post("/api/admin/nodes/:node_id/xray-update", async (c) => {
-  const node = await nodeOr404(c.env, c.req.param("node_id"));
-  const payload = await parseJsonBody(c.req.raw, XrayUpdateIn);
-  const at = nodeStateService.now();
-  await db.requestNodeAction(c.env.DB, node.id, "update_xray", payload.version, at);
-  return c.json(await nodeStateService.listActions(c.env.DB, node.id), 201);
-});
-
-/**
  * WHAT: ask one node to refresh its Geodata files now.
  *
  * WHY no body: there is nothing to choose — the node always installs the
  * latest XTLS/Xray-rules-dat release. Nodes also refresh on their own when
  * a config references `geoip:`/`geosite:` and the files are a week old.
+ *
+ * WHY nothing else is requestable: Xray ships inside the node image, so a
+ * binary update is an image update. The action contract still accepts an
+ * `update_xray` *result* so a server answering a leftover row is not refused.
  */
 adminNodes.post("/api/admin/nodes/:node_id/geodata-update", async (c) => {
   const node = await nodeOr404(c.env, c.req.param("node_id"));

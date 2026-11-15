@@ -487,30 +487,15 @@ export type StatsIn = z.infer<typeof StatsIn>;
 /** WHAT: request body for POST /api/node/action (PROTOCOL.md, protocol 3). */
 export const ActionReportIn = z.object({
   protocol: z.int(),
+  // update_xray is accepted only so a legacy server can answer a leftover
+  // pending row; the plane never creates one. The action rows themselves keep
+  // both names so old history stays readable.
   action: z.enum(["update_xray", "update_geodata"]),
   ok: z.boolean(),
   version: z.string().nullable().default(null),
   error: z.string().nullable().default(null),
 });
 export type ActionReportIn = z.infer<typeof ActionReportIn>;
-
-/**
- * WHAT: request body for POST /api/admin/nodes/{node_id}/xray-update.
- *
- * WHY `latest` is a value and not "the plane resolves a version": the node
- * downloads the archive, so it is the only party that can resolve the GitHub
- * release tag and then verify the bytes it actually received.
- */
-export const XrayUpdateIn = z.object({
-  version: z
-    .string()
-    .trim()
-    .refine((value) => value === "latest" || /^v?\d+\.\d+\.\d+$/.test(value), {
-      message: 'version must be "latest" or a release tag like v26.11.9',
-    })
-    .default("latest"),
-});
-export type XrayUpdateIn = z.infer<typeof XrayUpdateIn>;
 
 /** WHAT: one node maintenance action as the sync view returns it. */
 export const NodeActionOut = z.object({

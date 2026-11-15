@@ -4,14 +4,19 @@
  * WHY over HTTP: the action queue is part of the node contract — an admin
  * request must reach the node on its next heartbeat and the reported outcome
  * must leave the fleet view without a pending command. The node-side
- * download itself is covered by the Rust tests; here the fake node plays the
- * node's role exactly as protocol 3 defines it.
+ * download itself is covered by the server's tests; here a fake node plays
+ * the server's role exactly as protocol 3 defines it.
+ *
+ * WHY `update_xray` appears only as a *report*: Xray ships inside the node
+ * image, so the plane stopped requesting binary updates. A deployed 0.6.0
+ * server may still answer a row written before that change, and the endpoint
+ * has to stay idempotent for it.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { NodeActionOut, NodeSyncOut } from "../../src/models";
-import { planeJson, uid } from "../helpers";
+import type { NodeSyncOut } from "../../src/models";
+import { planeFetch, planeJson, uid } from "../helpers";
 
 /** WHAT: one heartbeat response as the endpoint returns it. */
 type HeartbeatOut = { desired_hash: string | null; actions: Array<Record<string, unknown>> };
@@ -58,69 +63,6 @@ describe("node maintenance actions", () => {
     return planeJson("POST", "/api/node/action", { protocol: 3, ...body }, auth());
   }
 
-  it("advertises a requested Xray update until it is reported", async () => {
-    expect((await heartbeat()).actions).toEqual([]);
-
-    const requested = await planeJson("POST", `/api/admin/nodes/${node}/xray-update`, {
-      version: "latest",
-    });
-    expect(requested.status, await requested.clone().text()).toBe(201);
-    const actions = (await requested.json()) as NodeActionOut[];
-    expect(actions).toEqual([
-      expect.objectContaining({
-        action: "update_xray",
-        state: "pending",
-        target: "latest",
-      }),
-    ]);
-
-    expect((await heartbeat()).actions).toEqual([
-      { action: "update_xray", version: "latest" },
-    ]);
-
-    const reported = await report({
-      action: "update_xray",
-      ok: true,
-      version: "v26.11.9",
-    });
-    expect(reported.status, await reported.clone().text()).toBe(200);
-
-    // The node's next heartbeat repeats the fact; the plane adopts it.
-    const beat = await heartbeat({ xray_version: "v26.11.9" });
-    expect(beat.actions).toEqual([]);
-    const state = await sync();
-    expect(state.xray_version).toBe("v26.11.9");
-    expect(state.actions).toEqual([
-      expect.objectContaining({ action: "update_xray", state: "ok", message: null }),
-    ]);
-  });
-
-  it("keeps a failed update's version and surfaces its message", async () => {
-    await planeJson("POST", `/api/admin/nodes/${node}/xray-update`, {
-      version: "v26.11.9",
-    });
-    await heartbeat({ xray_version: "v25.1.1" });
-
-    const reported = await report({
-      action: "update_xray",
-      ok: false,
-      error: "sha256 mismatch",
-    });
-    expect(reported.status).toBe(200);
-
-    const state = await sync();
-    expect(state.xray_version).toBe("v25.1.1");
-    expect(state.actions).toEqual([
-      expect.objectContaining({
-        action: "update_xray",
-        state: "failed",
-        message: "sha256 mismatch",
-      }),
-    ]);
-    // A finished action is history, not a command.
-    expect((await heartbeat()).actions).toEqual([]);
-  });
-
   it("adopts the versions a heartbeat reports", async () => {
     await heartbeat({
       agent_version: "0.6.0",
@@ -139,7 +81,7 @@ describe("node maintenance actions", () => {
     expect(again.geodata_version).toBe("20261110230135");
   });
 
-  it("runs the same lifecycle for a geodata refresh", async () => {
+  it("runs the lifecycle of a geodata refresh", async () => {
     const requested = await planeJson(
       "POST",
       `/api/admin/nodes/${node}/geodata-update`,
@@ -159,34 +101,75 @@ describe("node maintenance actions", () => {
     expect((await heartbeat()).actions).toEqual([]);
   });
 
-  it("replaces a previous request instead of stacking a second one", async () => {
-    await planeJson("POST", `/api/admin/nodes/${node}/xray-update`, {
-      version: "v26.11.9",
-    });
-    await planeJson("POST", `/api/admin/nodes/${node}/xray-update`, {
-      version: "latest",
-    });
+  it("keeps a failed geodata refresh's version and surfaces its message", async () => {
+    await planeJson("POST", `/api/admin/nodes/${node}/geodata-update`);
+    await heartbeat({ geodata_version: "20261110230135", xray_version: "26.11.9" });
 
-    expect((await heartbeat()).actions).toEqual([
-      { action: "update_xray", version: "latest" },
-    ]);
+    const reported = await report({
+      action: "update_geodata",
+      ok: false,
+      error: "sha256 mismatch",
+    });
+    expect(reported.status).toBe(200);
+
     const state = await sync();
-    expect(state.actions).toHaveLength(1);
-    expect(state.actions[0]).toMatchObject({ state: "pending", target: "latest" });
+    expect(state.geodata_version).toBe("20261110230135");
+    expect(state.xray_version).toBe("26.11.9");
+    expect(state.actions).toEqual([
+      expect.objectContaining({
+        action: "update_geodata",
+        state: "failed",
+        message: "sha256 mismatch",
+      }),
+    ]);
+    // A finished action is history, not a command.
+    expect((await heartbeat()).actions).toEqual([]);
   });
 
-  it("rejects a malformed version and an unknown node", async () => {
-    const bad = await planeJson("POST", `/api/admin/nodes/${node}/xray-update`, {
-      version: "nightly",
-    });
-    expect(bad.status).toBe(422);
+  it("replaces a previous request instead of stacking a second one", async () => {
+    await planeJson("POST", `/api/admin/nodes/${node}/geodata-update`);
+    await planeJson("POST", `/api/admin/nodes/${node}/geodata-update`);
 
-    const missing = await planeJson(
+    expect((await heartbeat()).actions).toEqual([{ action: "update_geodata" }]);
+    const state = await sync();
+    expect(state.actions).toHaveLength(1);
+    expect(state.actions[0]).toMatchObject({ state: "pending" });
+  });
+
+  it("accepts an update_xray result for an action the plane no longer tracks", async () => {
+    const before = await sync();
+    expect(before.actions).toEqual([]);
+
+    // Exactly what a 0.6.0 server sends when it finishes a legacy row.
+    const reported = await report({
+      action: "update_xray",
+      ok: true,
+      version: "v26.11.9",
+    });
+    expect(reported.status, await reported.clone().text()).toBe(200);
+
+    // The report is not refused and invents no row.
+    const after = await sync();
+    expect(after.actions).toEqual([]);
+    expect(after.xray_version).toBe("v26.11.9");
+    expect((await heartbeat()).actions).toEqual([]);
+  });
+
+  it("no longer offers a request endpoint for binary updates", async () => {
+    const response = await planeJson(
       "POST",
-      "/api/admin/nodes/ghost/xray-update",
+      `/api/admin/nodes/${node}/xray-update`,
       { version: "latest" },
     );
-    expect(missing.status).toBe(404);
+    expect(response.status).toBe(404);
+
+    // The admin key gate runs before routing: an unauthenticated call is 401,
+    // never a 404 that would confirm the route is gone.
+    const anonymous = await planeFetch(
+      "/api/admin/nodes/some-node/xray-update",
+      { method: "POST", headers: { Authorization: "" } },
+    );
+    expect(anonymous.status).toBe(401);
   });
 
   it("401s an action report with no node credentials", async () => {
