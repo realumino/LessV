@@ -82,13 +82,18 @@ function parseArgs(argv) {
   return values;
 }
 
-/** WHAT: run one command from the repository root; return its stdout. */
+/**
+ * WHAT: run one command from the repository root; return its stdout.
+ *
+ * WHY no shell: a Windows shell would re-split a SQL string before wrangler
+ * sees it, and the `*` would glob. The wrangler entry point is executed by
+ * this Node process instead, so every argument arrives verbatim.
+ */
 function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: REPO_ROOT,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
-    shell: process.platform === "win32",
   });
   if (result.status !== 0) {
     const reason = (result.stderr ?? "").trim().split("\n").slice(-3).join(" ");
@@ -97,8 +102,10 @@ function run(command, args) {
   return result.stdout ?? "";
 }
 
+const WRANGLER_BIN = join(REPO_ROOT, "node_modules", "wrangler", "bin", "wrangler.js");
+
 function wrangler(args) {
-  return run(process.platform === "win32" ? "npx.cmd" : "npx", ["wrangler", ...args]);
+  return run(process.execPath, [WRANGLER_BIN, ...args]);
 }
 
 /** WHAT: quote one SQL value: NULL, an integer, or a single-quoted string. */
@@ -112,10 +119,15 @@ function sqlValue(value, column) {
 }
 
 /** WHAT: the old certificate rows, read-only, from the source database. */
-function readCertificates(database, remote) {
+function readCertificates(database, remote, scratch) {
+  void scratch;
   const args = ["d1", "execute", database, "--json", "--command", "SELECT * FROM certificates"];
   if (remote) args.push("--remote");
-  const parsed = JSON.parse(wrangler(args));
+  // Wrangler prints progress lines before the JSON body.
+  const raw = wrangler(args);
+  const start = raw.indexOf("[");
+  if (start < 0) fail("could not read certificates: wrangler printed no JSON");
+  const parsed = JSON.parse(raw.slice(start));
   const rows = Array.isArray(parsed) ? parsed[0]?.results : undefined;
   if (!Array.isArray(rows)) {
     fail("could not read certificates: wrangler returned no result set");
@@ -127,7 +139,15 @@ function readCertificates(database, remote) {
 function readObject(bucket, prefix, name, scratch) {
   const target = join(scratch, name);
   try {
-    wrangler(["r2", "object", "get", `${bucket}/${prefix}/${name}`, "--file", target]);
+    wrangler([
+      "r2",
+      "object",
+      "get",
+      `${bucket}/${prefix}/${name}`,
+      "--file",
+      target,
+      "--remote",
+    ]);
   } catch (error) {
     console.warn(`  ${name}: ${error instanceof Error ? error.message : String(error)}`);
     return null;
@@ -147,10 +167,16 @@ for (const required of ["bucket", "database", "out"]) {
   if (args[required] === undefined) fail(`missing --${required}`);
 }
 
-const rows = readCertificates(args.database, args.remote);
+const scratch = mkdtempSync(join(tmpdir(), "vela-artifacts-"));
+let rows;
+try {
+  rows = readCertificates(args.database, args.remote, scratch);
+} catch (error) {
+  rmSync(scratch, { recursive: true, force: true });
+  fail(error instanceof Error ? error.message : String(error));
+}
 console.log(`read ${rows.length} certificate row(s) from ${args.database}`);
 
-const scratch = mkdtempSync(join(tmpdir(), "vela-artifacts-"));
 const certificateStatements = [];
 const artifactStatements = [];
 const summary = [];
