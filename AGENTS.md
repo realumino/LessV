@@ -7,16 +7,40 @@ wins.
 ## What this repo is
 
 Self-hosted Xray management plane on Cloudflare Workers (Hono + D1 +
-Workflows) with a React admin SPA served by the same Worker. The node-side
-software, `vela-server`, is a container image built in
-[LessV-Node](https://github.com/realumino/LessV-Node); it is not in this tree.
-Single deployable unit.
+Workflows) with a React admin SPA served by the same Worker. Single
+deployable unit.
 
 Entry docs, in order: `README.md` (operator manual: Workers, Access, nodes),
 `docs/dev/architecture.md` (system design and invariants), `docs/PROTOCOL.md`
 (server↔plane contract), `docs/OPERATIONS.md` (certificates/nginx/ops). Read
 the one covering the area you are changing, and keep every doc true in the
 same commit as the change.
+
+## Related repositories
+
+The project is two public repositories and neither is complete without the
+other:
+
+- **LessV** (this tree) — the control plane: Worker, admin SPA, config
+  rendering, certificate issuance, node provisioning. It owns the pull
+  contract (`docs/PROTOCOL.md`, `PROTOCOL_VERSION` in `src/routers/node.ts`)
+  and every constant the node must obey (decoy socket path, nginx config
+  defaults, certificate environments, identity header).
+- **[LessV-Node](https://github.com/realumino/LessV-Node)** — the node side:
+  the `vela-server` crate and the `ghcr.io/realumino/vela-server` image (Xray,
+  nginx decoy, s6-overlay). It implements that contract and does not own it;
+  no node or image code lives in this tree.
+
+Cross-repo rules:
+
+- A wire change is one change set spanning both trees: this repo's
+  `docs/PROTOCOL.md`, `PROTOCOL_VERSION` and
+  `tests/pure/protocol_freeze.test.ts`, plus the node's `PROTOCOL_VERSION`
+  (`src/http.rs`) and a `Cargo.toml` version bump. One commit per repository,
+  same intent; a protocol bump that lands on one side only is a broken
+  release.
+- This tree never builds, tests, or deploys the node image, and the node tree
+  never builds or deploys this plane.
 
 ## Repository layout (tracked, public)
 
@@ -72,8 +96,8 @@ The remote is public. The tracked tree carries current truth only:
 - Comments state invariants and reasons, self-contained — no references to
   plans, sessions, or files that do not exist in the tree.
 - `docs/PROTOCOL.md` and `PROTOCOL_VERSION` (`src/routers/node.ts`) change
-  together in one commit, together with the crate version in LessV-Node; the
-  protocol version is pinned by `tests/pure/protocol_freeze.test.ts`.
+  only inside a cross-repo protocol bump (see Related repositories); the
+  number is pinned by `tests/pure/protocol_freeze.test.ts`.
 
 ## Verification
 
@@ -93,9 +117,8 @@ npm --prefix frontend run build
   limit: 5 production certificates per week per domain).
 - Deploys go through `npm run deploy` only — never bare `wrangler deploy`
   (the prebuild swaps `frontend/dist` for stubs).
-- The server image is built and tested in LessV-Node; this tree never builds
-  it. Scripts stay cross-platform (Node stdlib, no shell assumptions) except
-  the POSIX shell they render into cloud-init.
+- Scripts stay cross-platform (Node stdlib, no shell assumptions) except the
+  POSIX shell they render into cloud-init.
 
 ## Standing invariants
 
