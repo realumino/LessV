@@ -64,7 +64,7 @@ put Access in front of `/api/health`, `/api/node/*`, or `/sub/*`.
 ## Server release
 
 The node server is built, tested and published in
-[LessV-Node](https://github.com/realumino/LessV-Node): the crate, the
+[LessV-Node](https://github.com/realumino/vela-server): the crate, the
 `Dockerfile`, the compose file and the image workflow all live there, and its
 `docs/` describe the release procedure. This repository ships no server
 artifact and no installer.

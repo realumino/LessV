@@ -2,7 +2,7 @@
 
 Vela is a self-hosted traffic-forwarding management plane on Cloudflare Workers. This file is the operator manual in Simplified Chinese, English, Persian, Russian, 조선어, and Türkmençe.
 
-Vela 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare Workers 上，管理端是挂在 `/admin` 的 React SPA，节点端是 [LessV-Node](https://github.com/realumino/LessV-Node) 提供的 `vela-server` 容器镜像。节点只从面板拉取配置与证书，面板不主动连接节点。
+Vela 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare Workers 上，管理端是挂在 `/admin` 的 React SPA，节点端是 [LessV-Node](https://github.com/realumino/vela-server) 提供的 `vela-server` 容器镜像。节点只从面板拉取配置与证书，面板不主动连接节点。
 
 本文件是面向部署与运维的**使用手册**，包含简体中文、English、فارسی、Русский、조선어、Türkmençe 六个版本。开发者文档在 [`docs/dev/`](docs/dev/README.md)：架构、开发、测试、发布。
 
@@ -456,7 +456,7 @@ curl -I https://node1.example.com    # 200，证书有效（不用 -k）
 Vela is a self-hosted traffic-forwarding management plane. The control plane
 runs on Cloudflare Workers; the admin SPA is served under `/admin`; each node
 runs `vela-server`, a container image from
-[LessV-Node](https://github.com/realumino/LessV-Node). Nodes pull their desired
+[LessV-Node](https://github.com/realumino/vela-server). Nodes pull their desired
 configuration and certificates from the plane. The plane never connects to a
 node.
 
@@ -1078,7 +1078,7 @@ reissued; private keys cannot.
 Vela یک صفحهٔ مدیریت خودمیزبان برای سرویس هدایت ترافیک است. صفحهٔ کنترل
 روی Cloudflare Workers اجرا می‌شود؛ پنل مدیریت یک SPA React زیر `/admin`
 است؛ هر گره تصویر `vela-server` را که در
-[LessV-Node](https://github.com/realumino/LessV-Node) نگهداری می‌شود اجرا
+[LessV-Node](https://github.com/realumino/vela-server) نگهداری می‌شود اجرا
 می‌کند. گره‌ها پیکربندی و گواهی‌های موردنظر خود را از صفحهٔ کنترل می‌کشند.
 صفحهٔ کنترل هرگز به گره متصل نمی‌شود.
 
@@ -1686,7 +1686,7 @@ point-in-time restore در داشبورد). D1 هم وضعیت و هم محصو�
 Vela — саморазмещаемая панель управления сервисом пересылки трафика.
 Панель управления работает на Cloudflare Workers; административный SPA
 отдаётся по `/admin`; на каждом узле запущен образ `vela-server` из
-[LessV-Node](https://github.com/realumino/LessV-Node). Узлы сами забирают
+[LessV-Node](https://github.com/realumino/vela-server). Узлы сами забирают
 желаемую конфигурацию и сертификаты с панели. Панель никогда не подключается
 к узлу.
 
@@ -2311,7 +2311,7 @@ REALITY/сертификатов/ACME не расшифровать. Серти�
 
 Vela는 흐름전달봉사를 자체적으로 운영하기 위한 관리평면입니다. 관리평면은 Cloudflare
 Workers에서 실행되고, 관리용 SPA는 `/admin` 아래에서 봉사되며, 각 마디에서는
-[LessV-Node](https://github.com/realumino/LessV-Node)에서 관리하는 `vela-server`
+[LessV-Node](https://github.com/realumino/vela-server)에서 관리하는 `vela-server`
 홀씨그림이 돕니다. 마디는 원하는 설정과 증명서를 관리평면에서 당겨옵니다.
 관리평면은 마디에 먼저 련결하지 않습니다.
 
@@ -2920,7 +2920,7 @@ point-in-time restore)을 복사하십시오. D1에는 상태와 증명서 산�
 Vela — Cloudflare Workers-de işleýän, özüňiz dolandyrýan trafik geçiriji
 dolandyryş tekizligi. Dolandyryş tekizligi Cloudflare Workers-de işleýär;
 dolandyryş SPA-si `/admin` astynda berilýär; her düwünde
-[LessV-Node](https://github.com/realumino/LessV-Node)-da saklanýan
+[LessV-Node](https://github.com/realumino/vela-server)-da saklanýan
 `vela-server` konteýner obrazy işleýär. Düwünler islenýän konfigurasiýasyny we
 şahadatnamalaryny panelden çekýärler. Panel düwüne hiç wagt özi birikmeýär.
 

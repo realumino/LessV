@@ -228,7 +228,7 @@ Keep rendered user data and inventories out of the tree.
 ## Server delivery
 
 The server is a container image built and tested in
-[LessV-Node](https://github.com/realumino/LessV-Node). It carries the
+[LessV-Node](https://github.com/realumino/vela-server). It carries the
 reconciler, Xray, nginx and the s6 supervisor; the host carries Docker, the
 firewall and the two published ports.
 

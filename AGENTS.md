@@ -26,7 +26,7 @@ other:
   contract (`docs/PROTOCOL.md`, `PROTOCOL_VERSION` in `src/routers/node.ts`)
   and every constant the node must obey (decoy socket path, nginx config
   defaults, certificate environments, identity header).
-- **[LessV-Node](https://github.com/realumino/LessV-Node)** — the node side:
+- **[LessV-Node](https://github.com/realumino/vela-server)** — the node side:
   the `vela-server` crate and the `ghcr.io/realumino/vela-server` image (Xray,
   nginx decoy, s6-overlay). It implements that contract and does not own it;
   no node or image code lives in this tree.

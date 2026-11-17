@@ -233,7 +233,7 @@ is enough; a staging test never flips the production pointer.
 ## The server
 
 The node-side software is a separate repository
-([LessV-Node](https://github.com/realumino/LessV-Node)); what this tree owns is
+([LessV-Node](https://github.com/realumino/vela-server)); what this tree owns is
 the contract in [`docs/PROTOCOL.md`](../PROTOCOL.md). A server satisfies the
 plane if it:
 

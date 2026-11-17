@@ -8,7 +8,7 @@ stays in [`development.md`](development.md#verification); this page is about
 *environments*. It deliberately does not restate those commands.
 
 Not here: how the node and its image are tested — see
-`docs/testing.md` in [LessV-Node](https://github.com/realumino/LessV-Node).
+`docs/testing.md` in [LessV-Node](https://github.com/realumino/vela-server).
 The contract between the two (protocol number, endpoints, socket path,
 certificate environments) lives in [`../PROTOCOL.md`](../PROTOCOL.md) and in
 `src/routers/node.ts`; a second copy here would drift.
@@ -186,7 +186,7 @@ under test.
 
 The node-side procedure (what the image asserts about itself, and the stub-plane
 tier) is [`docs/testing.md` in
-LessV-Node](https://github.com/realumino/LessV-Node/blob/main/docs/testing.md).
+LessV-Node](https://github.com/realumino/vela-server/blob/main/docs/testing.md).
 What the plane side checks after a boot, in order:
 
 ```sh

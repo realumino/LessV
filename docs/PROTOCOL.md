@@ -13,7 +13,7 @@ built before the rename sends `X-Lessv-Node`; the plane still reads it, so a
 plane upgrade does not lock an older build out.
 
 The server is maintained in
-[LessV-Node](https://github.com/realumino/LessV-Node); the plane's code is
+[LessV-Node](https://github.com/realumino/vela-server); the plane's code is
 this repository. Changes to the number are made in three places at once: this
 file, `PROTOCOL_VERSION` in `src/routers/node.ts`, and the crate version in
 the server repository. A protocol-2 server is rejected with `400` and keeps
