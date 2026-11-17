@@ -532,6 +532,41 @@ export const NodeActionOut = z.object({
 });
 export type NodeActionOut = z.infer<typeof NodeActionOut>;
 
+/** WHAT: one admin key as the list returns it — never the token, never the
+ * hash. */
+export const AdminKeyOut = z.object({
+  id: z.string(),
+  label: z.string(),
+  created_at: z.int(),
+  disabled_at: z.int().nullable(),
+});
+export type AdminKeyOut = z.infer<typeof AdminKeyOut>;
+
+/**
+ * WHAT: request body for POST /api/admin/keys.
+ *
+ * WHY the label has no uniqueness rule: it is a display name for the
+ * operator's own bookkeeping, not an identity — the id is.
+ */
+export const AdminKeyCreateIn = z.object({
+  label: z.string().min(1).max(100),
+});
+export type AdminKeyCreateIn = z.infer<typeof AdminKeyCreateIn>;
+
+/**
+ * WHAT: response for POST /api/admin/keys.
+ *
+ * WHY the plaintext rides here and nowhere else: it is shown once at mint
+ * time; afterwards only its hash exists in the database.
+ */
+export const AdminKeyCreatedOut = z.object({
+  id: z.string(),
+  label: z.string(),
+  created_at: z.int(),
+  token: z.string(),
+});
+export type AdminKeyCreatedOut = z.infer<typeof AdminKeyCreatedOut>;
+
 /** WHAT: response for GET /api/admin/nodes/{node_id}/presets. */
 /**
  * WHAT: one preset input.

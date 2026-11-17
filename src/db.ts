@@ -120,6 +120,17 @@ export type NodeActionRow = {
   finished_at: number | null;
 };
 
+/** WHAT: one admin key row, as stored. The plaintext never lands here —
+ * `key_hash` is the SHA-256 hex digest of a 32-byte token, minted once. */
+export type AdminKeyRow = {
+  id: string;
+  label: string;
+  key_hash: string;
+  created_at: number;
+  /** Set when the key was revoked; a disabled key authenticates nothing. */
+  disabled_at: number | null;
+};
+
 /** WHAT: one link variant row with its overrides decoded. */
 export type InboundLinkRow = {
   node_id: string;
@@ -403,6 +414,95 @@ export async function touchNode(
       protocol,
       nodeId,
     ],
+  );
+}
+
+/** WHAT: return every admin key, creation-ordered. */
+export async function listAdminKeys(db: D1Database): Promise<AdminKeyRow[]> {
+  const rows = await selectRows(
+    db,
+    "SELECT * FROM admin_keys ORDER BY created_at, id",
+  );
+  return rows as unknown as AdminKeyRow[];
+}
+
+/**
+ * WHAT: return one admin key by the hash of the presented token, or null.
+ *
+ * WHY lookup by hash and not by id: the middleware sees only a bearer
+ * value; the hash is its identity. The UNIQUE index makes this a primary
+ * lookup, and a disabled row is returned as data — the caller decides what
+ * a disabled key answers (the same 401 as an unknown one, nothing more).
+ */
+export async function getAdminKeyByHash(
+  db: D1Database,
+  keyHash: string,
+): Promise<AdminKeyRow | null> {
+  const rows = await selectRows(
+    db,
+    "SELECT * FROM admin_keys WHERE key_hash = ?",
+    [keyHash],
+  );
+  return rows.length > 0 ? (rows[0] as unknown as AdminKeyRow) : null;
+}
+
+/** WHAT: fetch one admin key by id, or null when missing. */
+export async function getAdminKey(
+  db: D1Database,
+  id: string,
+): Promise<AdminKeyRow | null> {
+  const rows = await selectRows(db, "SELECT * FROM admin_keys WHERE id = ?", [
+    id,
+  ]);
+  return rows.length > 0 ? (rows[0] as unknown as AdminKeyRow) : null;
+}
+
+/**
+ * WHAT: insert one admin key (id, label, hash, created_at complete).
+ *
+ * WHY the whole row and not fragments: minting is one act — the service
+ * generates the token, its hash, and the identity together, and the SQL
+ * stores what that act produced. A duplicate hash (the same token minted
+ * twice) fails on the UNIQUE index instead of silently aliasing.
+ */
+export async function insertAdminKey(
+  db: D1Database,
+  key: {
+    id: string;
+    label: string;
+    key_hash: string;
+    created_at: number;
+  },
+): Promise<void> {
+  await executeWrite(
+    db,
+    `
+        INSERT INTO admin_keys (id, label, key_hash, created_at, disabled_at)
+        VALUES (?, ?, ?, ?, NULL)
+        `,
+    [key.id, key.label, key.key_hash, key.created_at],
+  );
+}
+
+/**
+ * WHAT: revoke one admin key by stamping `disabled_at`.
+ *
+ * WHY COALESCE and not overwrite: disabling is a fact about the first
+ * moment access ended; a second disable must not rewrite history.
+ */
+export async function disableAdminKey(
+  db: D1Database,
+  id: string,
+  disabledAt: number,
+): Promise<void> {
+  await executeWrite(
+    db,
+    `
+        UPDATE admin_keys
+        SET disabled_at = COALESCE(disabled_at, ?)
+        WHERE id = ?
+        `,
+    [disabledAt, id],
   );
 }
 

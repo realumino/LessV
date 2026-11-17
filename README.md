@@ -93,6 +93,9 @@ chmod 600 .env.production
 ```
 
 - `ADMIN_KEY`：所有 `/api/admin/*` 请求的 Bearer key，也用于 SPA 登录。它等价 root，泄漏即失守。
+- 更多管理员身份：在面板（用户页 → Admin keys）铸造与停用 key，或用命令行
+  `node scripts/admin_key.mjs create --label <名称>`。该脚本是第一个管理员的创建途径，也是全部 key
+  被停用后的找回途径。上面的 `ADMIN_KEY` secret 本版本仍然有效（作应急后门），下一版本移除。
 - `KEY_SECRET`：AES-256-GCM 密钥，密封数据库里的 REALITY 私钥、证书私钥和 ACME 账户私钥。**不可轮换**；换掉它，历史密钥全部不可读。生成一次并离线备份。
 - 本地开发用 `.dev.vars`，生产用 `.env.production`，两者不要复用同一组值。
 
@@ -136,7 +139,9 @@ npm run deploy -- --secrets-file .env.production
 
 - 代码回滚：`npx wrangler rollback`。它不会回滚 D1；migrations 必须保持向前兼容。
 - 后续修改 secret：`npx wrangler secret put <NAME>`。
-- `KEY_SECRET` 不轮换。`ADMIN_KEY` 可以换，换后所有浏览器与脚本要重新登录/配置。
+- `KEY_SECRET` 不轮换。增删管理员在面板铸造/停用 key（或用
+  `node scripts/admin_key.mjs`）即可——不需要部署，也不需要逐个更新浏览器与脚本。
+  `ADMIN_KEY` secret 本版本仍作应急后门保留，下一版本移除。
 - 本地检查构建：`npm run deploy -- --dry-run`（不碰云）。
 
 ### 4. 配置 Cloudflare Access（推荐）
@@ -554,6 +559,12 @@ chmod 600 .env.production
 
 - `ADMIN_KEY` is the Bearer key for every `/api/admin/*` request and the SPA
   login. It is root-equivalent: leaking it loses the plane.
+- More admin identities: mint and revoke keys in the panel (Users → Admin
+  keys), or from the command line — `node scripts/admin_key.mjs create
+  --label <name>`. The script is the first-admin path (nothing works before
+  the first key exists) and the recovery path (every key disabled). The
+  `ADMIN_KEY` secret above stays accepted this release as break-glass; the
+  next release removes it.
 - `KEY_SECRET` is the AES-256-GCM key that seals stored REALITY private keys,
   certificate private keys, and ACME account keys. **It cannot be rotated**:
   rotating it makes every stored key unreadable. Generate once and back it up
@@ -611,8 +622,10 @@ npm run deploy -- --secrets-file .env.production
 - Code rollback: `npx wrangler rollback`. It does not roll back D1; migrations
   must remain forward-compatible.
 - Change a secret later: `npx wrangler secret put <NAME>`.
-- `KEY_SECRET` is not rotated. `ADMIN_KEY` can be rotated; every browser and
-  script must then be updated.
+- `KEY_SECRET` is not rotated. Adding or removing an administrator is a key
+  mint or disable in the panel (or `node scripts/admin_key.mjs`) — no deploy,
+  no touching every browser and script. The `ADMIN_KEY` secret stays as
+  break-glass this release; the next release removes it.
 - Local build check: `npm run deploy -- --dry-run` (no cloud).
 
 ### 4. Cloudflare Access (recommended)
@@ -1175,6 +1188,11 @@ chmod 600 .env.production
 
 - `ADMIN_KEY` کلید Bearer برای همهٔ درخواست‌های `/api/admin/*` و ورود SPA
   است. معادل root است؛ افشای آن یعنی از دست رفتن پنل.
+- شناسه‌های مدیریتی بیشتر: کلیدها را در پنل (صفحهٔ Users → Admin keys) صادر
+  و باطل کنید، یا از خط فرمان — `node scripts/admin_key.mjs create
+  --label <name>`. این اسکریپت راه اولین مدیر و راه بازیابی پس از باطل شدن
+  همهٔ کلیدهاست. راز `ADMIN_KEY` بالا در این نسخه به‌عنوان راه گریز پذیرفته
+  می‌شود؛ نسخهٔ بعد آن را حذف می‌کند.
 - `KEY_SECRET` کلید AES-256-GCM است که کلیدهای خصوصی REALITY، گواهی‌ها و
   حساب ACME را در پایگاه داده مهر می‌کند. **قابل چرخش نیست**: با چرخش آن همهٔ
   کلیدهای ذخیره‌شده ناخوانا می‌شوند. یک‌بار تولید و به‌صورت آفلاین پشتیبان
@@ -1232,8 +1250,10 @@ npm run deploy -- --secrets-file .env.production
 - بازگشت کد: `npx wrangler rollback`. D1 را برنمی‌گرداند؛ migrationها باید
   سازگار با نسخهٔ قبل بمانند.
 - تغییر راز بعدی: `npx wrangler secret put <NAME>`.
-- `KEY_SECRET` چرخانده نمی‌شود. `ADMIN_KEY` را می‌توان چرخاند؛ پس از آن همهٔ
-  مرورگرها و اسکریپت‌ها باید به‌روزرسانی شوند.
+- `KEY_SECRET` چرخانده نمی‌شود. افزودن یا حذف یک مدیر، صدور یا باطل کردن یک
+  کلید در پنل است (یا `node scripts/admin_key.mjs`) — نه استقرار، نه به‌روزرسانی
+  تک‌تک مرورگرها و اسکریپت‌ها. راز `ADMIN_KEY` در این نسخه راه گریز می‌ماند؛
+  نسخهٔ بعد آن را حذف می‌کند.
 - بررسی ساخت محلی: `npm run deploy -- --dry-run` (بدون ابر).
 
 ### ۴. Cloudflare Access (توصیه‌شده)
@@ -1784,6 +1804,12 @@ chmod 600 .env.production
 
 - `ADMIN_KEY` — Bearer-ключ для всех запросов `/api/admin/*` и входа в SPA.
   Он эквивалентен root: утечка означает потерю панели.
+- Несколько админ-личностей: ключи выпускаются и отзываются в панели
+  (Users → Admin keys) или из командной строки — `node
+  scripts/admin_key.mjs create --label <name>`. Скрипт — путь первого
+  администратора и путь восстановления, когда отозваны все ключи. Секрет
+  `ADMIN_KEY` выше в этом релизе принимается как аварийный; следующий
+  релиз его убирает.
 - `KEY_SECRET` — ключ AES-256-GCM, которым запечатаны приватные ключи
   REALITY, сертификатов и аккаунта ACME. **Его нельзя менять**: после смены
   все сохранённые ключи станут нечитаемыми. Сгенерируйте один раз и храните
@@ -1841,8 +1867,10 @@ npm run deploy -- --secrets-file .env.production
 - Откат кода: `npx wrangler rollback`. D1 он не откатывает; миграции должны
   оставаться совместимыми с предыдущей версией.
 - Смена секрета позже: `npx wrangler secret put <NAME>`.
-- `KEY_SECRET` не меняется. `ADMIN_KEY` можно сменить; после этого все
-  браузеры и скрипты нужно обновить.
+- `KEY_SECRET` не меняется. Добавить или убрать администратора — это выпуск
+  или отзыв ключа в панели (или `node scripts/admin_key.mjs`) — без деплоя
+  и без обхода всех браузеров и скриптов. Секрет `ADMIN_KEY` в этом релизе
+  остаётся аварийным; следующий релиз его убирает.
 - Локальная проверка сборки: `npm run deploy -- --dry-run` (без облака).
 
 ### 4. Cloudflare Access (рекомендуется)
@@ -2408,6 +2436,11 @@ chmod 600 .env.production
 
 - `ADMIN_KEY`는 모든 `/api/admin/*` 요청과 SPA 등록에 쓰이는 Bearer
   열쇠입니다. root와 같은 힘을 가지므로 새여나가면 관리평면을 잃습니다.
+- 더 많은 관리자 신분: 열쇠는 관리화면(Users → Admin keys)에서 발행하고
+  페기하거나 명령행에서 `node scripts/admin_key.mjs create --label <name>`으로
+  합니다. 이 Script는 첫 관리자의 발행경로이며 모든 열쇠가 페기된 뒤의
+  회복경로이기도 합니다. 우의 `ADMIN_KEY` 비밀열쇠는 이 판올림에서 비상통로로
+  남겨집니다; 다음 판올림에서 제거됩니다.
 - `KEY_SECRET`은 자료기지에 있는 REALITY 비밀열쇠, 증명서 비밀열쇠,
   ACME 계정 비밀열쇠를 봉하는 AES-256-GCM 열쇠입니다. **돌릴수 없습니다**.
   돌리면 이미 저장된 모든 열쇠를 읽을수 없습니다. 한번만 만들고 오프라인
@@ -2464,8 +2497,11 @@ npm run deploy -- --secrets-file .env.production
 - 코드 되돌리기: `npx wrangler rollback`. D1은 되돌리지 않습니다. migration은
   앞판과 호환되여야 합니다.
 - 나중에 비밀열쇠 변경: `npx wrangler secret put <NAME>`.
-- `KEY_SECRET`은 돌리지 않습니다. `ADMIN_KEY`는 돌릴수 있으며, 돌린 뒤에는
-  모든 열람기와 Script를 고쳐야 합니다.
+- `KEY_SECRET`은 돌리지 않습니다. 관리자를 더하거나 덜는것은 관리화면에서
+  열쇠를 발행하거나 페기하는 일입니다(`node scripts/admin_key.mjs`도
+  같습니다) — 전개도, 모든 열람기와 Script를 고치는 일도 없습니다.
+  `ADMIN_KEY` 비밀열쇠는 이 판올림에서 비상통로로 남습니다; 다음 판올림에서
+  제거됩니다.
 - 현지 건설검사: `npm run deploy -- --dry-run` (구름을 건드리지 않음).
 
 ### 4. Cloudflare Access (권장)
@@ -3017,6 +3053,11 @@ chmod 600 .env.production
 
 - `ADMIN_KEY` — ähli `/api/admin/*` haýyşlary we SPA girişi üçin Bearer
   açar. Ol root bilen deňdir: syrsa, paneli ýitirýärsiňiz.
+- Goşmaça admin şahsyýetleri: açaralary panelde (Users → Admin keys) dörediň
+  we ýatyryň, ýa-da buýruk setirinden — `node scripts/admin_key.mjs create
+  --label <name>`. Skript birinji adminiň ýoly we ähli açaralar ýatyrylandan
+  soňky dikeldiş ýolydyr. Ýokardaky `ADMIN_KEY` gizlini bu goberlişde
+  aragatlyk ýoly hökmünde kabul edilýär; indiki goberliş ony aýyrýar.
 - `KEY_SECRET` — saklanýan REALITY açaralaryny, şahadatnama açaralaryny we
   ACME hasap açaralaryny möhürleýän AES-256-GCM açary. **Ony çalşyp
   bolmaýar**: çalşyrsaňyz, ähli saklanýan açaralar okalmaz bolýar. Bir gezek
@@ -3074,8 +3115,11 @@ npm run deploy -- --secrets-file .env.production
 - Kody yzyna gaýtarmak: `npx wrangler rollback`. Ol D1-i yzyna gaýtarmaýar;
   migrasiýalar öňki wersiýa bilen gabat gelmeli.
 - Soňraky gizlin üýtgetmesi: `npx wrangler secret put <NAME>`.
-- `KEY_SECRET` çalşylmaýar. `ADMIN_KEY`-i çalşyp bolýar; soň ähli brauzerler
-  we skriptler täzelenmeli.
+- `KEY_SECRET` çalşylmaýar. Admin goşmak ýa-da aýyrmak — panelde açary
+  döretmek ýa-da ýatyrmakdyr (`node scripts/admin_key.mjs` hem şonuň ýaly) —
+  täzelemeksiz we ähli brauzerleri we skriptleri üýtgetmensiz. `ADMIN_KEY`
+  gizlini bu goberlişde aragatlyk ýoly hökmünde goýuň; indiki goberliş ony
+  aýyrýar.
 - Ýerli gurnama barlagy: `npm run deploy -- --dry-run` (bulutsuz).
 
 ### 4. Cloudflare Access (maslahat berilýär)

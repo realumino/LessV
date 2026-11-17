@@ -22,6 +22,8 @@ import {
   getAdminKey,
 } from "./lib/auth";
 import type {
+  AdminKeyCreatedOut,
+  AdminKeyOut,
   CertDomainCreateIn,
   CertDomainOut,
   CertDomainUpdateIn,
@@ -211,6 +213,27 @@ export const mintNodeToken = (nodeId: string) =>
     binary: string;
     created_at: number;
   }>(`/nodes/${encodeURIComponent(nodeId)}/token`, { method: "POST" });
+
+// --- Admin identities ------------------------------------------------------
+
+/**
+ * WHAT: list, mint, and revoke the panel's admin keys.
+ *
+ * WHY the mint's response type is the only place the plaintext appears:
+ * the server stores a hash; the dialog holds the token in component state
+ * and nothing else ever sees it.
+ */
+export const listAdminKeys = () =>
+  request<AdminKeyOut[]>("/keys");
+
+export const createAdminKey = (label: string) =>
+  request<AdminKeyCreatedOut>("/keys", {
+    method: "POST",
+    body: JSON.stringify({ label }),
+  });
+
+export const disableAdminKey = (id: string) =>
+  request<null>(`/keys/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 // --- Node state and config -------------------------------------------------
 

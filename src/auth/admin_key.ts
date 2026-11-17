@@ -1,25 +1,42 @@
 /**
  * The admin bearer key for `/api/admin/*`.
  *
- * WHY a shared secret and not an identity system: the admin surface has
- * exactly one principal (the operator) and one client (the SPA login
- * form), so a constant-time-compared bearer key is the whole model. The
- * key arrives as the `ADMIN_KEY` binding; a request without the right
- * key answers 401 `{detail: "admin key required"}` — fail closed, before
- * routing, so unknown admin paths leak nothing either.
+ * WHY two sources this release: identities live in `admin_keys` (minted
+ * and revoked at runtime through the panel or the CLI script), while the
+ * `ADMIN_KEY` binding stays accepted as break-glass — the one key that
+ * works even when every row is disabled or the database is unreachable.
+ * The next release removes the binding path; this one must never lock the
+ * operator out of their own panel.
+ *
+ * WHY env first, then a lookup: the binding answers without a database
+ * read, which keeps the hot path free for the common single-operator
+ * deployment, and keeps a D1 outage from becoming a full lockout while a
+ * stored key is still accepted through it.
+ *
+ * A request without the right key answers 401
+ * `{detail: "admin key required"}` — fail closed, before routing, so
+ * unknown admin paths leak nothing either.
  */
 
 import type { MiddlewareHandler } from "hono";
 
 import { ApiError } from "../models";
+import * as adminKeyService from "../services/admin_key_service";
 
 export const adminKey: MiddlewareHandler<{ Bindings: Env }> = async (
   c,
   next,
 ) => {
   const presented = bearer(c.req.header("Authorization") ?? "");
+  if (!presented) {
+    throw new ApiError(401, "admin key required");
+  }
   const expected = c.env.ADMIN_KEY;
-  if (!presented || !expected || !(await sameKey(expected, presented))) {
+  if (expected && (await sameKey(expected, presented))) {
+    await next();
+    return;
+  }
+  if (!(await adminKeyService.verifyAdminKey(c.env.DB, presented))) {
     throw new ApiError(401, "admin key required");
   }
   await next();

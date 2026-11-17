@@ -29,6 +29,22 @@ export interface NodeTokenOut {
   created_at: number;
 }
 
+/** One admin key in GET /api/admin/keys — never the token, never the hash. */
+export interface AdminKeyOut {
+  id: string;
+  label: string;
+  created_at: number;
+  disabled_at: number | null;
+}
+
+/** POST /api/admin/keys — the plaintext rides only in this response. */
+export interface AdminKeyCreatedOut {
+  id: string;
+  label: string;
+  created_at: number;
+  token: string;
+}
+
 /** GET /api/admin/nodes/{id}/config/runtime — the live render. */
 export interface NodeRuntimeOut {
   config: Record<string, unknown>;

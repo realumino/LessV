@@ -8,9 +8,10 @@
  * live plane and the fail-closed middleware in src/auth/admin_key.ts.
  */
 
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-import { planeFetch, TEST_ADMIN_KEY } from "../helpers";
+import { planeFetch, planeJson, TEST_ADMIN_KEY, uid } from "../helpers";
 
 describe("admin key auth", () => {
   /**
@@ -92,5 +93,113 @@ describe("admin key auth", () => {
     expect(await response.json()).toEqual({
       detail: "invalid node credentials",
     });
+  });
+});
+
+describe("admin key identities", () => {
+  /** WHAT: parse one response body. */
+  async function body<T>(response: Response): Promise<T> {
+    return (await response.json()) as T;
+  }
+
+  /** WHAT: mint one admin key through the API and return its row. */
+  async function mint(label: string) {
+    const response = await planeJson("POST", "/api/admin/keys", { label });
+    expect(response.status, await response.clone().text()).toBe(201);
+    return body<{
+      id: string;
+      label: string;
+      created_at: number;
+      token: string;
+    }>(response);
+  }
+
+  it("mints a key, shows the token once, and lists no token ever again", async () => {
+    const created = await mint("operator");
+    expect(created.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(created.label).toBe("operator");
+
+    const list = await body<Array<Record<string, unknown>>>(
+      await planeJson("GET", "/api/admin/keys"),
+    );
+    const row = list.find((key) => key.id === created.id);
+    expect(row).toMatchObject({ label: "operator", disabled_at: null });
+    // Byte-level: neither the plaintext nor its storage form may appear.
+    expect(JSON.stringify(list)).not.toContain(created.token);
+    expect(JSON.stringify(list)).not.toContain("key_hash");
+  });
+
+  it("authenticates a second key through the same middleware", async () => {
+    // WHY: one principal was the old model; the point of identities is a
+    // second one working beside ADMIN_KEY, with no role distinction yet.
+    const created = await mint("second");
+    const response = await planeJson("GET", "/api/admin/keys", undefined, {
+      Authorization: `Bearer ${created.token}`,
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("answers a disabled key with the same 401 body as a wrong key", async () => {
+    const created = await mint("revoked");
+    const deleted = await planeJson(
+      "DELETE",
+      `/api/admin/keys/${created.id}`,
+    );
+    expect(deleted.status, await deleted.clone().text()).toBe(200);
+
+    const disabled = await planeJson("GET", "/api/admin/keys", undefined, {
+      Authorization: `Bearer ${created.token}`,
+    });
+    const wrong = await planeJson("GET", "/api/admin/keys", undefined, {
+      Authorization: "Bearer wrong-key",
+    });
+    expect(disabled.status).toBe(401);
+    expect(await disabled.clone().text()).toBe(await wrong.clone().text());
+
+    // The list still shows the revocation as history.
+    const list = await body<Array<{ id: string; disabled_at: number | null }>>(
+      await planeJson("GET", "/api/admin/keys"),
+    );
+    expect(list.find((key) => key.id === created.id)?.disabled_at).not.toBeNull();
+  });
+
+  it("still accepts the ADMIN_KEY binding (break-glass this release)", async () => {
+    // WHY: identities must never lock the operator out before the binding
+    // path is removed; TEST_ADMIN_KEY resolves through the env binding.
+    const response = await planeJson("GET", "/api/admin/keys");
+    expect(response.status).toBe(200);
+  });
+
+  it("404s the revoke of an unknown key id", async () => {
+    const response = await planeJson(
+      "DELETE",
+      `/api/admin/keys/${uid("k")}`,
+    );
+    expect(response.status).toBe(404);
+  });
+
+  it("422s a mint without a label", async () => {
+    const response = await planeJson("POST", "/api/admin/keys", {});
+    expect(response.status).toBe(422);
+  });
+
+  it("keeps working when a stored row's hash is tampered", async () => {
+    // WHY: the middleware looks the hash up in D1; a corrupt row must not
+    // break the admin surface — the binding path still answers, and the
+    // stored key just fails like any unknown token.
+    const created = await mint("tampered");
+    await env.DB.prepare(
+      "UPDATE admin_keys SET key_hash = 'deadbeef' WHERE id = ?",
+    )
+      .bind(created.id)
+      .run();
+
+    const withRow = await planeJson("GET", "/api/admin/keys", undefined, {
+      Authorization: `Bearer ${created.token}`,
+    });
+    expect(withRow.status).toBe(401);
+
+    const withBinding = await planeJson("GET", "/api/admin/keys");
+    expect(withBinding.status).toBe(200);
   });
 });
