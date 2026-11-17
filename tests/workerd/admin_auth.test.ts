@@ -75,7 +75,7 @@ describe("admin key auth", () => {
   it("leaves health and the subscription surface open", async () => {
     const health = await planeFetch("/api/health");
     expect(health.status).toBe(200);
-    expect(await health.json()).toEqual({ status: "ok" });
+    expect(await health.json()).toEqual({ status: "ok", protocol: 3 });
 
     const sub = await planeFetch("/sub/no-such-token");
     expect(sub.status).toBe(200);

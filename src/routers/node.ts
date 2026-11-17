@@ -26,17 +26,64 @@ import * as renderService from "../services/render_service";
 import * as certService from "../cert/service";
 
 /**
- * The pull contract's version.
+ * The pull contract's version, and the floor of the accepted window.
  *
- * WHY the constant lives here: both repos implement this number, and the
- * agent's zero-code-change guarantee against the plane depends on it not
- * drifting silently. Bumping it means editing this module, the agent, and
- * docs/PROTOCOL.md together. Protocol 2: the certificate endpoint,
- * the cert stage report, and the renamed node-identity header. Protocol 3:
- * structured maintenance actions, version reporting on the heartbeat, and
- * the action-result endpoint.
+ * WHY the constants live here: both repos implement these numbers, and the
+ * agent's zero-code-change guarantee against the plane depends on them not
+ * drifting silently. Bumping the version means editing this module, the
+ * agent, and docs/PROTOCOL.md together. Protocol 2: the certificate
+ * endpoint, the cert stage report, and the renamed node-identity header.
+ * Protocol 3: structured maintenance actions, version reporting on the
+ * heartbeat, and the action-result endpoint.
+ *
+ * WHY the window: a fleet cannot follow a plane deploy atomically, so the
+ * plane accepts [MIN, CURRENT] and names a mismatch on either side (see
+ * docs/PROTOCOL.md → Version skew). MIN === CURRENT today: the window is
+ * scaffolding until the next bump, which must ship its own N−1 renderer in
+ * ACTION_RENDERERS below — that registry is what makes the bump non-flag-day.
+ * Raising MIN deletes a renderer and is therefore a MAJOR image release,
+ * never a patch-level cleanup.
  */
 export const PROTOCOL_VERSION = 3;
+export const SUPPORTED_PROTOCOL_MIN = 3;
+
+/**
+ * WHAT: one renderer per accepted protocol for the response fields whose
+ * shape differs between protocols — today the heartbeat's `actions`.
+ *
+ * WHY a registry and not an if-chain: the next protocol bump adds its entry
+ * beside this one, and tests/pure/protocol_freeze.test.ts fails while any
+ * accepted protocol lacks a renderer. That test is what turns "support the
+ * previous shape" from a promise into an enforced invariant; deleting the
+ * registry would make every bump a flag day again. WHY exported: the freeze
+ * test walks the accepted range against it — that is its whole enforcement.
+ */
+export const ACTION_RENDERERS: Record<
+  number,
+  (rows: db.NodeActionRow[]) => unknown
+> = {
+  [PROTOCOL_VERSION]: nodeStateService.pendingActions,
+};
+
+/**
+ * WHAT: run the renderer the request's declared protocol asks for.
+ *
+ * WHY no fallback: assertProtocol has already narrowed the protocol into the
+ * window, and the freeze test guarantees every accepted protocol has an
+ * entry — reaching this error means the registry and the window disagree,
+ * which must fail loudly, not silently render protocol CURRENT's shape for
+ * an older server.
+ */
+function renderActions(protocol: number, rows: db.NodeActionRow[]): unknown {
+  const render = ACTION_RENDERERS[protocol];
+  if (render === undefined) {
+    throw new ApiError(
+      500,
+      `no action renderer registered for protocol ${protocol}`,
+    );
+  }
+  return render(rows);
+}
 
 export const nodeApi = new Hono<{ Bindings: Env }>();
 
@@ -78,14 +125,26 @@ async function requireNode(env: Env, request: Request): Promise<db.NodeRow> {
 }
 
 /**
- * WHAT: reject a protocol version the plane cannot honor, explicitly.
+ * WHAT: reject a protocol the plane cannot honor, explicitly, and name the
+ * direction of the mismatch.
  *
  * WHY 400 and not 422: the body parsed fine — the plane is refusing to
- * reinterpret a version it does not understand, per PROTOCOL.md. The
- * agent's correct response is to keep serving its current config.
+ * reinterpret a version it does not understand, per PROTOCOL.md. WHY the
+ * sentence differs by side: a server older than SUPPORTED_PROTOCOL_MIN has
+ * a wire shape this plane cannot even describe, so it gets the generic
+ * `unsupported protocol N`; a server newer than PROTOCOL_VERSION is a
+ * deployment-order mistake the plane can name exactly, and the sentence
+ * tells the operator which side to upgrade first.
  */
 function assertProtocol(payload: { protocol: number }): void {
-  if (payload.protocol !== PROTOCOL_VERSION) {
+  if (payload.protocol > PROTOCOL_VERSION) {
+    throw new ApiError(
+      400,
+      `plane speaks protocol ${PROTOCOL_VERSION}; node speaks ` +
+        `${payload.protocol} — upgrade the plane first`,
+    );
+  }
+  if (payload.protocol < SUPPORTED_PROTOCOL_MIN) {
     throw new ApiError(400, `unsupported protocol ${payload.protocol}`);
   }
 }
@@ -118,12 +177,15 @@ nodeApi.post("/api/node/enroll", async (c) => {
   });
   const [wanted] = await nodeStateService.desiredHash(c.env, node.id);
   const fresh = (await db.getNode(c.env.DB, node.id)) as db.NodeRow;
+  // WHY every body names the plane's protocol: the server logs it on change,
+  // so the log says which side is old without a deploy on either end.
   return c.json({
     id: fresh.id,
     label: fresh.label,
     address: fresh.address,
     state: "active",
     desired_hash: wanted,
+    protocol: PROTOCOL_VERSION,
   });
 });
 
@@ -145,10 +207,17 @@ nodeApi.post("/api/node/heartbeat", async (c) => {
   if (nodeStateService.shouldTouch(node, values, at)) {
     await nodeStateService.touchFromValues(c.env.DB, node.id, values);
   }
-  const actions = nodeStateService.pendingActions(
+  // The actions are rendered in the shape the request declared, so a server
+  // inside the window reads only fields of its own protocol.
+  const actions = renderActions(
+    payload.protocol,
     await db.listNodeActions(c.env.DB, node.id),
   );
-  return c.json({ desired_hash: wanted, actions });
+  return c.json({
+    desired_hash: wanted,
+    actions,
+    protocol: PROTOCOL_VERSION,
+  });
 });
 
 /**
@@ -177,7 +246,7 @@ nodeApi.post("/api/node/action", async (c) => {
     payload.ok ? null : payload.error,
     at,
   );
-  return c.json({});
+  return c.json({ protocol: PROTOCOL_VERSION });
 });
 
 /**
@@ -205,7 +274,7 @@ nodeApi.get("/api/node/config", async (c) => {
     });
   }
   return c.json(
-    { hash: wanted, config: runtime },
+    { hash: wanted, config: runtime, protocol: PROTOCOL_VERSION },
     200,
     { "Cache-Control": "no-store" },
   );
@@ -238,7 +307,7 @@ nodeApi.post("/api/node/report", async (c) => {
       cert_synced_at: payload.cert_synced_at,
     });
   }
-  return c.json({});
+  return c.json({ protocol: PROTOCOL_VERSION });
 });
 
 /**
@@ -269,10 +338,14 @@ nodeApi.get("/api/node/certs", async (c) => {
       headers: { ETag: manifest.etag, "Cache-Control": "no-store" },
     });
   }
-  return c.json(manifest, 200, {
-    ETag: manifest.etag,
-    "Cache-Control": "no-store",
-  });
+  return c.json(
+    { ...manifest, protocol: PROTOCOL_VERSION },
+    200,
+    {
+      ETag: manifest.etag,
+      "Cache-Control": "no-store",
+    },
+  );
 });
 
 /**
@@ -287,5 +360,8 @@ nodeApi.post("/api/node/stats", async (c) => {
   await requireNode(c.env, c.req.raw);
   const payload = await parseJsonBody(c.req.raw, StatsIn);
   assertProtocol(payload);
-  return c.json({ accepted: Object.keys(payload.counters).length });
+  return c.json({
+    accepted: Object.keys(payload.counters).length,
+    protocol: PROTOCOL_VERSION,
+  });
 });

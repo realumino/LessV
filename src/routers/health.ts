@@ -8,10 +8,17 @@
 
 import { Hono } from "hono";
 
+import { PROTOCOL_VERSION } from "./node";
+
 export const health = new Hono();
 
 /**
- * WHAT: answer a constant `{"status": "ok"}` body.
+ * WHAT: answer a constant `{"status": "ok", "protocol": N}` body.
  * WHY: if this responds at all, the app is up; there is nothing to check.
+ * WHY the protocol number: the deploy pipeline reads only the status code,
+ * so this stays free — but the body tells an operator which contract the
+ * live deployment speaks without opening the dashboard.
  */
-health.get("/api/health", (c) => c.json({ status: "ok" }));
+health.get("/api/health", (c) =>
+  c.json({ status: "ok", protocol: PROTOCOL_VERSION }),
+);

@@ -37,10 +37,15 @@ type EnrollOut = {
   address: string;
   state: string;
   desired_hash: string | null;
+  protocol: number;
 };
 
 /** WHAT: one heartbeat response as the endpoint returns it. */
-type HeartbeatOut = { desired_hash: string | null; actions: unknown[] };
+type HeartbeatOut = {
+  desired_hash: string | null;
+  actions: unknown[];
+  protocol: number;
+};
 
 /** WHAT: parse one response body as a model shape. */
 async function body<T>(response: Response): Promise<T> {
@@ -272,6 +277,55 @@ describe("the node protocol", () => {
     );
     expect(state).not.toHaveProperty("reported_address");
     expect(state.address).toBe("funky.example.com");
+  });
+
+  it("refuses a protocol newer than the plane and names which side to upgrade", async () => {
+    // WHY: a server ahead of the plane is a deployment-order mistake, and
+    // the plane can describe it exactly. The sentence is the node's log
+    // line: it says which side is old, so the operator does not have to.
+    await makeNode();
+    const token = await mint();
+    const headers = auth(token);
+
+    const cases: [string, Record<string, unknown>][] = [
+      ["/api/node/enroll", { protocol: 4 }],
+      ["/api/node/heartbeat", { protocol: 4 }],
+    ];
+    for (const [path, payload] of cases) {
+      const response = await planeJson("POST", path, payload, headers);
+      expect(response.status, path).toBe(400);
+      const detail = (await body<{ detail: string }>(response)).detail;
+      expect(detail).toContain("upgrade the plane first");
+      expect(detail).toContain("4");
+    }
+  });
+
+  it("names the plane's protocol in every node response", async () => {
+    // WHY: the server logs the plane's protocol on change, so a mismatch is
+    // visible in the server's log without a deploy on either end.
+    await makeNode(node, config());
+    const token = await mint();
+    const headers = auth(token);
+
+    const enrolled = await body<EnrollOut>(
+      await planeJson(
+        "POST",
+        "/api/node/enroll",
+        { protocol: 3 },
+        headers,
+      ),
+    );
+    expect(enrolled.protocol).toBe(3);
+
+    const beat = await body<HeartbeatOut>(
+      await planeJson(
+        "POST",
+        "/api/node/heartbeat",
+        { protocol: 3, applied_hash: null, xray_running: false },
+        headers,
+      ),
+    );
+    expect(beat.protocol).toBe(3);
   });
 
   it("answers an unknown protocol with an explicit 400", async () => {
@@ -517,7 +571,7 @@ describe("the node protocol", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ accepted: 2 });
+    expect(await response.json()).toEqual({ accepted: 2, protocol: 3 });
   });
 
   it("rejects bad stats counters", async () => {

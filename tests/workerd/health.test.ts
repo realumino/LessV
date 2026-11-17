@@ -13,5 +13,5 @@ it("answers the health check", async () => {
   const response = await planeFetch("/api/health");
 
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ status: "ok" });
+  expect(await response.json()).toEqual({ status: "ok", protocol: 3 });
 });
