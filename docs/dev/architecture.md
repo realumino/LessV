@@ -237,8 +237,10 @@ The node-side software is a separate repository
 the contract in [`docs/PROTOCOL.md`](../PROTOCOL.md). A server satisfies the
 plane if it:
 
-1. speaks protocol 3 and identifies itself with the `X-Vela-Server` header on
-   every `/api/node/*` call;
+1. speaks a protocol inside the accepted window
+   `[SUPPORTED_PROTOCOL_MIN, PROTOCOL_VERSION]` (see
+   [`docs/PROTOCOL.md`](../PROTOCOL.md) → Version skew) and identifies itself
+   with the `X-Vela-Server` header on every `/api/node/*` call;
 2. heartbeats the applied config hash, then fetches, validates and tests
    `GET /api/node/config` before swapping the live file, and reports through
    `POST /api/node/report`;
@@ -292,9 +294,10 @@ consumer of the same secret appears.
 - `ADMIN_KEY` is root-equivalent for the plane.
 - `KEY_SECRET` is never rotated. It seals stored REALITY, certificate, and
   ACME account keys; rotating it makes them unreadable.
-- The protocol version is pinned in `docs/PROTOCOL.md` and
-  `src/routers/node.ts`, and frozen by `tests/pure/protocol_freeze.test.ts`;
-  the server repo carries the matching crate version.
+- The protocol version and the accepted window are pinned in
+  `docs/PROTOCOL.md` and `src/routers/node.ts`, and frozen together by
+  `tests/pure/protocol_freeze.test.ts`; the server repo carries the matching
+  crate version.
 - The blackhole outbound tag is uppercase `BLOCK`; it is never assignable to
   a user.
 - The decoy is PQ-only (`X25519MLKEM768:X25519`) with no classical fallback;

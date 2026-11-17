@@ -16,11 +16,42 @@ The server is maintained in
 [LessV-Node](https://github.com/realumino/vela-server); the plane's code is
 this repository. Changes to the number are made in three places at once: this
 file, `PROTOCOL_VERSION` in `src/routers/node.ts`, and the crate version in
-the server repository. A protocol-2 server is rejected with `400` and keeps
-serving its current config until it is upgraded.
+the server repository. The plane does not accept a single protocol number but
+a window — see [Version skew](#version-skew).
 
 The wire field names `agent_version` and `agent_uptime` predate every rename
 the artifact has had; they stay for the same reason as the header.
+
+## Version skew
+
+The plane and the server are upgraded independently, and a fleet of servers
+cannot follow a plane deploy atomically, so the contract defines a supported
+window instead of one number:
+
+- The plane accepts any server that declares a protocol in
+  `[SUPPORTED_PROTOCOL_MIN, PROTOCOL_VERSION]` (both constants live in
+  `src/routers/node.ts`). Today both ends are 3: the window exists as
+  scaffolding until the next bump, and that bump must ship its own N−1
+  renderer.
+- A server **older** than the minimum is refused with
+  `400 {"detail":"unsupported protocol N"}`. Its wire shape is unknown to
+  this plane, so the error cannot describe the mismatch — the server's log
+  has to name what it sent.
+- A server **newer** than the plane is unsupported and refused with a named
+  error: `400 {"detail":"plane speaks protocol 3; node speaks protocol 4 —
+  upgrade the plane first"}`. The server keeps serving its current config;
+  it must not guess the plane's shape.
+- The plane renders every response in the shape the request declared. A
+  server inside the window reads only fields of its own protocol, and the
+  plane reads requests tolerantly: unknown fields are ignored, required
+  fields are validated.
+
+The upgrade order is always **plane first**: deploy the new plane (it accepts
+the old server's protocol), then upgrade the servers, and only when no server
+still speaks the older protocol may the plane raise
+`SUPPORTED_PROTOCOL_MIN`. Raising the minimum deletes a renderer, so it is a
+MAJOR image release and a documented protocol bump — never a patch-level
+cleanup.
 
 ## Transport and authentication
 
@@ -34,9 +65,14 @@ the artifact has had; they stay for the same reason as the header.
     never-minted token, and wrong token all
     answer the same `401 {"detail":"invalid node credentials"}`; nothing
     about the attempt is logged.
-- Every write request body carries `"protocol": 3`; anything else answers
-  `400 {"detail":"unsupported protocol N"}`. The node's correct response is
-  to keep serving its current config.
+- Every write request body carries `"protocol": N`, the protocol the server
+  implements. A protocol inside `[SUPPORTED_PROTOCOL_MIN, PROTOCOL_VERSION]`
+  is accepted and the response is rendered in that protocol's shape; outside
+  the window the request answers `400` — below the minimum
+  `{"detail":"unsupported protocol N"}`, above the plane's version the
+  named mismatch from [Version skew](#version-skew). The node's correct
+  response to either is to keep serving its current config and log the
+  mismatch.
 - Every response is JSON. Failures (4xx/5xx) use the error envelope
   `{ "detail": <string | object | array> }` — see [Error shape](#error-shape).
   Success bodies are the objects below.
@@ -338,7 +374,9 @@ Every 4xx/5xx body is `{ "detail": <string | object | array> }`:
 
 - semantic failures → `{"detail":"node not found"}`;
 - schema failures (`parseJsonBody`) → `422 {"detail":[{"msg":"..."}]}`;
-- protocol mismatch → `400 {"detail":"unsupported protocol N"}`;
+- protocol mismatch → `400 {"detail":"unsupported protocol N"}` below the
+  supported minimum, or the named `plane speaks protocol M; node speaks
+  protocol N` mismatch above it;
 - stale config fetch → `409 {"detail":{"message":"...","desired_hash":"..."}}`;
 - an unreadable certificate artifact → `500`, naming the certificate id and
   the missing field, never a partial manifest.
