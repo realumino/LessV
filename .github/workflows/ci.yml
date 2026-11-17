@@ -1,0 +1,63 @@
+# WHAT: the plane's CI baseline — the four commands a release needs, split
+# into two jobs so a frontend failure is not buried behind a long workerd
+# run.
+#
+# WHY the test step sets ADMIN_KEY / KEY_SECRET / CF_DNS_API_TOKEN: the
+# wrangler config declares `secrets.required`, and without .dev.vars (which
+# is never committed) wrangler warns about missing required secrets. These
+# three values are not secrets — they are test-only placeholders, equal to
+# the miniflare bindings declared in vitest.config.ts, which win over the
+# environment; if those bindings ever change, the first CI run fails loudly
+# on a drifted expectation instead of passing on accidentally consistent
+# env values.
+#
+# WHY `npm run deploy -- --dry-run` is NOT run here: deploy.mjs refuses the
+# placeholder hostname `cp.example.com`, and a config with a real hostname
+# is an operator-local file (gitignored wrangler.jsonc) that CI cannot
+# have. The build it would run is covered by the frontend job and the
+# wrangler dry-run is exercised locally before every deploy.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  plane:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+        env:
+          ADMIN_KEY: test-admin-key
+          KEY_SECRET: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+          CF_DNS_API_TOKEN: test-only-token
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm --prefix frontend ci
+      - run: npm --prefix frontend test
+      - run: npm --prefix frontend run build
