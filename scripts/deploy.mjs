@@ -91,6 +91,7 @@ if (!existsSync(CONFIG)) {
 }
 const config = readFileSync(CONFIG, "utf8");
 const pattern = config.match(/"pattern"\s*:\s*"([^"]+)"/)?.[1];
+const databaseName = config.match(/"database_name"\s*:\s*"([^"]+)"/)?.[1];
 if (!pattern || pattern === PLACEHOLDER_PATTERN) {
   console.error(
     `${CONFIG} still has the placeholder route (${pattern ?? "none"}) — ` +
@@ -115,6 +116,35 @@ step("build SPA", "npm", ["--prefix", "frontend", "run", "build"]);
 if (dryRun) {
   console.log("\n--dry-run: skipping migrations, deploy, and checks.");
 } else {
+  // WHY the database is created here and not left to `wrangler deploy`:
+  // migrations now run before the upload (the safety property), but on the
+  // FIRST deploy no database exists yet — the auto-provision used to happen
+  // inside the upload step. Creating it when missing keeps both truths:
+  // the schema lands before the Worker, and a fresh deployment needs no
+  // manual `wrangler d1 create`. Idempotent: an existing database is left
+  // alone and the apply below is a no-op.
+  if (!databaseName) {
+    console.error(
+      `${CONFIG} declares no "database_name" — the pipeline cannot ensure\n` +
+        "the database exists before migrating it.",
+    );
+    process.exit(1);
+  }
+  const info = spawnSync(
+    "npx",
+    ["wrangler", "d1", "info", databaseName, ...CONFIG_FLAG],
+    { cwd: REPO_ROOT, stdio: "ignore", shell: process.platform === "win32" },
+  );
+  if (info.status !== 0) {
+    step("create D1", "npx", [
+      "wrangler",
+      "d1",
+      "create",
+      databaseName,
+      ...CONFIG_FLAG,
+    ]);
+  }
+
   step(
     "migrations",
     "npx",
