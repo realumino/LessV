@@ -146,6 +146,45 @@ const DEFAULT_TIMINGS: IssueTimings = {
   acmeRequestTimeoutMs: 30_000,
 };
 
+/**
+ * WHAT: the most propagation checks one order attempt may spend.
+ *
+ * WHY a cap and not the full window at the configured interval: every check
+ * fetches one DoH resolver per target, and a Workflow instance has a hard
+ * subrequest budget (50 on the Workers Free plan). A 300 s window at a 5 s
+ * interval would spend 120 subrequests on propagation alone and leave
+ * nothing for publish, accept, and cleanup — and a run that cannot clean up
+ * strands `_acme-challenge` records in the zone. Ten checks spread over the
+ * same window fit the budget, and the pre-check settle (propagationWindow)
+ * makes the first one count, so a healthy publish converges on check one.
+ */
+const PROPAGATION_MAX_CHECKS = 10;
+
+/**
+ * WHAT: the polling shape for TXT propagation within a subrequest budget.
+ *
+ * WHY the interval is derived: the time window stays what the operator
+ * configured (`dnsTimeoutMs`), while the number of questions asked is
+ * capped by what the run can afford. `dnsSettleMs` becomes the initial
+ * delay — asking before the record is live would be answered from a cache
+ * for the zone's negative TTL.
+ */
+export function propagationWindow(timings: IssueTimings): {
+  attempts: number;
+  intervalMs: number;
+  initialDelayMs: number;
+} {
+  const attempts = Math.max(
+    1,
+    Math.min(PROPAGATION_MAX_CHECKS, Math.ceil(timings.dnsTimeoutMs / timings.dnsPollIntervalMs)),
+  );
+  return {
+    attempts,
+    intervalMs: Math.max(timings.dnsPollIntervalMs, Math.ceil(timings.dnsTimeoutMs / attempts)),
+    initialDelayMs: timings.dnsSettleMs,
+  };
+}
+
 export function createIssueDependencies(
   env: IssueEnv,
   environment: AcmeEnvironment,
@@ -376,6 +415,13 @@ export async function publishTxtChallenges(
  * WHY single-pass: the Workflow polls this through durable steps so each
  * invocation stays inside the subrequest budget; the blocking variant is
  * kept for non-Workflow callers and unit tests.
+ *
+ * WHY a check where every resolver *errored* throws instead of answering
+ * "not visible": a failed fetch is not evidence that DNS has not
+ * propagated. Looping on it burns the run's subrequest budget and reports
+ * a timeout that blames DNS, hiding the real cause (typically budget
+ * exhaustion, whose message names itself). Real NODATA is a valid
+ * "not yet"; an exception is not.
  */
 export async function checkTxtPropagation(
   deps: IssueDependencies,
@@ -386,6 +432,15 @@ export async function checkTxtPropagation(
     fetch: deps.fetcher,
     requestTimeoutMs: deps.timings.dnsRequestTimeoutMs,
   });
+  const failures = Object.values(observation.missingByResolver);
+  const allErrored =
+    failures.length > 0 &&
+    failures.every(
+      (missing) => missing.length > 0 && missing.every((entry) => entry.startsWith("resolver error:")),
+    );
+  if (allErrored) {
+    throw new Error(`DNS propagation check failed: ${failures.flat().join("; ")}`);
+  }
   return observation.allVisible;
 }
 

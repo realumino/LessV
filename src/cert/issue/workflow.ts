@@ -35,6 +35,7 @@ import {
   finalizeOrder,
   issueErrorMessage,
   loadIssue,
+  propagationWindow,
   publishTxtChallenges,
   purgePreviousCertificate,
   storeIssuedCertificate,
@@ -130,11 +131,7 @@ export class CertificateWorkflow extends WorkflowEntrypoint<Env, IssuePayload> {
           await this.pollUntil(
             step,
             `propagation-${attempt}`,
-            {
-              attempts: Math.max(1, Math.ceil(deps.timings.dnsTimeoutMs / deps.timings.dnsPollIntervalMs)),
-              intervalMs: deps.timings.dnsPollIntervalMs,
-              settleMs: deps.timings.dnsSettleMs,
-            },
+            propagationWindow(deps.timings),
             () => checkTxtPropagation(deps, published!),
           );
 
@@ -293,12 +290,32 @@ export class CertificateWorkflow extends WorkflowEntrypoint<Env, IssuePayload> {
    * after the CA has already accepted the order. Sleeping between checks
    * ends the invocation and gives every check a fresh budget.
    */
+  /**
+   * WHAT: poll until `check` succeeds, with an optional settle before the
+   * first question and a re-check after a positive answer.
+   *
+   * WHY `initialDelayMs` exists and is not the same as `settleMs`: a check
+   * that runs before the published state is visible gets a *negative*
+   * answer, and resolvers cache negatives far longer than any propagation
+   * window (a miss one second after creating a DNS record is cached for
+   * the zone's negative TTL — 1800 s on Cloudflare). Sleeping first makes
+   * the first query count; without it every later check reads the cache
+   * and the loop can never converge no matter how long it waits.
+   */
   private async pollUntil(
     step: WorkflowStep,
     name: string,
-    options: { attempts: number; intervalMs: number; settleMs?: number },
+    options: {
+      attempts: number;
+      intervalMs: number;
+      initialDelayMs?: number;
+      settleMs?: number;
+    },
     check: () => Promise<boolean>,
   ): Promise<void> {
+    if (options.initialDelayMs) {
+      await step.sleep(`${name}-settle-first`, options.initialDelayMs);
+    }
     for (let index = 0; index < options.attempts; index += 1) {
       const done = await step.do(`${name}-check-${index}`, check);
       if (done) {

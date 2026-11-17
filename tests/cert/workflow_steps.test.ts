@@ -26,6 +26,7 @@ import {
   finalizeOrder,
   issueErrorMessage,
   loadIssue,
+  propagationWindow,
   publishTxtChallenges,
   purgePreviousCertificate,
   storeIssuedCertificate,
@@ -187,6 +188,77 @@ describe("issuance workflow steps", () => {
     expect(await getCurrentCertificate(env.DB, domain.id, "staging")).toBeNull();
     expect(dns.records).toHaveLength(0);
     expect(await listPendingChallengeRecords(env.DB, runId)).toEqual([]);
+  });
+
+  it("fails a propagation check loudly when every resolver errors", async () => {
+    // WHY: a failed fetch is not evidence that DNS has not propagated.
+    // Looping on it burns the run's subrequest budget and reports a DNS
+    // timeout; the real cause (usually budget exhaustion) must surface.
+    const domain = await seedCertDomain(env.DB, { includeWildcard: false });
+    const { runId } = await seedIssueRun(env.DB, domain.id);
+    const { deps } = makeDependencies({});
+    const loaded = await loadIssue(deps, runId, domain.id);
+    await ensureAcmeAccount(deps);
+    const order = await createOrder(deps, loaded.identifiers);
+    const published = await publishTxtChallenges(deps, runId, loaded.domain, order.authorizations);
+
+    const broken: IssueDependencies = {
+      ...deps,
+      fetcher: async () => {
+        throw new Error("Too many subrequests by single Worker invocation");
+      },
+    };
+    await expect(checkTxtPropagation(broken, published)).rejects.toThrow(
+      /Too many subrequests/,
+    );
+  });
+
+  it("keeps the propagation poll inside the subrequest budget", () => {
+    // WHY: a Workflow instance has a hard subrequest budget (50 on the free
+    // plan), and each check costs one fetch per resolver. The window must
+    // stay what the operator configured while the number of questions stays
+    // affordable — a run that spends its budget on propagation cannot clean
+    // up its own TXT records.
+    const window = propagationWindow({
+      dnsTimeoutMs: 300_000,
+      dnsPollIntervalMs: 5_000,
+      dnsSettleMs: 10_000,
+      dnsRequestTimeoutMs: 10_000,
+      acmeTimeoutMs: 300_000,
+      acmePollIntervalMs: 3_000,
+      acmeRequestTimeoutMs: 30_000,
+    });
+    expect(window.attempts).toBe(10);
+    // 10 checks x 2 resolvers leaves 30 of 50 for the rest of the run.
+    expect(window.attempts * 2).toBeLessThanOrEqual(20);
+    // The time window is preserved: the last check still lands near the
+    // configured timeout.
+    expect(window.attempts * window.intervalMs).toBeGreaterThanOrEqual(300_000);
+    // The first question waits for the record to be live: asking earlier is
+    // answered from a negative cache for the zone's whole TTL.
+    expect(window.initialDelayMs).toBeGreaterThan(0);
+    expect(window.initialDelayMs).toBeLessThan(window.intervalMs);
+  });
+
+  it("treats an empty answer as not yet visible rather than an error", async () => {
+    // WHY: NODATA is the normal answer before propagation; only resolver
+    // *errors* are infrastructure failures.
+    const domain = await seedCertDomain(env.DB, { includeWildcard: false });
+    const { runId } = await seedIssueRun(env.DB, domain.id);
+    const { deps } = makeDependencies({});
+    const loaded = await loadIssue(deps, runId, domain.id);
+    await ensureAcmeAccount(deps);
+    const order = await createOrder(deps, loaded.identifiers);
+    const published = await publishTxtChallenges(deps, runId, loaded.domain, order.authorizations);
+
+    const empty: IssueDependencies = {
+      ...deps,
+      fetcher: async () =>
+        new Response(JSON.stringify({ Status: 0, Answer: [] }), {
+          headers: { "Content-Type": "application/dns-json" },
+        }),
+    };
+    await expect(checkTxtPropagation(empty, published)).resolves.toBe(false);
   });
 });
 
