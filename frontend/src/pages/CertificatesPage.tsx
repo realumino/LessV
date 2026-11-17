@@ -20,6 +20,7 @@ import {
 } from "../api";
 import Badge from "../components/Badge";
 import ConfirmButton from "../components/ConfirmButton";
+import DnsCredentialCard from "../components/DnsCredentialCard";
 import DownloadButton from "../components/DownloadButton";
 import Drawer from "../components/Drawer";
 import EmptyState from "../components/EmptyState";
@@ -97,6 +98,8 @@ export default function CertificatesPage() {
       </header>
 
       {error && <ErrorNote>{error}</ErrorNote>}
+
+      <DnsCredentialCard />
 
       <div className="cf-toolbar">
         <div className="cf-toolbar__left">

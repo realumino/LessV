@@ -29,6 +29,8 @@ import type {
   CertDomainUpdateIn,
   CertRunOut,
   CertificateOut,
+  DnsCredentialOut,
+  DnsCredentialSavedOut,
   InboundLinkIn,
   InboundLinkOut,
   InboundOut,
@@ -450,6 +452,44 @@ export const getStatus = () => request<StatusOut>("/status");
 // --- Certificates (P1b) ------------------------------------------------------
 
 export const listZones = () => request<ZoneOut[]>("/zones");
+
+// --- DNS credentials (the certificate subsystem's token) -------------------
+
+/**
+ * WHAT: list, verify, save, activate, delete the stored DNS token.
+ *
+ * WHY save verifies first: the server refuses an unverified token, so a
+ * typo never becomes the credential issuance silently runs on.
+ */
+export const listDnsCredentials = () =>
+  request<DnsCredentialOut[]>("/dns-credentials");
+
+export const verifyDnsToken = (token: string) =>
+  request<{ zones: number }>("/dns-credentials/verify", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+
+export const saveDnsCredential = (body: {
+  label: string;
+  token: string;
+  id?: string;
+}) =>
+  request<DnsCredentialSavedOut>("/dns-credentials", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const activateDnsCredential = (id: string) =>
+  request<DnsCredentialOut>(
+    `/dns-credentials/${encodeURIComponent(id)}/activate`,
+    { method: "POST" },
+  );
+
+export const deleteDnsCredential = (id: string) =>
+  request<null>(`/dns-credentials/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 
 export const listCertDomains = () => request<CertDomainOut[]>("/cert-domains");
 

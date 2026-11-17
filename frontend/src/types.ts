@@ -242,6 +242,23 @@ export interface ZoneOut {
   status: string;
 }
 
+/** GET /api/admin/dns-credentials — the token itself never appears. */
+export interface DnsCredentialOut {
+  id: string;
+  label: string;
+  active: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+/** POST /api/admin/dns-credentials — stored verified; zones is the count. */
+export interface DnsCredentialSavedOut {
+  id: string;
+  label: string;
+  active: boolean;
+  zones: number;
+}
+
 /** One current-certificate summary embedded in domain/node views. */
 export interface CertificateSummaryOut {
   id: string;

@@ -13,6 +13,7 @@
  */
 
 import { CloudflareApiError, findZoneId, getZone, listZones } from "./dns/cloudflare";
+import { activeDnsToken } from "./credentials";
 import {
   getCertificate as getCertificateById,
   ActiveIssueRunError,
@@ -103,7 +104,7 @@ export class CertificateArtifactsMissingError extends Error {
 
 /** WHAT: the zones the DNS token can read, for the domain form's picker. */
 export async function zoneList(env: Env): Promise<Array<{ id: string; name: string; status: string }>> {
-  const zones = await listZones({ apiToken: env.CF_DNS_API_TOKEN });
+  const zones = await listZones({ apiToken: await activeDnsToken(env) });
   return zones.map(({ id, name, status }) => ({
     id,
     name,
@@ -116,14 +117,18 @@ async function resolveZone(
   input: CertDomainCreate,
   normalized: string,
 ): Promise<string> {
+  // WHY resolved per call: the credential is runtime state now — an active
+  // row can change between two calls, and each call must use what is in
+  // force at that moment.
+  const apiToken = await activeDnsToken(env);
   if (input.zone_id !== undefined && input.zone_id !== "") {
-    const zone = await getZone({ apiToken: env.CF_DNS_API_TOKEN, zoneId: input.zone_id });
+    const zone = await getZone({ apiToken, zoneId: input.zone_id });
     if (zone.status !== undefined && zone.status !== "active") {
       throw new CloudflareApiError(409, [], `Cloudflare zone ${zone.name} is ${zone.status}, not active`);
     }
     return zone.id;
   }
-  return findZoneId({ apiToken: env.CF_DNS_API_TOKEN, domain: normalized });
+  return findZoneId({ apiToken, domain: normalized });
 }
 
 // ------------------------------------------------------------- domain CRUD
@@ -465,7 +470,7 @@ export async function downloadCertificate(
   if (file === "key") {
     if (artifacts === null) throw new CertificateArtifactsMissingError(id, "private_key");
     return {
-      body: await unseal(env, artifacts.private_key),
+      body: await unseal(env, "certificate private key", artifacts.private_key),
       contentType: "application/x-pem-file",
     };
   }
@@ -631,7 +636,7 @@ export async function nodeCertManifest(env: Env, nodeId: string): Promise<NodeCe
       not_after: row.certificate_not_after ?? "",
       profile: row.certificate_profile ?? "",
       fullchain_pem: fullchain,
-      private_key_pem: await unseal(env, sealedKey),
+      private_key_pem: await unseal(env, "certificate private key", sealedKey),
     });
   }
   return { etag: await manifestEtag(certs), certs };

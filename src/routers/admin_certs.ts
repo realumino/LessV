@@ -9,7 +9,21 @@
 
 import { Hono } from "hono";
 
-import { ApiError, parseJsonBody } from "../models";
+import {
+  activateDnsCredential as activateDnsCredentialRow,
+  credentialRowOut,
+  deleteDnsCredential as deleteDnsCredentialRow,
+  listCredentialRows,
+  saveDnsCredential,
+  verifyDnsToken,
+} from "../cert/credentials";
+import { now } from "../services/node_state_service";
+import {
+  ApiError,
+  DnsCredentialSaveIn,
+  DnsTokenVerifyIn,
+  parseJsonBody,
+} from "../models";
 import {
   asApiError,
   createDomain,
@@ -155,4 +169,41 @@ adminCerts.put("/api/admin/nodes/:id/cert-domains", async (c) =>
 
 adminCerts.get("/api/admin/nodes/:id/certs", async (c) =>
   handle(c, async () => c.json(await nodeCertSummaries(c.env, c.req.param("id")))),
+);
+
+// ---------------------------------------------------------------- DNS token
+
+adminCerts.get("/api/admin/dns-credentials", async (c) =>
+  handle(c, async () => c.json(await listCredentialRows(c.env))),
+);
+
+adminCerts.post("/api/admin/dns-credentials/verify", async (c) =>
+  handle(c, async () => {
+    const payload = await parseJsonBody(c.req.raw, DnsTokenVerifyIn);
+    return c.json({ zones: await verifyDnsToken(payload.token) });
+  }),
+);
+
+adminCerts.post("/api/admin/dns-credentials", async (c) =>
+  handle(c, async () => {
+    const payload = await parseJsonBody(c.req.raw, DnsCredentialSaveIn);
+    const saved = await saveDnsCredential(c.env, payload, now());
+    return c.json(saved, 201);
+  }),
+);
+
+adminCerts.post("/api/admin/dns-credentials/:id/activate", async (c) =>
+  handle(c, async () => {
+    const id = c.req.param("id");
+    await activateDnsCredentialRow(c.env, id, now());
+    const row = await credentialRowOut(c.env, id);
+    return c.json(row);
+  }),
+);
+
+adminCerts.delete("/api/admin/dns-credentials/:id", async (c) =>
+  handle(c, async () => {
+    await deleteDnsCredentialRow(c.env, c.req.param("id"));
+    return c.json({});
+  }),
 );

@@ -131,6 +131,19 @@ export type AdminKeyRow = {
   disabled_at: number | null;
 };
 
+/** WHAT: one stored DNS API credential. The token is sealed with KEY_SECRET
+ * (`v1:` ciphertext); exactly one row may be active, which the service
+ * enforces by clearing the others on activate. */
+export type DnsCredentialRow = {
+  id: string;
+  label: string;
+  sealed_token: string;
+  created_at: number;
+  /** Last state change (create, re-save, activate). */
+  updated_at: number;
+  active: number;
+};
+
 /** WHAT: one link variant row with its overrides decoded. */
 export type InboundLinkRow = {
   node_id: string;
@@ -504,6 +517,121 @@ export async function disableAdminKey(
         `,
     [disabledAt, id],
   );
+}
+
+/** WHAT: return every stored DNS credential, oldest first. */
+export async function listDnsCredentials(
+  db: D1Database,
+): Promise<DnsCredentialRow[]> {
+  const rows = await selectRows(
+    db,
+    "SELECT * FROM dns_credentials ORDER BY created_at, id",
+  );
+  return rows as unknown as DnsCredentialRow[];
+}
+
+/**
+ * WHAT: return the one active DNS credential row, or null.
+ *
+ * WHY LIMIT 1 and not a unique index: the service clears the others before
+ * activating, and the index would turn a momentary double-active into a
+ * failed write instead of a repairable state; the reader is defensive by
+ * taking the newest active row if two ever coexist.
+ */
+export async function getActiveDnsCredential(
+  db: D1Database,
+): Promise<DnsCredentialRow | null> {
+  const rows = await selectRows(
+    db,
+    "SELECT * FROM dns_credentials WHERE active = 1 ORDER BY updated_at DESC, id LIMIT 1",
+  );
+  return rows.length > 0 ? (rows[0] as unknown as DnsCredentialRow) : null;
+}
+
+/** WHAT: fetch one DNS credential by id, or null when missing. */
+export async function getDnsCredential(
+  db: D1Database,
+  id: string,
+): Promise<DnsCredentialRow | null> {
+  const rows = await selectRows(db, "SELECT * FROM dns_credentials WHERE id = ?", [
+    id,
+  ]);
+  return rows.length > 0 ? (rows[0] as unknown as DnsCredentialRow) : null;
+}
+
+/** WHAT: store one DNS credential (sealed token included, inactive). */
+export async function insertDnsCredential(
+  db: D1Database,
+  credential: {
+    id: string;
+    label: string;
+    sealed_token: string;
+    created_at: number;
+    updated_at: number;
+  },
+): Promise<void> {
+  await executeWrite(
+    db,
+    `
+        INSERT INTO dns_credentials (id, label, sealed_token, created_at, updated_at, active)
+        VALUES (?, ?, ?, ?, ?, 0)
+        `,
+    [
+      credential.id,
+      credential.label,
+      credential.sealed_token,
+      credential.created_at,
+      credential.updated_at,
+    ],
+  );
+}
+
+/** WHAT: replace one stored credential's label and sealed token. */
+export async function updateDnsCredentialToken(
+  db: D1Database,
+  id: string,
+  label: string,
+  sealedToken: string,
+  updatedAt: number,
+): Promise<void> {
+  await executeWrite(
+    db,
+    `
+        UPDATE dns_credentials
+        SET label = ?, sealed_token = ?, updated_at = ?
+        WHERE id = ?
+        `,
+    [label, sealedToken, updatedAt, id],
+  );
+}
+
+/**
+ * WHAT: make one row the single active credential.
+ *
+ * WHY two statements and not one UPDATE with a subquery: the clear-all and
+ * the activation are one logical act, and D1 runs them back-to-back; the
+ * failure window leaves zero actives, which the reader treats as "use the
+ * fallback binding" — the safe direction, never two actives.
+ */
+export async function activateDnsCredential(
+  db: D1Database,
+  id: string,
+  updatedAt: number,
+): Promise<void> {
+  await executeWrite(db, "UPDATE dns_credentials SET active = 0");
+  await executeWrite(
+    db,
+    "UPDATE dns_credentials SET active = 1, updated_at = ? WHERE id = ?",
+    [updatedAt, id],
+  );
+}
+
+/** WHAT: delete one DNS credential row outright (no soft state to keep). */
+export async function deleteDnsCredential(
+  db: D1Database,
+  id: string,
+): Promise<void> {
+  await executeWrite(db, "DELETE FROM dns_credentials WHERE id = ?", [id]);
 }
 
 /** WHAT: return one node's maintenance actions, action-name ordered. */

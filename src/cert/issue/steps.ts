@@ -20,6 +20,7 @@ import {
   observeTxtPropagation,
 } from "../acme/dns01";
 import { CloudflareApiError, createTxtRecord, deleteTxtRecord } from "../dns/cloudflare";
+import { activeDnsToken } from "../credentials";
 import { parseCertificate, splitCertificateChain } from "../crypto/certificate";
 import { buildCsr } from "../crypto/csr";
 import { b64uDecode, b64uEncode } from "../crypto/base64url";
@@ -63,6 +64,9 @@ export interface IssueTimings {
  *
  * WHY the whole `env` rides along: `key_cipher.seal/unseal` reads
  * `env.KEY_SECRET`, and the cron/test seams pass the full binding object.
+ * `CF_DNS_API_TOKEN` stays in the slice for one release: with no active
+ * sealed row the credential reader falls back to it, and the next release
+ * removes that fallback with the binding itself.
  */
 export type IssueEnv = Pick<Env, "DB" | "KEY_SECRET" | "CF_DNS_API_TOKEN">;
 
@@ -71,7 +75,15 @@ export interface IssueDependencies {
   db: D1Database;
   environment: AcmeEnvironment;
   directoryUrl: string;
-  dnsApiToken: string;
+  /**
+   * WHAT: no threaded DNS token.
+   *
+   * WHY: the credential is runtime state now — a panel action can activate
+   * a new one mid-run, and every DNS call must use what is in force at
+   * that moment. Each call site resolves through `activeDnsToken`, which
+   * fails with the named "no DNS credential configured" sentence instead
+   * of surfacing a Cloudflare 401.
+   */
   fetcher: typeof fetch;
   timings: IssueTimings;
 }
@@ -146,7 +158,6 @@ export function createIssueDependencies(
     db: env.DB,
     environment,
     directoryUrl,
-    dnsApiToken: env.CF_DNS_API_TOKEN,
     fetcher: options.fetcher ?? globalThis.fetch,
     timings: { ...DEFAULT_TIMINGS, ...options.timings },
   };
@@ -319,7 +330,7 @@ export async function publishTxtChallenges(
     if (!recordId) {
       try {
         recordId = await createTxtRecord({
-          apiToken: deps.dnsApiToken,
+          apiToken: await activeDnsToken(deps.env),
           zoneId: domain.zone_id,
           name,
           value,
@@ -664,7 +675,7 @@ export async function cleanupTxtRecords(
   for (const record of records) {
     try {
       await deleteTxtRecord({
-        apiToken: deps.dnsApiToken,
+        apiToken: await activeDnsToken(deps.env),
         zoneId: record.zone_id,
         recordId: record.cf_record_id,
         fetch: deps.fetcher,
@@ -709,7 +720,7 @@ export async function loadAcmeAccount(
     );
   }
 
-  const privateKeyPem = await unseal(deps.env, account.private_key);
+  const privateKeyPem = await unseal(deps.env, "ACME account key", account.private_key);
   const privateKey = await importPrivateKeyPem(privateKeyPem);
   const publicJwk = parsePublicJwk(account.public_jwk, deps.environment);
   const publicKey = await crypto.subtle.importKey(
@@ -743,7 +754,7 @@ async function assertPrivateKeyMatchesCertificate(
   if (artifacts === null) {
     throw new NonRetryableError(`Certificate ${leaf.certificateId} has no stored private key`);
   }
-  const privateKeyPem = await unseal(deps.env, artifacts.private_key);
+  const privateKeyPem = await unseal(deps.env, "certificate private key", artifacts.private_key);
   const privateKey = await importPrivateKeyPem(privateKeyPem);
   const publicKey = await crypto.subtle.importKey(
     "jwk",

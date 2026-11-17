@@ -18,6 +18,7 @@ import {
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import { finishIssueRun, recordRunPhase, type CertificateRow } from "../store/d1";
+import { activeDnsToken } from "../credentials";
 import { AcmeError } from "../acme/errors";
 import {
   acceptChallenges,
@@ -83,6 +84,21 @@ export class CertificateWorkflow extends WorkflowEntrypoint<Env, IssuePayload> {
       const loaded = await step.do("load", async () => loadIssue(deps, runId, domainId));
       domainName = loaded.domain.name;
       previousCertificate = loaded.previousCertificate;
+
+      await this.phase(step, runId, "resolve-dns-credential");
+      // WHY the first ACME-adjacent step: a missing credential would only
+      // surface at publish-txt as the named error — after an account and
+      // an order were already spent on the CA. Resolving here turns the
+      // absence into last_error before anything is asked of Let's Encrypt;
+      // the DNS steps still re-resolve per use, so a mid-run activation is
+      // honored.
+      await step.do("resolve-dns-credential", async () => {
+        try {
+          await activeDnsToken(deps.env);
+        } catch (error) {
+          throw new NonRetryableError(issueErrorMessage(error));
+        }
+      });
 
       await this.phase(step, runId, "ensure-account");
       // The account state rides in D1; ensureAcmeAccount creates it when the

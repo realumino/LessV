@@ -58,7 +58,7 @@ export async function keyMap(
   const stored = await db.listRealityKeys(env.DB, nodeId);
   const keys: Record<string, string> = {};
   for (const [inboundId, row] of Object.entries(stored)) {
-    keys[inboundId] = await unseal(env, row.private_key);
+    keys[inboundId] = await unseal(env, "REALITY private key", row.private_key);
   }
   return keys;
 }
@@ -152,7 +152,7 @@ export async function listKeys(
     const row = stored[inboundId];
     let derived: string | null = null;
     if (row !== undefined) {
-      derived = derivePublicKey(await unseal(env, row.private_key));
+      derived = derivePublicKey(await unseal(env, "REALITY private key", row.private_key));
     }
     rows.push({
       inbound_id: inboundId,

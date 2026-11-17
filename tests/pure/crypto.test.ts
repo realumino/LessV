@@ -107,7 +107,7 @@ describe("encrypt/decrypt", () => {
 
 describe("key_cipher", () => {
   it("unseals a Python-produced sealed key", async () => {
-    expect(await unseal(secretEnv, fixture.sealed_key.stored)).toBe(
+    expect(await unseal(secretEnv, "REALITY private key", fixture.sealed_key.stored)).toBe(
       fixture.sealed_key.plaintext,
     );
   });
@@ -116,7 +116,7 @@ describe("key_cipher", () => {
     const sealed = await seal(secretEnv, fixture.sealed_key.plaintext);
 
     expect(sealed.startsWith("v1:")).toBe(true);
-    expect(await unseal(secretEnv, sealed)).toBe(fixture.sealed_key.plaintext);
+    expect(await unseal(secretEnv, "REALITY private key", sealed)).toBe(fixture.sealed_key.plaintext);
   });
 
   it("re-seals with a fresh IV every time", async () => {
@@ -127,7 +127,7 @@ describe("key_cipher", () => {
   });
 
   it("refuses a value that is not a v1 ciphertext", async () => {
-    await expect(unseal(secretEnv, "not-sealed")).rejects.toThrow(
+    await expect(unseal(secretEnv, "REALITY private key", "not-sealed")).rejects.toThrow(
       /not a v1 ciphertext/,
     );
   });
@@ -139,14 +139,14 @@ describe("key_cipher", () => {
       /KEY_SECRET is not configured/,
     );
     await expect(
-      unseal(emptyEnv, fixture.sealed_key.stored),
+      unseal(emptyEnv, "REALITY private key", fixture.sealed_key.stored),
     ).rejects.toThrow(/KEY_SECRET is not configured/);
   });
 
   it("tolerates a BOM and surrounding whitespace on the secret", async () => {
     const padded = envWith("\uFEFF" + fixture.sealed_key.secret_b64 + "\r\n");
 
-    expect(await unseal(padded, fixture.sealed_key.stored)).toBe(
+    expect(await unseal(padded, "REALITY private key", fixture.sealed_key.stored)).toBe(
       fixture.sealed_key.plaintext,
     );
     expect(secretBytes(padded)).toEqual(base64ToBytes(fixture.sealed_key.secret_b64));

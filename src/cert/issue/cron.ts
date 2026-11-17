@@ -81,7 +81,7 @@ export async function runCron(env: Env, options: CronOptions = {}): Promise<Cron
 
   const sweeper = await sweep({
     db: env.DB,
-    dnsApiToken: env.CF_DNS_API_TOKEN,
+    env,
     fetcher,
     now: () => now,
   });

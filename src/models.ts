@@ -567,6 +567,42 @@ export const AdminKeyCreatedOut = z.object({
 });
 export type AdminKeyCreatedOut = z.infer<typeof AdminKeyCreatedOut>;
 
+/** WHAT: one stored DNS credential as the API returns it — the token, even
+ * sealed, never leaves the server. */
+export const DnsCredentialOut = z.object({
+  id: z.string(),
+  label: z.string(),
+  active: z.boolean(),
+  created_at: z.int(),
+  updated_at: z.int(),
+});
+export type DnsCredentialOut = z.infer<typeof DnsCredentialOut>;
+
+/**
+ * WHAT: request body for POST /api/admin/dns-credentials.
+ *
+ * WHY `id` is optional: present, it re-saves that row (a rotation of the
+ * active credential); absent, it stores a new inactive row.
+ */
+export const DnsCredentialSaveIn = z.object({
+  label: z.string().min(1).max(100),
+  token: z.string().min(1),
+  id: z.string().optional(),
+});
+export type DnsCredentialSaveIn = z.infer<typeof DnsCredentialSaveIn>;
+
+/** WHAT: request body for the verify-only check of a pasted DNS token. */
+export const DnsTokenVerifyIn = z.object({
+  token: z.string().min(1),
+});
+export type DnsTokenVerifyIn = z.infer<typeof DnsTokenVerifyIn>;
+
+/** WHAT: response of a verify or save — how many zones the token can read. */
+export const DnsZonesOut = z.object({
+  zones: z.int(),
+});
+export type DnsZonesOut = z.infer<typeof DnsZonesOut>;
+
 /** WHAT: response for GET /api/admin/nodes/{node_id}/presets. */
 /**
  * WHAT: one preset input.

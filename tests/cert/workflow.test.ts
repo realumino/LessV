@@ -13,6 +13,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { seedIssueRun, seedCertDomain } from "./support/fixtures";
 import { getIssueRun } from "../../src/cert/store/d1";
+import { NO_DNS_CREDENTIAL_ERROR } from "../../src/cert/credentials";
 import type { IssuePayload } from "../../src/cert/issue/types";
 
 const EXPIRED_PROBLEM =
@@ -85,6 +86,42 @@ describe("CertificateWorkflow orchestration", () => {
           .bind(domain.id)
           .first<{ last_error: string | null }>(),
       ).toMatchObject({ last_error: "mock authorization failure" });
+    });
+  });
+
+  it("fails the run at the top with the named credential error before any CA call", async () => {
+    // WHY the first step after load: a missing credential must never cost
+    // an account or an order at the CA. The step error is not retried and
+    // finish-run mirrors the sentence into the production domain's
+    // last_error, where the panel already renders it.
+    const domain = await seedCertDomain(env.DB);
+    const { runId, workflowId } = await seedIssueRun(env.DB, domain.id, "manual", "production");
+    const payload: IssuePayload = { runId, domainId: domain.id, environment: "production" };
+    await withWorkflowInstance(workflowId, async (instance) => {
+      await instance.modify(async (modifier) => {
+        await mockSuccessfulRun(modifier, { domain, runId });
+        await modifier.mockStepError(
+          { name: "resolve-dns-credential" },
+          new Error(NO_DNS_CREDENTIAL_ERROR),
+        );
+        await modifier.disableRetryDelays();
+        await modifier.disableSleeps();
+      });
+
+      await env.ISSUANCE.create({ id: workflowId, params: payload });
+      await instance.waitForStatus("complete");
+
+      await expect(instance.getOutput()).resolves.toMatchObject({
+        runId,
+        status: "failed",
+        error: NO_DNS_CREDENTIAL_ERROR,
+      });
+      expect(await getIssueRun(env.DB, runId)).toMatchObject({ status: "failed" });
+      expect(
+        await env.DB.prepare("SELECT last_error FROM cert_domains WHERE id = ?")
+          .bind(domain.id)
+          .first<{ last_error: string | null }>(),
+      ).toMatchObject({ last_error: NO_DNS_CREDENTIAL_ERROR });
     });
   });
 

@@ -42,7 +42,9 @@ function makeSetup() {
 }
 
 function sweeperDeps(fetcher: typeof fetch): SweeperDependencies {
-  return { db: env.DB, dnsApiToken: "test-token", fetcher, now: () => NOW };
+  // The env carries the test-only CF_DNS_API_TOKEN binding; the DNS calls
+  // are intercepted by the mock, so the token value is irrelevant.
+  return { db: env.DB, env, fetcher, now: () => NOW };
 }
 
 describe("production certificate sweeper", () => {

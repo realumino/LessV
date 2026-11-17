@@ -15,6 +15,7 @@
  */
 
 import { deleteTxtRecord } from "../dns/cloudflare";
+import { activeDnsToken, NO_DNS_CREDENTIAL_ERROR } from "../credentials";
 import {
   deleteCertificateArtifacts,
   deleteStagingCertificate,
@@ -30,7 +31,15 @@ import {
 
 export interface SweeperDependencies {
   db: D1Database;
-  dnsApiToken: string;
+  /**
+   * WHAT: the env slice the credential reader needs.
+   *
+   * WHY no threaded token: the credential is runtime state; the sweeper
+   * resolves what is in force when it runs, and a missing credential is
+   * the named "no DNS credential configured" event, not a Cloudflare 401
+   * per record.
+   */
+  env: Env;
   fetcher: typeof fetch;
   now: () => Date;
 }
@@ -173,11 +182,30 @@ export async function sweepStaleChallengeRecords(
   let deleted = 0;
   let failed = 0;
 
+  // WHY resolved once, at the top: the loop's per-record failures stay
+  // Cloudflare-shaped; a missing credential is a configuration fact that
+  // would turn every record into the same 401. Absent rows fail as named
+  // events and the next cron run retries them.
+  let apiToken: string;
+  try {
+    apiToken = await activeDnsToken(deps.env);
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== NO_DNS_CREDENTIAL_ERROR) {
+      throw error;
+    }
+    console.warn(JSON.stringify({
+      event: "sweeper.no_dns_credential",
+      staleChallenges: rows.length,
+      error: error.message,
+    }));
+    return { deleted: 0, failed: rows.length };
+  }
+
   for (const record of rows) {
     try {
       // The Cloudflare API answers 404 for an already-gone record; that counts as deleted.
       await deleteTxtRecord({
-        apiToken: deps.dnsApiToken,
+        apiToken,
         zoneId: record.zone_id,
         recordId: record.cf_record_id,
         fetch: deps.fetcher,

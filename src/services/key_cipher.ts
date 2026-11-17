@@ -43,12 +43,21 @@ export async function seal(env: { KEY_SECRET?: string }, privateKey: string): Pr
  * without the prefix is corrupt data or a row written by a misconfigured
  * render. Raising here keeps the failure at the first reader instead of
  * letting unusable key material flow into a render.
+ *
+ * WHY the label parameter: every sealed kind shares this module, so the
+ * error must say WHICH stored credential failed — "DNS token is not a v1
+ * ciphertext" reads as a diagnosis, "REALITY key…" for a DNS token would
+ * send the operator looking at the wrong subsystem.
  */
-export async function unseal(env: { KEY_SECRET?: string }, stored: string): Promise<string> {
+export async function unseal(
+  env: { KEY_SECRET?: string },
+  label: string,
+  stored: string,
+): Promise<string> {
   if (!stored.startsWith(V1_PREFIX)) {
     throw new Error(
-      "REALITY key is not a v1 ciphertext: it was written without the " +
-        "sealing secret or the data is corrupt",
+      `${label} is not a v1 ciphertext: it was written without the sealing ` +
+        "secret or the data is corrupt",
     );
   }
   return new TextDecoder().decode(await decrypt(secretBytes(env), stored));
