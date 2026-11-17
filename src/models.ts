@@ -441,12 +441,31 @@ export const HeartbeatIn = z.object({
 });
 export type HeartbeatIn = z.infer<typeof HeartbeatIn>;
 
+/**
+ * WHAT: the apply-report stages this plane knows (PROTOCOL.md, protocol 3).
+ *
+ * WHY the set lives beside a plain string field: a newer server may name a
+ * stage this plane has never heard of, and refusing the whole report would
+ * hide a success the panel needs. An unknown stage is accepted and only
+ * last_seen moves (node_state_service.reportValues) — the tolerant-reader
+ * half of the version-skew policy.
+ */
+export const REPORT_STAGES = [
+  "fetched",
+  "test",
+  "applied",
+  "started",
+  "rolled_back",
+  "cert",
+] as const;
+export type ReportStage = (typeof REPORT_STAGES)[number];
+
 /** WHAT: request body for POST /api/node/report (PROTOCOL.md, protocol 2). */
 export const ReportIn = z.object({
   protocol: z.int(),
   hash: z.string(),
   ok: z.boolean(),
-  stage: z.enum(["fetched", "test", "applied", "started", "rolled_back", "cert"]),
+  stage: z.string(),
   xray_exit_code: z.int().nullable().default(null),
   error: z.string().nullable().default(null),
   // Certificate/nginx facts. Present on stage=cert reports and on
@@ -485,13 +504,17 @@ export const StatsIn = z.object({
 });
 export type StatsIn = z.infer<typeof StatsIn>;
 
-/** WHAT: request body for POST /api/node/action (PROTOCOL.md, protocol 3). */
+/**
+ * WHAT: request body for POST /api/node/action (PROTOCOL.md, protocol 3).
+ *
+ * WHY the action is a string and not the NODE_ACTIONS enum: a newer server
+ * may report an action name this plane never requested. The known set is
+ * NODE_ACTIONS in src/db.ts; an unknown name matches no pending row, so the
+ * report is an idempotent no-op that still records last_seen.
+ */
 export const ActionReportIn = z.object({
   protocol: z.int(),
-  // update_xray is accepted only so a legacy server can answer a leftover
-  // pending row; the plane never creates one. The action rows themselves keep
-  // both names so old history stays readable.
-  action: z.enum(["update_xray", "update_geodata"]),
+  action: z.string(),
   ok: z.boolean(),
   version: z.string().nullable().default(null),
   error: z.string().nullable().default(null),

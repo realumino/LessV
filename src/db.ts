@@ -50,6 +50,11 @@ export type NodeRow = {
   cert_synced_at: number | null;
   /** Which ACME environment's current certificates this node receives. */
   cert_environment: "production" | "staging";
+  /** The protocol the node last declared at enroll or heartbeat; NULL until
+   * then, and the reader defaults a missing column to NULL so a deploy whose
+   * migration lagged is harmless. Compared against PROTOCOL_VERSION in the
+   * sync view's skew warning. */
+  protocol: number | null;
   created_at: number;
 };
 
@@ -198,6 +203,13 @@ function nodeRow(row: Row): NodeRow {
     row["config_json"] === null || row["config_json"] === undefined
       ? null
       : (JSON.parse(row["config_json"] as string) as Record<string, unknown>);
+  // WHY the coalesce: SELECT * returns the column only when the migration
+  // has run; a reader that never throws on a lagging schema is what makes
+  // the migration safe to apply through the deploy pipeline.
+  node.protocol =
+    row["protocol"] === undefined || row["protocol"] === null
+      ? null
+      : Number(row["protocol"]);
   return node;
 }
 
@@ -369,6 +381,7 @@ export async function touchNode(
   geodataVersion: string | null,
   lastError: string | null,
   appliedHash: string | null,
+  protocol: number | null,
 ): Promise<void> {
   await executeWrite(
     db,
@@ -376,7 +389,7 @@ export async function touchNode(
         UPDATE nodes
         SET last_seen = ?, health = ?, agent_version = ?,
             xray_version = ?, geodata_version = ?, last_error = ?,
-            applied_hash = ?
+            applied_hash = ?, protocol = ?
         WHERE id = ?
         `,
     [
@@ -387,6 +400,7 @@ export async function touchNode(
       geodataVersion,
       lastError,
       appliedHash,
+      protocol,
       nodeId,
     ],
   );
@@ -442,11 +456,15 @@ export async function requestNodeAction(
 export async function finishNodeAction(
   db: D1Database,
   nodeId: string,
-  action: NodeAction,
+  action: string,
   state: "ok" | "failed",
   message: string | null,
   finishedAt: number,
 ): Promise<void> {
+  // WHY the action is a string, not the NodeAction union: a newer server may
+  // report an action name this plane has never requested; the WHERE then
+  // matches no row and the report is an idempotent no-op (the liveness
+  // touch that records last_seen happens in the caller either way).
   await executeWrite(
     db,
     `

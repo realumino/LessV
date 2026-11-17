@@ -10,7 +10,14 @@
  */
 
 import * as db from "../db";
-import type { ActionReportIn, HeartbeatIn, NodeActionOut, NodeSyncOut, ReportIn } from "../models";
+import {
+  REPORT_STAGES,
+  type ActionReportIn,
+  type HeartbeatIn,
+  type NodeActionOut,
+  type NodeSyncOut,
+  type ReportIn,
+} from "../models";
 import { configHash, desiredConfig } from "./render_service";
 import { certLintWarnings, type LintCert } from "../cert/lint";
 import { listNodeAssignedDomains } from "../cert/store/d1";
@@ -28,6 +35,9 @@ export type LivenessValues = {
   geodata_version: string | null;
   last_error: string | null;
   applied_hash: string | null;
+  /** The protocol the node declared on this very request; a report keeps
+   * the stored value — enroll and heartbeat are the two that record it. */
+  protocol: number | null;
 };
 
 /** WHAT: the stored columns these rules compare against (no config, no id). */
@@ -40,6 +50,7 @@ type LivenessRow = Pick<
   | "geodata_version"
   | "last_error"
   | "applied_hash"
+  | "protocol"
 >;
 
 /** WHAT: Unix seconds from the plane's clock (the time authority). */
@@ -69,6 +80,7 @@ export function heartbeatValues(
     geodata_version: payload.geodata_version ?? node.geodata_version,
     last_error: node.last_error,
     applied_hash: payload.applied_hash,
+    protocol: payload.protocol,
   };
 }
 
@@ -98,6 +110,7 @@ export function shouldTouch(
     "geodata_version",
     "last_error",
     "applied_hash",
+    "protocol",
   ] as const;
   for (const key of facts) {
     if (values[key] !== node[key]) {
@@ -120,6 +133,12 @@ export function shouldTouch(
  * nginx/cert facts only (they go to the cert columns); letting it set
  * health/last_error would overwrite Xray state with a process-status
  * claim. Only last_seen moves.
+ *
+ * WHY an unknown stage writes last_seen only: a newer server may name a
+ * stage this plane does not know (the version-skew policy accepts it).
+ * Its semantics are unguessable — is ok=true a hash adoption or something
+ * else entirely? — so the report proves liveness and changes nothing else.
+ * The stage set lives beside ReportIn in models.ts.
  */
 export function reportValues(
   node: LivenessRow,
@@ -134,7 +153,14 @@ export function reportValues(
     geodata_version: node.geodata_version,
     last_error: node.last_error,
     applied_hash: node.applied_hash,
+    protocol: node.protocol ?? null,
   };
+  const knownStage = (
+    REPORT_STAGES as readonly string[]
+  ).includes(payload.stage);
+  if (!knownStage) {
+    return values;
+  }
   if (payload.stage === "cert") {
     return values;
   }
@@ -167,6 +193,7 @@ export async function touchFromValues(
     values.geodata_version,
     values.last_error,
     values.applied_hash,
+    values.protocol,
   );
 }
 
@@ -214,6 +241,11 @@ export function actionReportValues(
   payload: ActionReportIn,
   at: number,
 ): LivenessValues {
+  // WHY no known-action gate: an unknown action name matches neither
+  // comparison below, so no version is adopted and the touch that records
+  // last_seen still happens — the report is an idempotent no-op on the
+  // action row (finishNodeAction's WHERE matches nothing) and a liveness
+  // proof everywhere else.
   const version = payload.ok ? payload.version : null;
   return {
     last_seen: at,
@@ -229,6 +261,7 @@ export function actionReportValues(
         : node.geodata_version,
     last_error: node.last_error,
     applied_hash: node.applied_hash,
+    protocol: node.protocol ?? null,
   };
 }
 
@@ -275,6 +308,7 @@ export async function desiredHash(
 export async function syncState(
   env: Env,
   nodeId: string,
+  planeProtocol: number,
 ): Promise<NodeSyncOut | null> {
   const node = await db.getNode(env.DB, nodeId);
   if (node === null) {
@@ -292,6 +326,18 @@ export async function syncState(
   } catch (error) {
     lintWarnings = [`cert lint failed: ${error instanceof Error ? error.message : String(error)}`];
   }
+  // WHY the skew warning and not a separate field: the fleet view already
+  // renders warnings, and a skew IS a warning — something the operator
+  // should fix, not a state to design a column for. The stored protocol is
+  // what the server last declared; a mismatch means the server is inside
+  // the window but not at CURRENT (a refusal would have prevented the
+  // report otherwise).
+  const allWarnings: string[] = [...warnings, ...lintWarnings];
+  if (node.protocol !== null && node.protocol !== planeProtocol) {
+    allWarnings.push(
+      `server speaks protocol ${node.protocol}; this plane speaks ${planeProtocol}`,
+    );
+  }
   return {
     node_id: nodeId,
     state: node.last_seen !== null ? "active" : "pending",
@@ -306,7 +352,7 @@ export async function syncState(
     xray_version: node.xray_version,
     geodata_version: node.geodata_version,
     last_error: node.last_error,
-    warnings: [...warnings, ...lintWarnings],
+    warnings: allWarnings,
     actions: await listActions(env.DB, nodeId),
     nginx_ok: node.nginx_ok,
     nginx_error: node.nginx_error,

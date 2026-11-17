@@ -114,7 +114,7 @@ describe("the D1 data layer", () => {
     const nodeId = uid("n");
     await makeNode(nodeId);
 
-    await db.touchNode(conn, nodeId, 1700, "ok", "0.1.0", "25.1.1", "20261110", null, "abc");
+    await db.touchNode(conn, nodeId, 1700, "ok", "0.1.0", "25.1.1", "20261110", null, "abc", 3);
     await db.setTokenHash(conn, nodeId, "first");
     await db.setTokenHash(conn, nodeId, "second");
 
@@ -127,8 +127,20 @@ describe("the D1 data layer", () => {
       geodata_version: "20261110",
       last_error: null,
       applied_hash: "abc",
+      protocol: 3,
       token_hash: "second",
     });
+  });
+
+  it("leaves the declared protocol NULL until a node reports it", async () => {
+    // WHY: protocol is liveness, not identity — a freshly created node has
+    // contacted nobody, and the sync view must not warn about a skew it has
+    // never observed.
+    const nodeId = uid("n");
+    await makeNode(nodeId);
+
+    const created = await db.getNode(conn, nodeId);
+    expect(created?.protocol).toBeNull();
   });
 
   it("lists users username-ordered and fetches one by name", async () => {

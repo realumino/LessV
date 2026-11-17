@@ -17,6 +17,7 @@ import {
   EnrollIn,
   HeartbeatIn,
   parseJsonBody,
+  REPORT_STAGES,
   ReportIn,
   StatsIn,
 } from "../models";
@@ -174,6 +175,7 @@ nodeApi.post("/api/node/enroll", async (c) => {
     geodata_version: node.geodata_version,
     last_error: node.last_error,
     applied_hash: node.applied_hash,
+    protocol: payload.protocol,
   });
   const [wanted] = await nodeStateService.desiredHash(c.env, node.id);
   const fresh = (await db.getNode(c.env.DB, node.id)) as db.NodeRow;
@@ -232,6 +234,19 @@ nodeApi.post("/api/node/action", async (c) => {
   const node = await requireNode(c.env, c.req.raw);
   const payload = await parseJsonBody(c.req.raw, ActionReportIn);
   assertProtocol(payload);
+  if (!(db.NODE_ACTIONS as readonly string[]).includes(payload.action)) {
+    // WHY a log and not an error: the version-skew policy accepts what it
+    // understands and ignores the rest. An unknown action name matches no
+    // pending row, so the report below is an idempotent no-op either way;
+    // the log is how a skew becomes visible server-side.
+    console.warn(
+      JSON.stringify({
+        event: "node.action_unknown",
+        nodeId: node.id,
+        action: payload.action,
+      }),
+    );
+  }
   const at = nodeStateService.now();
   await nodeStateService.touchFromValues(
     c.env.DB,
@@ -291,6 +306,19 @@ nodeApi.post("/api/node/report", async (c) => {
   const node = await requireNode(c.env, c.req.raw);
   const payload = await parseJsonBody(c.req.raw, ReportIn);
   assertProtocol(payload);
+  if (!(REPORT_STAGES as readonly string[]).includes(payload.stage)) {
+    // WHY a log and not an error: a newer server may name a stage this
+    // plane does not know. reportValues writes last_seen only for it — the
+    // liveness columns are never moved by an unguessable stage — and this
+    // log is what makes the skew visible server-side.
+    console.warn(
+      JSON.stringify({
+        event: "node.report_unknown_stage",
+        nodeId: node.id,
+        stage: payload.stage,
+      }),
+    );
+  }
   const values = nodeStateService.reportValues(
     node,
     payload,

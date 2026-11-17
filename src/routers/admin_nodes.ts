@@ -21,6 +21,7 @@ import {
   parseJsonObject,
   PresetBuildIn,
 } from "../models";
+import { PROTOCOL_VERSION } from "./node";
 import * as nodeService from "../services/node_service";
 import * as nodeStateService from "../services/node_state_service";
 import * as cloudInit from "../services/cloud_init";
@@ -245,6 +246,7 @@ adminNodes.get("/api/admin/nodes/:node_id/sync", async (c) => {
   const state = await nodeStateService.syncState(
     c.env,
     c.req.param("node_id"),
+    PROTOCOL_VERSION,
   );
   if (state === null) {
     throw new ApiError(404, "node not found");

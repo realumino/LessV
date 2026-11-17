@@ -7,6 +7,7 @@
  * status codes and shapes, pinned against a live plane and D1.
  */
 
+import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { NodeOut, NodeSyncOut } from "../../src/models";
@@ -112,6 +113,36 @@ describe("minting and the drift view", () => {
 
     expect(state.desired_hash).toBeNull();
     expect(state.in_sync).toBe(false);
+  });
+
+  it("warns when the server's stored protocol differs from the plane's", async () => {
+    // WHY a direct row write: today every accepted protocol equals the
+    // plane's (MIN === CURRENT), so no HTTP path can produce a mismatch —
+    // the warning becomes reachable when a bump widens the window. The
+    // sentence is what the fleet view shows the operator.
+    await planeJson("PUT", `/api/admin/nodes/${node}/config`, config());
+    const token = await mint();
+    await planeJson(
+      "POST",
+      "/api/node/enroll",
+      { protocol: 3 },
+      auth(token),
+    );
+    await env.DB.prepare("UPDATE nodes SET protocol = 4 WHERE id = ?")
+      .bind(node)
+      .run();
+
+    const state = await sync();
+
+    expect(state.warnings).toContain(
+      `server speaks protocol 4; this plane speaks 3`,
+    );
+  });
+
+  it("does not warn about a protocol the node never reported", async () => {
+    const state = await sync();
+
+    expect(state.warnings).toEqual([]);
   });
 
   it("converges after a fake-agent apply", async () => {

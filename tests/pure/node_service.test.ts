@@ -34,6 +34,7 @@ describe("toOut", () => {
       cert_etag: null,
       cert_synced_at: null,
       cert_environment: "production",
+      protocol: null,
       created_at: 1,
     };
   }

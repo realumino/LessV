@@ -10,6 +10,7 @@
  * view instead of raw rows.
  */
 
+import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { NodeOut, NodeSyncOut } from "../../src/models";
@@ -279,6 +280,84 @@ describe("the node protocol", () => {
     expect(state.address).toBe("funky.example.com");
   });
 
+  it("records the protocol the server declared on enroll and heartbeat", async () => {
+    // WHY a direct row read: the stored value is what the sync view's skew
+    // warning compares against; today every accepted protocol equals the
+    // plane's (MIN === CURRENT), so the interesting case is that the value
+    // is recorded at all — and NULL for a node that never contacted.
+    await makeNode();
+    const token = await mint();
+    const headers = auth(token);
+
+    await planeJson("POST", "/api/node/enroll", { protocol: 3 }, headers);
+    const afterEnroll = await env.DB.prepare(
+      "SELECT protocol FROM nodes WHERE id = ?",
+    )
+      .bind(node)
+      .first<{ protocol: number | null }>();
+    expect(afterEnroll?.protocol).toBe(3);
+  });
+
+  it("records only last_seen for a report with an unknown stage", async () => {
+    // WHY: a newer server may name a stage this plane does not know; the
+    // tolerant-reader rule says accept what is understood (liveness) and
+    // never move a column whose semantics are unguessable.
+    await makeNode(node, config());
+    const token = await mint();
+    const headers = auth(token);
+
+    await planeJson(
+      "POST",
+      "/api/node/report",
+      { protocol: 3, hash: "h1", ok: true, stage: "applied" },
+      headers,
+    );
+    const response = await planeJson(
+      "POST",
+      "/api/node/report",
+      {
+        protocol: 3,
+        hash: "h2",
+        ok: true,
+        stage: "renamed_stage",
+      },
+      headers,
+    );
+    expect(response.status, await response.clone().text()).toBe(200);
+
+    const state = await sync();
+    expect(state.applied_hash).toBe("h1");
+    expect(state.health).toBe("ok");
+    expect(state.last_error).toBeNull();
+    expect(state.last_seen).not.toBeNull();
+  });
+
+  it("answers 200 for an action report with an unknown name", async () => {
+    // WHY idempotent no-op: an unknown action matches no pending row, so
+    // nothing is finished — but the liveness proof must stand, and the
+    // report must not fail the newer server that sent it.
+    await makeNode();
+    const token = await mint();
+    const headers = auth(token);
+
+    const response = await planeJson(
+      "POST",
+      "/api/node/action",
+      {
+        protocol: 3,
+        action: "update_geoduck",
+        ok: true,
+        version: "1.0",
+      },
+      headers,
+    );
+    expect(response.status, await response.clone().text()).toBe(200);
+
+    const state = await sync();
+    expect(state.last_seen).not.toBeNull();
+    expect(state.actions).toEqual([]);
+  });
+
   it("refuses a protocol newer than the plane and names which side to upgrade", async () => {
     // WHY: a server ahead of the plane is a deployment-order mistake, and
     // the plane can describe it exactly. The sentence is the node's log
@@ -522,20 +601,6 @@ describe("the node protocol", () => {
     expect(state.applied_hash).toBe("good");
     expect(state.last_error).toBe("bind: address in use");
     expect(state.health).toBe("error:started");
-  });
-
-  it("rejects an unknown report stage", async () => {
-    await makeNode();
-    const token = await mint();
-
-    const response = await planeJson(
-      "POST",
-      "/api/node/report",
-      { protocol: 3, hash: "x", ok: true, stage: "nope" },
-      auth(token),
-    );
-
-    expect(response.status).toBe(422);
   });
 
   it("treats a duplicate report as safe", async () => {
