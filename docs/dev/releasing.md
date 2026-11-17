@@ -30,15 +30,18 @@ only), so the tag identifies one artifact and the bump names the break.
    npm run deploy -- --secrets-file .env.production
    ```
 
-   The pipeline builds the SPA, uploads the Worker, applies remote D1
-   migrations, and requires `https://<host>/api/health` to answer 200.
-4. If the release adds a table or column that the **new** Worker reads
-   (`plane_settings`, `link_names`, …), apply the migrations before the
-   Worker deploy: `npx wrangler d1 migrations apply DB --remote`. They are
-   additive, so the running Worker ignores them, and the pipeline's own apply
-   becomes a no-op. Doing it the other way round leaves a window where the new
-   Worker queries a missing table.
-5. Verify:
+   The pipeline applies the remote D1 migrations **before** uploading the
+   Worker, then verifies that no migration is left pending, requires
+   `https://<host>/api/health` to answer 200, and probes a nonexistent
+   `/sub/<random>` token (200, empty body) — that path is public and still
+   performs a D1 read, so a green pipeline proves routing and database
+   reachability. The order is the safety property: an upload and a migration
+   have no transaction between them, so the interval where code and schema
+   disagree must fall on "old code + new schema", which the running Worker
+   survives, never on "new code + old schema", where its writes fail. A failed
+   migration aborts before the Worker changes and the previous deployment
+   keeps serving.
+4. Verify:
 
    ```bash
    npx wrangler deployments list
@@ -55,6 +58,24 @@ Rollback of code is `npx wrangler rollback`. Migrations are forward-only:
 additive and safe for the previous Worker version. If a migration cannot be
 made backward compatible, the release needs an explicit operator plan, not a
 rollback.
+
+A schema change that cannot stay additive follows the expand/contract rule,
+and its phases never share a release:
+
+1. **Expand** (release N): add the new table or column. Additive, invisible to
+   the running code.
+2. **Migrate** (release N, after the expand): backfill the old rows into the
+   new shape. The backfill is a migration or script that is idempotent —
+   re-runnable against an already-migrated row — because a failed deploy is
+   re-run whole.
+3. **Contract** (release N+1): switch the code to the new shape only, then
+   drop the old one. `wrangler rollback` is **not** available past a contract
+   step; a contract migration that goes wrong is repaired with D1 Time Travel
+   by an explicit operator decision, not rolled back.
+
+Both expand and contract must also leave the *previous* release working: the
+old Worker runs against the expanded schema, and the code in the contract
+release must not touch the dropped shape.
 
 The first deploy needs `--secrets-file` because `wrangler secret put` cannot
 address a Worker that does not exist yet. Later secret changes use
