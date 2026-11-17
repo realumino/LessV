@@ -38,7 +38,8 @@ Cross-repo rules:
   `tests/pure/protocol_freeze.test.ts`, plus the node's `PROTOCOL_VERSION`
   (`src/http.rs`) and a `Cargo.toml` version bump. One commit per repository,
   same intent; a protocol bump that lands on one side only is a broken
-  release.
+  release. On the node side that bump is a MAJOR image release: the image
+  version is the release unit, and a protocol break is the top bump.
 - This tree never builds, tests, or deploys the node image, and the node tree
   never builds or deploys this plane.
 
