@@ -26,7 +26,7 @@
  *     --ssh-key <key.pub> --out <inventory.json> [--tag <tag>]
  *     [--server-only true]   # create only the server
  *   node scripts/linode_provision.mjs node --token-file <linode-env> \
- *     --admin-key-file <plane-env> --cp <url> --node <node-id> \
+ *     --admin-key-file <admin-key-file> --cp <url> --node <node-id> \
  *     --address <fqdn> --out <inventory.json> [--label <label>] \
  *     [--region jp-tyo-3] [--type g6-nanode-1] [--image linode/alpine3.24] \
  *     [--server-image <registry/image:tag>] [--binary <path-in-image>] \
@@ -395,7 +395,7 @@ async function cmdNode(args) {
     fail("--token-file (the Linode token env file) is required");
   }
   if (!args["admin-key-file"]) {
-    fail("--admin-key-file (the plane env file with ADMIN_KEY) is required");
+    fail("--admin-key-file (the file holding ADMIN_KEY=) is required");
   }
   let linodeToken, adminKey;
   try {

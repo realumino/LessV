@@ -123,8 +123,8 @@ npm --prefix frontend run build
 
 ## Standing invariants
 
-- Never commit or print credentials: `ADMIN_KEY`, `KEY_SECRET`,
-  `CF_DNS_API_TOKEN`, `LINODE_TOKEN`, node tokens, sub tokens, VLESS
+- Never commit or print credentials: `KEY_SECRET`, `LINODE_TOKEN`, panel
+  admin keys, the DNS API token, node tokens, sub tokens, VLESS
   URIs/uuids. Tools may print certificate fingerprints to stdout during a
   run; they must not persist them into tracked files.
 - `KEY_SECRET` is never rotated: it seals REALITY, certificate, and ACME

@@ -11,7 +11,7 @@
  *
  * Usage:
  *   node scripts/plane_smoke.mjs --host https://cp.example.com \
- *     --admin-key-file .env.production --node <node-id> --user <username> \
+ *     --admin-key-file .env.admin --node <node-id> --user <username> \
  *     --expect-sni <node-domain>
  */
 

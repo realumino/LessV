@@ -79,7 +79,10 @@ release must not touch the dropped shape.
 
 The first deploy needs `--secrets-file` because `wrangler secret put` cannot
 address a Worker that does not exist yet. Later secret changes use
-`npx wrangler secret put <NAME>`; `KEY_SECRET` is never rotated.
+`npx wrangler secret put <NAME>` — but `KEY_SECRET` is the only secret left
+and is never rotated. Panel admin keys and the DNS token are D1 rows, minted
+or pasted at runtime (the panel, or `scripts/admin_key.mjs` for the first key
+and for recovery); nothing about them is deploy-time state.
 
 Deploying with Cloudflare Access already enabled is fine only if the pipeline
 can reach `/api/health`; that path is deliberately left unprotected. Do not
@@ -140,5 +143,8 @@ the bucket held.
 - [ ] Protocol files agree, or none changed.
 - [ ] Migration is additive and applied by the deploy pipeline.
 - [ ] `worker-configuration.d.ts` regenerated if bindings changed.
+- [ ] `wrangler secret list` shows `KEY_SECRET` only — no `ADMIN_KEY` and no
+      `CF_DNS_API_TOKEN` — and `.env.production` carries nothing else, because
+      `--secrets-file` re-uploads whatever the file holds.
 - [ ] Plane deploy health check passed.
 - [ ] Release notes name the version, protocol, and operator-visible change.

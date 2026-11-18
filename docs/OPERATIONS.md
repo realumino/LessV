@@ -121,7 +121,8 @@ visible until the admin requests the action again.
 ## Certificate lifecycle (plane)
 
 1. **Admin UI → Certificates page** (`/certs`): pick a zone (from
-   `GET /api/admin/zones`, backed by `CF_DNS_API_TOKEN`), add a cert domain
+   `GET /api/admin/zones`, which calls Cloudflare with the active DNS
+   credential row), add a cert domain
    (`example.com`, `*.example.com`, or `vpn.example.com`). `include
    wildcard` adds a `*.<name>` SAN alongside `<name>`; a wildcard-only
    row starts with `*.` and issues just the wildcard.
@@ -412,6 +413,10 @@ Alpine: `apk add ca-certificates` and put the PEM in
 one-off check).
 
 ## Routine operations
+
+`ADMIN_KEY` below is any panel key: mint one with `node
+scripts/admin_key.mjs create --label ops --out .env.admin`, then
+`ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)`.
 
 ```bash
 # issue / re-issue (forced renewal) for a domain

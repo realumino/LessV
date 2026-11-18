@@ -49,6 +49,17 @@ curl -s http://127.0.0.1:8787/api/health
 curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8787/api/admin/nodes
 ```
 
+A fresh local D1 has no admin row, and the plane has no env fallback, so the
+first key is minted into it once:
+
+```bash
+node scripts/admin_key.mjs create --label dev --local --out .env.admin
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
+```
+
+The same script is the recovery path: with every key disabled, or after
+`rm -rf .wrangler/state`, it is the only way back into the panel.
+
 ## Verification
 
 Environment tiers (local Worker, staging Worker, a node under test) live in
@@ -115,8 +126,9 @@ Do not add a second data store; D1 and the Workflow are the backend.
 3. The path must sit under `/api/admin/`, `/api/node/`, `/sub/`, or be the
    exact `/api/health`. The `route_groups` guard is fail-closed; a path
    outside the groups is a 404 before routing.
-4. Admin routes automatically require `ADMIN_KEY`; node routes authenticate
-   through `requireNode`; subscription routes are capability URLs.
+4. Admin routes automatically require a stored panel admin key; node routes
+   authenticate through `requireNode`; subscription routes are capability
+   URLs.
 5. Add the method to `frontend/src/api.ts` and a page/component only when the
    admin needs it.
 6. Cover the behavior in `tests/workerd/` (integration) or `tests/pure/`
@@ -154,7 +166,8 @@ fallback ("serve the current config") true. Add a protocol test in
   common paths; check `git status` before committing.
 - `KEY_SECRET` is not rotatable. Tests use a fixed key; production uses the
   operator's key and must never be regenerated casually.
-- Use different `ADMIN_KEY`/`KEY_SECRET` values locally and in production.
+- Use a different `KEY_SECRET` locally and in production; an admin key is a
+  row, so its value is per-database by construction.
 - `worker-configuration.d.ts` is generated (`npm run types`), tracked, and
   regenerated whenever bindings change.
 - `docs/` and the README are public. Use placeholders (`cp.example.com`,

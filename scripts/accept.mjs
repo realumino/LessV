@@ -18,7 +18,7 @@
  *
  * Usage:
  *   node scripts/accept.mjs --plane https://cp.example.com \
- *     --admin-key-file .env.production --zone example.com \
+ *     --admin-key-file .env.admin --zone example.com \
  *     --linode-token-file .plans/KEYS --image ghcr.io/owner/vela-server:latest \
  *     [--region jp-tyo-3] [--type g6-nanode-1] [--proxy socks5://127.0.0.1:7890] \
  *     [--keep] [--timeout 600] [--out .plans/accept]

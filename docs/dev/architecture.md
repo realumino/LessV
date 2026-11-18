@@ -35,7 +35,7 @@ top-level `README.md`.
 
 ```
 Browser ── /admin ──────────────► Worker (Hono, static SPA)
-                                     │  /api/admin/*  ← ADMIN_KEY (Bearer)
+                                     │  /api/admin/*  ← admin key (Bearer)
                                      │  /api/node/*   ← node token
                                      │  /sub/{token}  ← subscription token
                                      ▼
@@ -66,9 +66,11 @@ subscription renderer.
   groups. This is a fail-closed guard: a route registered at the wrong path
   stays unreachable.
 - The same `*` middleware authenticates every `/api/admin/*` path, including
-  unknown ones, with the `ADMIN_KEY` bearer key. The key is compared through
-  SHA-256 digests and a constant-time XOR loop (`src/auth/admin_key.ts`), so
-  neither content nor length leaks.
+  unknown ones, with a panel admin key. The key is a row in `admin_keys`,
+  compared through SHA-256 digests and a constant-time XOR loop
+  (`src/auth/admin_key.ts`), so neither content nor length leaks. There is no
+  env fallback: a plane with no rows accepts nothing, and
+  `scripts/admin_key.mjs` is the bootstrap and recovery path.
 - `/api/node/*` authenticates with a node bearer token (hash lookup) plus the
   `X-Vela-Server` header (the old `X-Lessv-Node` is still accepted); every
   mismatch is the same 401. `/sub/:token` is a
@@ -97,11 +99,11 @@ subscription renderer.
 
 | Router | Prefix | Authentication | Purpose |
 |---|---|---|---|
-| `adminNodes` | `/api/admin/nodes` | `ADMIN_KEY` | fleet CRUD, config, tokens, sync, presets, maintenance, cert assignment |
-| `adminUsers` | `/api/admin/users` | `ADMIN_KEY` | users, per-node access, subscription tokens, share links |
-| `adminCerts` | `/api/admin/cert-domains`, `/api/admin/zones` | `ADMIN_KEY` | cert domains, test issue, production issue, runs |
-| `adminInboundLinks` | `/api/admin/nodes/{id}/inbound-links` | `ADMIN_KEY` | link variants |
-| `adminReality` | `/api/admin/nodes/{id}/reality-keys` | `ADMIN_KEY` | inspect/rotate REALITY keys |
+| `adminNodes` | `/api/admin/nodes` | admin key | fleet CRUD, config, tokens, sync, presets, maintenance, cert assignment |
+| `adminUsers` | `/api/admin/users` | admin key | users, per-node access, subscription tokens, share links |
+| `adminCerts` | `/api/admin/cert-domains`, `/api/admin/zones` | admin key | cert domains, test issue, production issue, runs |
+| `adminInboundLinks` | `/api/admin/nodes/{id}/inbound-links` | admin key | link variants |
+| `adminReality` | `/api/admin/nodes/{id}/reality-keys` | admin key | inspect/rotate REALITY keys |
 | `nodeApi` | `/api/node/*` | node token | enroll, heartbeat, config, certs, report, action, stats |
 | `subRouter` | `/sub/:token` | subscription token | base64 URI list or mihomo profile |
 | `health` | `/api/health` | none | constant liveness body |
@@ -207,7 +209,10 @@ the subsystem reads.
 
 - `client.ts`, `jws.ts`, `crypto/` implement the ACME client with WebCrypto.
 - `dns/cloudflare.ts` creates and deletes `_acme-challenge` TXT records using
-  `CF_DNS_API_TOKEN` (Zone.DNS Edit + Zone.Zone Read).
+  the active row in `dns_credentials` (Zone.DNS Edit + Zone.Zone Read). There
+  is no env fallback: with no active row every DNS call fails with
+  `no DNS credential configured`, and the panel is the only place the token
+  is stored and activated.
 - `issue/workflow.ts` is the Cloudflare Workflow (`CertificateWorkflow`,
   binding `ISSUANCE`). Each step persists a phase; failures keep the raw
   Let's Encrypt error in `issue_runs.error`.
@@ -294,7 +299,8 @@ consumer of the same secret appears.
 
 ## Invariants
 
-- `ADMIN_KEY` is root-equivalent for the plane.
+- Every stored admin key is root-equivalent for the plane; the CLI script
+  `scripts/admin_key.mjs` is the bootstrap and recovery path.
 - `KEY_SECRET` is never rotated. It seals stored REALITY, certificate, and
   ACME account keys; rotating it makes them unreadable.
 - The protocol version and the accepted window are pinned in

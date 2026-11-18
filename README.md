@@ -17,7 +17,7 @@ Vela 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare 
 
 ```
 浏览器 ── /admin ─────────────► Worker（Hono + 静态 SPA）
-                                  │  /api/admin/*  ← ADMIN_KEY
+                                  │  /api/admin/*  ← admin key
                                   │  /api/node/*   ← 节点 token
                                   │  /sub/{token}  ← 订阅 token
                                   ▼
@@ -73,30 +73,27 @@ cp wrangler.example.jsonc wrangler.jsonc
 
 模板已经包含 D1、Workflow、每日 cron 和 SPA 资源绑定。保持 `workers_dev: false` 与 `preview_urls: false`：面板只应有一个公开主机名，否则 Cloudflare Access 可以被绕过。`wrangler.jsonc` 含真实域名和首次部署后写回的 D1 id，已被 gitignore。
 
-#### 3.3 生成三个密钥
+#### 3.3 生成密封密钥
 
 ```bash
-node -e "console.log('ADMIN_KEY=' + require('node:crypto').randomBytes(32).toString('base64url'))"
 node -e "console.log('KEY_SECRET=' + require('node:crypto').randomBytes(32).toString('base64'))"
 ```
 
 把输出写入 `.env.production`（不要提交）：
 
 ```dotenv
-ADMIN_KEY=<base64url-of-32-random-bytes>
 KEY_SECRET=<base64-of-32-random-bytes>
-CF_DNS_API_TOKEN=<cloudflare-dns-token>
 ```
 
 ```bash
 chmod 600 .env.production
 ```
 
-- `ADMIN_KEY`：所有 `/api/admin/*` 请求的 Bearer key，也用于 SPA 登录。它等价 root，泄漏即失守。
-- 更多管理员身份：在面板（用户页 → Admin keys）铸造与停用 key，或用命令行
-  `node scripts/admin_key.mjs create --label <名称>`。该脚本是第一个管理员的创建途径，也是全部 key
-  被停用后的找回途径。上面的 `ADMIN_KEY` secret 本版本仍然有效（作应急后门），下一版本移除。
-- `KEY_SECRET`：AES-256-GCM 密钥，密封数据库里的 REALITY 私钥、证书私钥和 ACME 账户私钥。**不可轮换**；换掉它，历史密钥全部不可读。生成一次并离线备份。
+- `KEY_SECRET`：AES-256-GCM 密钥，密封数据库里的 REALITY 私钥、证书私钥和 ACME 账户私钥。**不可轮换**；换掉它，历史密钥全部不可读。生成一次并离线备份。它是本版本唯一剩下的部署期 secret。
+- 管理员身份不是 secret，而是 D1 里的行：**首次部署之后**用
+  `node scripts/admin_key.mjs create --label operator-<yyyy-mm> --out .env.admin`
+  铸造第一个 key（`--out` 只打印路径，token 写进 0600 文件；不带 `--out` 时 token 只显示一次）。
+  此后在面板（Users → Admin keys）铸造与停用。每个 key 都等价 root；全部 key 失效时，这个脚本是唯一的重新进入方式。
 - 本地开发用 `.dev.vars`，生产用 `.env.production`，两者不要复用同一组值。
 
 #### 3.4 创建 DNS API Token
@@ -106,7 +103,7 @@ Cloudflare 控制台 → My Profile → API Tokens → Create Token → Custom t
 - Permissions：`Zone → DNS → Edit`，`Zone → Zone → Read`
 - Zone Resources：Include → Specific zone → 要签发证书的 zone
 
-把值填入 `.env.production` 的 `CF_DNS_API_TOKEN`。它只用于 Worker 创建/清理 `_acme-challenge` TXT 和读取 zone 列表，与 `wrangler login` 的凭据是两回事。
+首次部署后在面板 **Certificates → DNS credential** 粘贴该 token：**Verify**（应显示 zone 数）→ **Save** → **Activate**。Worker 只读 active 行——只保存未激活的行，或根本没有行，每次签发都会以 `no DNS credential configured` 失败。它只用于创建/清理 `_acme-challenge` TXT 和读取 zone 列表，与 `wrangler login` 的凭据是两回事。
 
 #### 3.5 部署
 
@@ -126,7 +123,7 @@ npx wrangler deployments list
 npx wrangler workflows list
 ```
 
-浏览器打开 `https://cp.example.com/admin`，粘贴 `ADMIN_KEY` 登录。页面能打开只说明 SPA 正常；还要能列出节点，才说明 D1 与 admin API 正常。
+浏览器打开 `https://cp.example.com/admin`，粘贴 3.3 里铸造的 admin key（也可以用在面板新造的 key）登录。页面能打开只说明 SPA 正常；还要能列出节点，才说明 D1 与 admin API 正常。
 
 #### 3.7 升级、回滚与 secret 变更
 
@@ -138,15 +135,15 @@ npm run deploy -- --secrets-file .env.production
 ```
 
 - 代码回滚：`npx wrangler rollback`。它不会回滚 D1；migrations 必须保持向前兼容。
-- 后续修改 secret：`npx wrangler secret put <NAME>`。
-- `KEY_SECRET` 不轮换。增删管理员在面板铸造/停用 key（或用
-  `node scripts/admin_key.mjs`）即可——不需要部署，也不需要逐个更新浏览器与脚本。
-  `ADMIN_KEY` secret 本版本仍作应急后门保留，下一版本移除。
+- 部署期 secret 只剩 `KEY_SECRET`，它不轮换。
+- 运行时对象不是 secret：管理员 key 在面板铸造/停用（或用
+  `node scripts/admin_key.mjs`），DNS token 在 **Certificates → DNS credential** 里保存并激活——都不需要部署，也不需要逐个更新浏览器与脚本。
+  没有任何可用 key 时面板打不开，`node scripts/admin_key.mjs create` 是唯一的找回方式。
 - 本地检查构建：`npm run deploy -- --dry-run`（不碰云）。
 
 ### 4. 配置 Cloudflare Access（推荐）
 
-Cloudflare Access 在 Cloudflare 边缘增加一层身份认证。它**不是** `ADMIN_KEY` 的替代品：Worker 仍然要求 Bearer key；Access 只是让未认证请求到不了 Worker。必须**先完成 Worker 部署**，再启用 Access，因为部署脚本和 cloud-init 都要访问 `/api/health`。
+Cloudflare Access 在 Cloudflare 边缘增加一层身份认证。它**不是** admin key 的替代品：Worker 仍然要求 Bearer key；Access 只是让未认证请求到不了 Worker。必须**先完成 Worker 部署**，再启用 Access，因为部署脚本和 cloud-init 都要访问 `/api/health`。
 
 #### 4.1 保护什么，不保护什么
 
@@ -202,7 +199,7 @@ Zero Trust → Access controls → Service credentials → Service tokens → Cr
 ```bash
 export CF_ACCESS_CLIENT_ID='<client-id>'
 export CF_ACCESS_CLIENT_SECRET='<client-secret>'
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
 
 curl -sS \
   -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
@@ -225,7 +222,7 @@ curl -i https://cp.example.com/sub/<token>
 # 应返回 Worker 的 401 JSON，而不是 Access 登录页
 curl -i -X POST https://cp.example.com/api/node/enroll
 
-# 管理 API：只带 ADMIN_KEY 应被 Access 拦截；两套凭据都带才 200
+# 管理 API：只带 admin key 应被 Access 拦截；两套凭据都带才 200
 curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/nodes
 ```
 
@@ -233,7 +230,7 @@ curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/n
 
 - Access 只在 Cloudflare 边缘生效；`npm run dev` 的本地 8787 不受保护。
 - 只要存在 `workers.dev`、preview URL 或另一条 route，Access 就能被绕过。模板已关闭，不要手动打开。
-- Access 不替代 `ADMIN_KEY`；两者是独立的两个门槛。
+- Access 不替代 admin key；两者是独立的两个门槛。
 - `Bypass` 只用于 `/sub/*`、`/api/node/*`、`/api/health` 三个公开路径；不要给 `/admin` 或 `/api/admin` 加 Bypass，否则管理面就失去保护。
 - 节点主机不经过 Cloudflare，Access 管不到它；节点安全靠只开 TCP 80/443、UDP 443 与 ICMP echo，禁用密码登录，主机软件包每周自动更新。
 
@@ -248,7 +245,7 @@ curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/n
 API 等价方式：
 
 ```bash
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
 CP=https://cp.example.com
 
 curl -sS -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
@@ -428,7 +425,7 @@ curl -I https://node1.example.com    # 200，证书有效（不用 -k）
 
 ### 7. 安全边界与已知限制
 
-- `ADMIN_KEY` 等价 root；Cloudflare Access 是额外门槛，不是替代品。
+- 每个已存储的 admin key 都等价 root；脚本是引导与找回路径。Cloudflare Access 是额外门槛，不是替代品。
 - `KEY_SECRET` 不可轮换；换掉它，历史节点密钥、证书私钥、ACME 账户全部不可读。
 - 节点 token 只存哈希、只显示一次；`vela-etc` 卷里的 token 文件（`/etc/vela/node.toml`）必须保持 0600。
 - 订阅 URL 是能力凭据；泄漏即等于把该用户的订阅交给对方，及时 Rotate。
@@ -468,7 +465,7 @@ node.
 
 ```
 Browser ── /admin ─────────────► Worker (Hono + static SPA)
-                                  │  /api/admin/*  ← ADMIN_KEY
+                                  │  /api/admin/*  ← admin key
                                   │  /api/node/*   ← node token
                                   │  /sub/{token}  ← subscription token
                                   ▼
@@ -539,37 +536,33 @@ have exactly one public hostname, otherwise Cloudflare Access can be
 bypassed. `wrangler.jsonc` contains the real hostname and the D1 id written
 back after the first deploy, so it is gitignored.
 
-#### 3.3 Generate the three secrets
+#### 3.3 Generate the sealing secret
 
 ```bash
-node -e "console.log('ADMIN_KEY=' + require('node:crypto').randomBytes(32).toString('base64url'))"
 node -e "console.log('KEY_SECRET=' + require('node:crypto').randomBytes(32).toString('base64'))"
 ```
 
-Write them into `.env.production` (never commit it):
+Write it into `.env.production` (never commit it):
 
 ```dotenv
-ADMIN_KEY=<base64url-of-32-random-bytes>
 KEY_SECRET=<base64-of-32-random-bytes>
-CF_DNS_API_TOKEN=<cloudflare-dns-token>
 ```
 
 ```bash
 chmod 600 .env.production
 ```
 
-- `ADMIN_KEY` is the Bearer key for every `/api/admin/*` request and the SPA
-  login. It is root-equivalent: leaking it loses the plane.
-- More admin identities: mint and revoke keys in the panel (Users → Admin
-  keys), or from the command line — `node scripts/admin_key.mjs create
-  --label <name>`. The script is the first-admin path (nothing works before
-  the first key exists) and the recovery path (every key disabled). The
-  `ADMIN_KEY` secret above stays accepted this release as break-glass; the
-  next release removes it.
 - `KEY_SECRET` is the AES-256-GCM key that seals stored REALITY private keys,
   certificate private keys, and ACME account keys. **It cannot be rotated**:
   rotating it makes every stored key unreadable. Generate once and back it up
-  offline.
+  offline. It is the only deploy-time secret this release has left.
+- Admin identities are rows, not secrets: mint the first key **after the first
+  deploy** with `node scripts/admin_key.mjs create --label operator-<yyyy-mm>
+  --out .env.admin` (`--out` prints the path and writes the token to a 0600
+  file; without it the token is shown once in the terminal). Every later key
+  is minted and disabled in the panel (Users → Admin keys). Each one is
+  root-equivalent, and with every key disabled that script is the only way
+  back in.
 - Use `.dev.vars` for local development and `.env.production` for production;
   never reuse the same values.
 
@@ -581,9 +574,12 @@ Cloudflare dashboard → My Profile → API Tokens → Create Token → Custom t
 - Zone Resources: Include → Specific zone → the zone that will hold the
   certificate names
 
-Put the value in `CF_DNS_API_TOKEN` in `.env.production`. This token is used by
-the Worker to create/clean `_acme-challenge` TXT records and list zones; it is
-not the `wrangler login` credential.
+Keep the token somewhere safe. After the first deploy, open **Certificates →
+DNS credential** in the panel and paste it: **Verify** (expect the zone count)
+→ **Save** → **Activate**. The Worker reads the active row and nothing else — a
+saved-but-inactive row, or none at all, fails every issuance with
+`no DNS credential configured`. The token creates and cleans `_acme-challenge`
+TXT records and lists zones; it is not the `wrangler login` credential.
 
 #### 3.5 Deploy
 
@@ -608,8 +604,9 @@ npx wrangler deployments list
 npx wrangler workflows list
 ```
 
-Open `https://cp.example.com/admin` and paste `ADMIN_KEY`. The page loading
-only proves the SPA is served; listing nodes proves D1 and the admin API work.
+Open `https://cp.example.com/admin` and paste the admin key minted in 3.3 (or
+any key from Users → Admin keys). The page loading only proves the SPA is
+served; listing nodes proves D1 and the admin API work.
 
 #### 3.7 Upgrade, rollback, and secret changes
 
@@ -622,17 +619,19 @@ npm run deploy -- --secrets-file .env.production
 
 - Code rollback: `npx wrangler rollback`. It does not roll back D1; migrations
   must remain forward-compatible.
-- Change a secret later: `npx wrangler secret put <NAME>`.
-- `KEY_SECRET` is not rotated. Adding or removing an administrator is a key
-  mint or disable in the panel (or `node scripts/admin_key.mjs`) — no deploy,
-  no touching every browser and script. The `ADMIN_KEY` secret stays as
-  break-glass this release; the next release removes it.
+- Change a secret later: `npx wrangler secret put <NAME>` — but the only name
+  left is `KEY_SECRET`, which is never rotated.
+- Adding or removing an administrator is a key mint or disable in the panel (or
+  `node scripts/admin_key.mjs`), and the DNS token is a row saved and activated
+  in **Certificates → DNS credential** — no deploy, no touching every browser
+  and script. With no working key the panel cannot be opened at all;
+  `node scripts/admin_key.mjs create` is the way back in.
 - Local build check: `npm run deploy -- --dry-run` (no cloud).
 
 ### 4. Cloudflare Access (recommended)
 
 Cloudflare Access adds an identity layer at the Cloudflare edge. It is **not**
-a replacement for `ADMIN_KEY`: the Worker still requires the Bearer key;
+a replacement for the admin key: the Worker still requires the Bearer key;
 Access only keeps unauthenticated requests away from the Worker. Deploy the
 Worker **first**, then enable Access, because the deploy script and cloud-init
 both need `/api/health`.
@@ -707,7 +706,7 @@ Zero Trust → Access controls → Service credentials → Service tokens → Cr
 ```bash
 export CF_ACCESS_CLIENT_ID='<client-id>'
 export CF_ACCESS_CLIENT_SECRET='<client-secret>'
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
 
 curl -sS \
   -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
@@ -733,7 +732,7 @@ curl -i https://cp.example.com/sub/<token>
 # Must return the Worker's 401 JSON, not the Access login page
 curl -i -X POST https://cp.example.com/api/node/enroll
 
-# Admin API: ADMIN_KEY alone is stopped by Access; both credentials are 200
+# Admin API: the admin key alone is stopped by Access; both credentials are 200
 curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/nodes
 ```
 
@@ -743,7 +742,7 @@ Caveats:
   is unprotected.
 - If a `workers.dev` hostname, a preview URL, or another route exists, Access
   can be bypassed. The template disables them; do not turn them on.
-- Access does not replace `ADMIN_KEY`; they are independent gates.
+- Access does not replace the admin key; they are independent gates.
 - Use `Bypass` only for the three public paths (`/sub/*`, `/api/node/*`,
   `/api/health`); never add Bypass for `/admin` or `/api/admin`—that would
   expose the admin surface.
@@ -768,7 +767,7 @@ stops working immediately).
 API equivalent:
 
 ```bash
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
 CP=https://cp.example.com
 
 curl -sS -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
@@ -1040,7 +1039,8 @@ reissued; private keys cannot.
 
 ### 7. Security boundaries and known limitations
 
-- `ADMIN_KEY` is root-equivalent; Cloudflare Access is an extra gate, not a
+- Every stored admin key is root-equivalent; the CLI script is the bootstrap
+  and recovery path. Cloudflare Access is an extra gate, not a
   replacement.
 - `KEY_SECRET` is not rotatable. Rotating it makes every stored node key,
   certificate key, and ACME account unreadable.
@@ -1101,7 +1101,7 @@ Vela یک صفحهٔ مدیریت خودمیزبان برای سرویس هدا�
 
 ```
 مرورگر ── /admin ─────────────► Worker (Hono + SPA ایستا)
-                                  │  /api/admin/*  ← ADMIN_KEY
+                                  │  /api/admin/*  ← admin key
                                   │  /api/node/*   ← توکن گره
                                   │  /sub/{token}  ← توکن اشتراک
                                   ▼
@@ -1171,36 +1171,32 @@ cp wrangler.example.jsonc wrangler.jsonc
 `wrangler.jsonc` میزبان واقعی و شناسهٔ D1 را دارد که پس از اولین استقرار
 نوشته می‌شود، بنابراین در gitignore است.
 
-#### ۳.۳ تولید سه راز
+#### ۳.۳ تولید کلید مهر
 
 ```bash
-node -e "console.log('ADMIN_KEY=' + require('node:crypto').randomBytes(32).toString('base64url'))"
 node -e "console.log('KEY_SECRET=' + require('node:crypto').randomBytes(32).toString('base64'))"
 ```
 
-آن‌ها را در `.env.production` بنویسید (هرگز commit نکنید):
+آن را در `.env.production` بنویسید (هرگز commit نکنید):
 
 ```dotenv
-ADMIN_KEY=<base64url-of-32-random-bytes>
 KEY_SECRET=<base64-of-32-random-bytes>
-CF_DNS_API_TOKEN=<cloudflare-dns-token>
 ```
 
 ```bash
 chmod 600 .env.production
 ```
 
-- `ADMIN_KEY` کلید Bearer برای همهٔ درخواست‌های `/api/admin/*` و ورود SPA
-  است. معادل root است؛ افشای آن یعنی از دست رفتن پنل.
-- شناسه‌های مدیریتی بیشتر: کلیدها را در پنل (صفحهٔ Users → Admin keys) صادر
-  و باطل کنید، یا از خط فرمان — `node scripts/admin_key.mjs create
-  --label <name>`. این اسکریپت راه اولین مدیر و راه بازیابی پس از باطل شدن
-  همهٔ کلیدهاست. راز `ADMIN_KEY` بالا در این نسخه به‌عنوان راه گریز پذیرفته
-  می‌شود؛ نسخهٔ بعد آن را حذف می‌کند.
 - `KEY_SECRET` کلید AES-256-GCM است که کلیدهای خصوصی REALITY، گواهی‌ها و
   حساب ACME را در پایگاه داده مهر می‌کند. **قابل چرخش نیست**: با چرخش آن همهٔ
   کلیدهای ذخیره‌شده ناخوانا می‌شوند. یک‌بار تولید و به‌صورت آفلاین پشتیبان
-  بگیرید.
+  بگیرید. تنها راز زمان استقرار که برای این نسخه مانده همین است.
+- شناسه‌های مدیریتی راز نیستند، سطرند: نخستین کلید را **بعد از اولین استقرار**
+  با `node scripts/admin_key.mjs create --label operator-<yyyy-mm>
+  --out .env.admin` بسازید (`--out` فقط مسیر را چاپ می‌کند و توکن را در فایل
+  0600 می‌نویسد؛ بدون آن توکن یک‌بار در ترمینال دیده می‌شود). کلیدهای بعدی در
+  پنل (Users → Admin keys) ساخته و باطل می‌شوند. هر کلید معادل root است و
+  وقتی همه باطل شوند همین اسکریپت تنها راه بازگشت است.
 - برای توسعهٔ محلی از `.dev.vars` و برای تولید از `.env.production` استفاده
   کنید؛ هرگز یک مقدار را دوباره به کار نبرید.
 
@@ -1212,9 +1208,13 @@ chmod 600 .env.production
 - Zone Resources: Include → Specific zone → همان zone ای که نام‌های گواهی
   در آن هستند
 
-مقدار را در `CF_DNS_API_TOKEN` در `.env.production` بگذارید. این توکن را
-Worker برای ساخت/پاک‌سازی رکوردهای TXT `_acme-challenge` و فهرست zoneها
-استفاده می‌کند؛ با اعتبارنامهٔ `wrangler login` یکی نیست.
+توکن را جای مطمئنی نگه دارید. پس از اولین استقرار در پنل
+**Certificates → DNS credential** آن را بچسبانید: **Verify** (تعداد zone را
+نشان می‌دهد) → **Save** → **Activate**. Worker فقط سطر active را می‌خواند؛ سطر
+ذخیره‌شده ولی فعال‌نشده — یا هیچ سطری — هر صدور را با
+`no DNS credential configured` شکست می‌دهد. این توکن رکوردهای TXT
+`_acme-challenge` را می‌سازد و پاک می‌کند و zoneها را فهرست می‌کند؛ با
+اعتبارنامهٔ `wrangler login` یکی نیست.
 
 #### ۳.۵ استقرار
 
@@ -1238,9 +1238,9 @@ npx wrangler deployments list
 npx wrangler workflows list
 ```
 
-`https://cp.example.com/admin` را باز کنید و `ADMIN_KEY` را بچسبانید. باز شدن
-صفحه فقط یعنی SPA سرو می‌شود؛ فهرست شدن گره‌ها یعنی D1 و API مدیریت کار
-می‌کنند.
+`https://cp.example.com/admin` را باز کنید و کلید مدیریتی ساخته‌شده در ۳.۳ را
+بچسبانید (یا هر کلیدی از Users → Admin keys). باز شدن صفحه فقط یعنی SPA سرو
+می‌شود؛ فهرست شدن گره‌ها یعنی D1 و API مدیریت کار می‌کنند.
 
 #### ۳.۷ ارتقا، بازگشت و تغییر رازها
 
@@ -1253,17 +1253,18 @@ npm run deploy -- --secrets-file .env.production
 
 - بازگشت کد: `npx wrangler rollback`. D1 را برنمی‌گرداند؛ migrationها باید
   سازگار با نسخهٔ قبل بمانند.
-- تغییر راز بعدی: `npx wrangler secret put <NAME>`.
-- `KEY_SECRET` چرخانده نمی‌شود. افزودن یا حذف یک مدیر، صدور یا باطل کردن یک
-  کلید در پنل است (یا `node scripts/admin_key.mjs`) — نه استقرار، نه به‌روزرسانی
-  تک‌تک مرورگرها و اسکریپت‌ها. راز `ADMIN_KEY` در این نسخه راه گریز می‌ماند؛
-  نسخهٔ بعد آن را حذف می‌کند.
+- تنها راز زمان استقرار `KEY_SECRET` است و چرخانده نمی‌شود.
+- افزودن یا حذف یک مدیر، صدور یا باطل کردن یک کلید در پنل است (یا
+  `node scripts/admin_key.mjs`)، و توکن DNS سطری است که در
+  **Certificates → DNS credential** ذخیره و فعال می‌شود — نه استقرار، نه
+  به‌روزرسانی تک‌تک مرورگرها و اسکریپت‌ها. اگر هیچ کلید سالمی نماند، پنل باز
+  نمی‌شود و `node scripts/admin_key.mjs create` تنها راه بازگشت است.
 - بررسی ساخت محلی: `npm run deploy -- --dry-run` (بدون ابر).
 
 ### ۴. Cloudflare Access (توصیه‌شده)
 
 Cloudflare Access یک لایهٔ هویت در لبهٔ Cloudflare اضافه می‌کند. این لایه
-**جایگزین** `ADMIN_KEY` نیست: Worker همچنان کلید Bearer می‌خواهد؛ Access فقط
+**جایگزین** کلید مدیریتی نیست: Worker همچنان کلید Bearer می‌خواهد؛ Access فقط
 جلوی رسیدن درخواست‌های تأییدنشده به Worker را می‌گیرد. ابتدا Worker را مستقر
 کنید، بعد Access را فعال کنید، چون اسکریپت استقرار و cloud-init هر دو به
 `/api/health` نیاز دارند.
@@ -1333,7 +1334,7 @@ Zero Trust → Access controls → Service credentials → Service tokens → Cr
 ```bash
 export CF_ACCESS_CLIENT_ID='<client-id>'
 export CF_ACCESS_CLIENT_SECRET='<client-secret>'
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
 
 curl -sS \
   -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
@@ -1358,7 +1359,7 @@ curl -i https://cp.example.com/sub/<token>
 # باید 401 JSON خود Worker را بدهد، نه صفحهٔ ورود Access
 curl -i -X POST https://cp.example.com/api/node/enroll
 
-# API مدیریت: فقط ADMIN_KEY را Access می‌گیرد؛ با هر دو اعتبارنامه 200
+# API مدیریت: فقط کلید مدیریتی را Access می‌گیرد؛ با هر دو اعتبارنامه 200
 curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/nodes
 ```
 
@@ -1368,7 +1369,7 @@ curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/n
   محافظت‌شده نیست.
 - اگر `workers.dev`، preview URL یا مسیر دیگری وجود داشته باشد، Access دور
   زده می‌شود. قالب آن‌ها را خاموش کرده؛ روشنشان نکنید.
-- Access جای `ADMIN_KEY` را نمی‌گیرد؛ دو دروازهٔ مستقل‌اند.
+- Access جای کلید مدیریتی را نمی‌گیرد؛ دو دروازهٔ مستقل‌اند.
 - از `Bypass` فقط برای سه مسیر عمومی (`/sub/*`، `/api/node/*`،
   `/api/health`) استفاده کنید؛ هرگز برای `/admin` یا `/api/admin` Bypass
   نسازید—سطح مدیریت بی‌محافظت می‌شود.
@@ -1393,7 +1394,7 @@ curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/n
 معادل API:
 
 ```bash
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
 CP=https://cp.example.com
 
 curl -sS -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
@@ -1658,7 +1659,8 @@ point-in-time restore در داشبورد). D1 هم وضعیت و هم محصو�
 
 ### ۷. مرزهای امنیتی و محدودیت‌های شناخته‌شده
 
-- `ADMIN_KEY` معادل root است؛ Cloudflare Access دروازهٔ اضافی است، نه
+- هر کلید مدیریتی ذخیره‌شده معادل root است؛ اسکریپت راه شروع و بازیابی است.
+  Cloudflare Access دروازهٔ اضافی است، نه
   جایگزین.
 - `KEY_SECRET` قابل چرخش نیست. چرخش آن همهٔ کلیدهای گره، گواهی و حساب ACME
   را ناخوانا می‌کند.
@@ -1719,7 +1721,7 @@ Vela — саморазмещаемая панель управления сер
 
 ```
 Браузер ── /admin ─────────────► Worker (Hono + статический SPA)
-                                   │  /api/admin/*  ← ADMIN_KEY
+                                   │  /api/admin/*  ← admin key
                                    │  /api/node/*   ← токен узла
                                    │  /sub/{token}  ← токен подписки
                                    ▼
@@ -1790,37 +1792,33 @@ cp wrangler.example.jsonc wrangler.jsonc
 `wrangler.jsonc` содержит реальное имя и id D1, который записывается после
 первого развёртывания, поэтому он в gitignore.
 
-#### 3.3 Сгенерировать три секрета
+#### 3.3 Сгенерировать ключ запечатывания
 
 ```bash
-node -e "console.log('ADMIN_KEY=' + require('node:crypto').randomBytes(32).toString('base64url'))"
 node -e "console.log('KEY_SECRET=' + require('node:crypto').randomBytes(32).toString('base64'))"
 ```
 
-Запишите их в `.env.production` (никогда не коммитьте):
+Запишите его в `.env.production` (никогда не коммитьте):
 
 ```dotenv
-ADMIN_KEY=<base64url-of-32-random-bytes>
 KEY_SECRET=<base64-of-32-random-bytes>
-CF_DNS_API_TOKEN=<cloudflare-dns-token>
 ```
 
 ```bash
 chmod 600 .env.production
 ```
 
-- `ADMIN_KEY` — Bearer-ключ для всех запросов `/api/admin/*` и входа в SPA.
-  Он эквивалентен root: утечка означает потерю панели.
-- Несколько админ-личностей: ключи выпускаются и отзываются в панели
-  (Users → Admin keys) или из командной строки — `node
-  scripts/admin_key.mjs create --label <name>`. Скрипт — путь первого
-  администратора и путь восстановления, когда отозваны все ключи. Секрет
-  `ADMIN_KEY` выше в этом релизе принимается как аварийный; следующий
-  релиз его убирает.
 - `KEY_SECRET` — ключ AES-256-GCM, которым запечатаны приватные ключи
   REALITY, сертификатов и аккаунта ACME. **Его нельзя менять**: после смены
   все сохранённые ключи станут нечитаемыми. Сгенерируйте один раз и храните
-  офлайн-копию.
+  офлайн-копию. Это единственный оставшийся секрет развёртывания.
+- Админ-личности — это строки, а не секреты: первый ключ выпускается **после
+  первого развёртывания** командой `node scripts/admin_key.mjs create
+  --label operator-<yyyy-mm> --out .env.admin` (`--out` печатает только путь и
+  пишет токен в файл с правами 0600; без него токен показывается один раз в
+  терминале). Остальные ключи выпускаются и отзываются в панели
+  (Users → Admin keys). Каждый ключ эквивалентен root, а когда отозваны все,
+  этот скрипт — единственный путь назад.
 - Для локальной разработки используйте `.dev.vars`, для продакшена —
   `.env.production`; не повторяйте значения.
 
@@ -1831,9 +1829,13 @@ chmod 600 .env.production
 - Permissions: `Zone → DNS → Edit`, `Zone → Zone → Read`
 - Zone Resources: Include → Specific zone → зона, где будут имена сертификатов
 
-Поместите значение в `CF_DNS_API_TOKEN` в `.env.production`. Этот токен Worker
-использует для создания и очистки TXT-записей `_acme-challenge` и списка зон;
-это не учётные данные `wrangler login`.
+Храните токен в надёжном месте. После первого развёртывания откройте в панели
+**Certificates → DNS credential** и вставьте его: **Verify** (покажет число
+зон) → **Save** → **Activate**. Worker читает только активную строку —
+сохранённая, но не активированная строка, как и её отсутствие, ломает любую
+выдачу с ошибкой `no DNS credential configured`. Этот токен создаёт и очищает
+TXT-записи `_acme-challenge` и перечисляет зоны; это не учётные данные
+`wrangler login`.
 
 #### 3.5 Развернуть
 
@@ -1858,9 +1860,9 @@ npx wrangler deployments list
 npx wrangler workflows list
 ```
 
-Откройте `https://cp.example.com/admin` и вставьте `ADMIN_KEY`. Загрузка
-страницы доказывает только работу SPA; список узлов доказывает работу D1 и
-admin API.
+Откройте `https://cp.example.com/admin` и вставьте ключ, выпущенный в 3.3 (или
+любой ключ из Users → Admin keys). Загрузка страницы доказывает только работу
+SPA; список узлов доказывает работу D1 и admin API.
 
 #### 3.7 Обновление, откат и смена секретов
 
@@ -1873,17 +1875,19 @@ npm run deploy -- --secrets-file .env.production
 
 - Откат кода: `npx wrangler rollback`. D1 он не откатывает; миграции должны
   оставаться совместимыми с предыдущей версией.
-- Смена секрета позже: `npx wrangler secret put <NAME>`.
-- `KEY_SECRET` не меняется. Добавить или убрать администратора — это выпуск
-  или отзыв ключа в панели (или `node scripts/admin_key.mjs`) — без деплоя
-  и без обхода всех браузеров и скриптов. Секрет `ADMIN_KEY` в этом релизе
-  остаётся аварийным; следующий релиз его убирает.
+- Единственный оставшийся секрет развёртывания — `KEY_SECRET`, и он не
+  меняется.
+- Добавить или убрать администратора — это выпуск или отзыв ключа в панели
+  (или `node scripts/admin_key.mjs`), а токен DNS — строка, которую сохраняют
+  и активируют в **Certificates → DNS credential**: без деплоя и без обхода
+  всех браузеров и скриптов. Если ни один ключ не работает, панель не
+  открыть, и `node scripts/admin_key.mjs create` — единственный путь назад.
 - Локальная проверка сборки: `npm run deploy -- --dry-run` (без облака).
 
 ### 4. Cloudflare Access (рекомендуется)
 
 Cloudflare Access добавляет слой идентификации на периметре Cloudflare. Это
-**не** замена `ADMIN_KEY`: Worker по-прежнему требует Bearer-ключ; Access лишь
+**не** замена админ-ключу: Worker по-прежнему требует Bearer-ключ; Access лишь
 не пускает неаутентифицированные запросы до Worker. Сначала разверните
 Worker, затем включайте Access, потому что скрипт развёртывания и cloud-init
 обращаются к `/api/health`.
@@ -1958,7 +1962,7 @@ Zero Trust → Access controls → Service credentials → Service tokens → Cr
 ```bash
 export CF_ACCESS_CLIENT_ID='<client-id>'
 export CF_ACCESS_CLIENT_SECRET='<client-secret>'
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
 
 curl -sS \
   -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
@@ -1984,7 +1988,7 @@ curl -i https://cp.example.com/sub/<token>
 # Должен вернуться 401 JSON от Worker, а не страница входа Access
 curl -i -X POST https://cp.example.com/api/node/enroll
 
-# Admin API: только ADMIN_KEY останавливается Access; с обоими — 200
+# Admin API: Access останавливает один админ-ключ; с обоими — 200
 curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/nodes
 ```
 
@@ -1994,7 +1998,7 @@ curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/n
   `npm run dev` на порту 8787 не защищён.
 - Если существуют `workers.dev`, preview URL или другой route, Access можно
   обойти. Шаблон их отключает; не включайте.
-- Access не заменяет `ADMIN_KEY`; это два независимых барьера.
+- Access не заменяет админ-ключ; это два независимых барьера.
 - Используйте `Bypass` только для трёх публичных путей (`/sub/*`,
   `/api/node/*`, `/api/health`); никогда не добавляйте Bypass для `/admin`
   или `/api/admin`—это откроет административную поверхность.
@@ -2020,7 +2024,7 @@ curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/n
 Эквивалент через API:
 
 ```bash
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
 CP=https://cp.example.com
 
 curl -sS -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
@@ -2293,7 +2297,8 @@ REALITY/сертификатов/ACME не расшифровать. Серти�
 
 ### 7. Границы безопасности и известные ограничения
 
-- `ADMIN_KEY` эквивалентен root; Cloudflare Access — дополнительный барьер, а
+- Каждый сохранённый админ-ключ эквивалентен root; скрипт — путь начальной
+  настройки и восстановления. Cloudflare Access — дополнительный барьер, а
   не замена.
 - `KEY_SECRET` нельзя менять. Смена делает нечитаемыми все ключи узлов,
   сертификатов и аккаунтов ACME.
@@ -2355,7 +2360,7 @@ Workers에서 실행되고, 관리용 SPA는 `/admin` 아래에서 봉사되며,
 
 ```
 열람기 ── /admin ─────────────► Worker (Hono + 정적 SPA)
-                                   │  /api/admin/*  ← ADMIN_KEY
+                                   │  /api/admin/*  ← admin key
                                    │  /api/node/*   ← 마디 토큰
                                    │  /sub/{token}  ← 구독 토큰
                                    ▼
@@ -2425,36 +2430,32 @@ cp wrangler.example.jsonc wrangler.jsonc
 있습니다. `wrangler.jsonc`에는 실제 주소와 첫 전개 뒤에 기록되는 D1 id가
 들어있으므로 gitignore에 있습니다.
 
-#### 3.3 세 비밀열쇠 만들기
+#### 3.3 봉인 열쇠 만들기
 
 ```bash
-node -e "console.log('ADMIN_KEY=' + require('node:crypto').randomBytes(32).toString('base64url'))"
 node -e "console.log('KEY_SECRET=' + require('node:crypto').randomBytes(32).toString('base64'))"
 ```
 
 값을 `.env.production`에 씁니다(절대로 commit하지 마십시오):
 
 ```dotenv
-ADMIN_KEY=<base64url-of-32-random-bytes>
 KEY_SECRET=<base64-of-32-random-bytes>
-CF_DNS_API_TOKEN=<cloudflare-dns-token>
 ```
 
 ```bash
 chmod 600 .env.production
 ```
 
-- `ADMIN_KEY`는 모든 `/api/admin/*` 요청과 SPA 등록에 쓰이는 Bearer
-  열쇠입니다. root와 같은 힘을 가지므로 새여나가면 관리평면을 잃습니다.
-- 더 많은 관리자 신분: 열쇠는 관리화면(Users → Admin keys)에서 발행하고
-  페기하거나 명령행에서 `node scripts/admin_key.mjs create --label <name>`으로
-  합니다. 이 Script는 첫 관리자의 발행경로이며 모든 열쇠가 페기된 뒤의
-  회복경로이기도 합니다. 우의 `ADMIN_KEY` 비밀열쇠는 이 판올림에서 비상통로로
-  남겨집니다; 다음 판올림에서 제거됩니다.
 - `KEY_SECRET`은 자료기지에 있는 REALITY 비밀열쇠, 증명서 비밀열쇠,
   ACME 계정 비밀열쇠를 봉하는 AES-256-GCM 열쇠입니다. **돌릴수 없습니다**.
   돌리면 이미 저장된 모든 열쇠를 읽을수 없습니다. 한번만 만들고 오프라인
-  예비복사를 두십시오.
+  예비복사를 두십시오. 이 판올림에 남은 유일한 전개 비밀열쇠입니다.
+- 관리자 신분은 비밀열쇠가 아니라 자료기지의 줄입니다. 첫 열쇠는 **첫 전개
+  뒤에** `node scripts/admin_key.mjs create --label operator-<yyyy-mm>
+  --out .env.admin`으로 만듭니다(`--out`은 길만 찍고 token을 0600 파일에
+  씁니다; 없으면 token은 한번만 보입니다). 그 뒤의 열쇠는 관리화면
+  (Users → Admin keys)에서 발행하고 페기합니다. 모든 열쇠는 root와 같은 힘을
+  가지며, 모두 페기되면 이 Script가 유일한 회복경로입니다.
 - 현지 개발에는 `.dev.vars`, 생산에는 `.env.production`을 씁니다. 같은 값을
   두번 쓰지 마십시오.
 
@@ -2465,9 +2466,12 @@ Cloudflare 관리화면 → My Profile → API Tokens → Create Token → Custo
 - Permissions: `Zone → DNS → Edit`, `Zone → Zone → Read`
 - Zone Resources: Include → Specific zone → 증명서 이름이 들어갈 zone
 
-값을 `.env.production`의 `CF_DNS_API_TOKEN`에 넣습니다. Worker가
-`_acme-challenge` TXT 레코드를 만들고 지우며 zone 목록을 읽을 때 쓰는
-토큰입니다. `wrangler login`의 인증정보와는 다른것입니다.
+token을 안전한 곳에 두십시오. 첫 전개 뒤 관리화면 **Certificates → DNS
+credential**에서 붙여넣으십시오: **Verify**(zone 수를 보여줌) → **Save** →
+**Activate**. Worker는 active 줄만 읽습니다. 저장만 하고 활성화하지 않은 줄,
+또는 줄이 없으면 모든 발급이 `no DNS credential configured`으로 실패합니다.
+이 token은 `_acme-challenge` TXT 레코드를 만들고 지우며 zone 목록을 읽는 데
+쓰이며, `wrangler login`의 인증정보와는 다른것입니다.
 
 #### 3.5 전개
 
@@ -2491,9 +2495,9 @@ npx wrangler deployments list
 npx wrangler workflows list
 ```
 
-`https://cp.example.com/admin`을 열고 `ADMIN_KEY`를 붙여넣으십시오. 화면이
-열리는것은 SPA가 봉사된다는것만 뜻합니다. 마디목록이 보여야 D1과 관리 API가
-정상입니다.
+`https://cp.example.com/admin`을 열고 3.3에서 발행한 관리자 열쇠(또는
+Users → Admin keys의 아무 열쇠)를 붙여넣으십시오. 화면이 열리는것은 SPA가
+봉사된다는것만 뜻합니다. 마디목록이 보여야 D1과 관리 API가 정상입니다.
 
 #### 3.7 판올림, 되돌리기, 비밀열쇠 변경
 
@@ -2506,18 +2510,19 @@ npm run deploy -- --secrets-file .env.production
 
 - 코드 되돌리기: `npx wrangler rollback`. D1은 되돌리지 않습니다. migration은
   앞판과 호환되여야 합니다.
-- 나중에 비밀열쇠 변경: `npx wrangler secret put <NAME>`.
-- `KEY_SECRET`은 돌리지 않습니다. 관리자를 더하거나 덜는것은 관리화면에서
-  열쇠를 발행하거나 페기하는 일입니다(`node scripts/admin_key.mjs`도
-  같습니다) — 전개도, 모든 열람기와 Script를 고치는 일도 없습니다.
-  `ADMIN_KEY` 비밀열쇠는 이 판올림에서 비상통로로 남습니다; 다음 판올림에서
-  제거됩니다.
+- 남은 전개 비밀열쇠는 `KEY_SECRET` 하나이며 돌리지 않습니다.
+- 관리자를 더하거나 덜는것은 관리화면에서 열쇠를 발행하거나 페기하는
+  일이고(`node scripts/admin_key.mjs`도 같습니다), DNS token은
+  **Certificates → DNS credential**에서 저장하고 활성화하는 줄입니다 —
+  전개도, 모든 열람기와 Script를 고치는 일도 없습니다. 쓰이는 열쇠가 하나도
+  없으면 관리화면을 열수 없고, `node scripts/admin_key.mjs create`가 유일한
+  회복경로입니다.
 - 현지 건설검사: `npm run deploy -- --dry-run` (구름을 건드리지 않음).
 
 ### 4. Cloudflare Access (권장)
 
 Cloudflare Access는 Cloudflare 경계에 신분확인층을 더합니다. 이것은
-`ADMIN_KEY`를 **대신하지 않습니다**. Worker는 여전히 Bearer 열쇠를 요구하며,
+관리자 열쇠를 **대신하지 않습니다**. Worker는 여전히 Bearer 열쇠를 요구하며,
 Access는 확인되지 않은 요청이 Worker에 이르지 못하게 할뿐입니다. 먼저
 Worker를 전개한 다음 Access를 켜십시오. 전개 Script와 cloud-init이 모두
 `/api/health`를 필요로 합니다.
@@ -2589,7 +2594,7 @@ Zero Trust → Access controls → Service credentials → Service tokens → Cr
 ```bash
 export CF_ACCESS_CLIENT_ID='<client-id>'
 export CF_ACCESS_CLIENT_SECRET='<client-secret>'
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
 
 curl -sS \
   -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
@@ -2615,7 +2620,7 @@ curl -i https://cp.example.com/sub/<token>
 # Worker의 401 JSON이여야 하며 Access 등록화면이 나오면 안됨
 curl -i -X POST https://cp.example.com/api/node/enroll
 
-# 관리 API: ADMIN_KEY만 보내면 Access가 막음; 두 증표를 함께 보내면 200
+# 관리 API: 관리자 열쇠만 보내면 Access가 막음; 두 증표를 함께 보내면 200
 curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/nodes
 ```
 
@@ -2625,7 +2630,7 @@ curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/n
   보호되지 않습니다.
 - `workers.dev`, preview URL 또는 다른 route가 있으면 Access를 우회할수
   있습니다. 본보기는 그것들을 꺼두었습니다. 켜지 마십시오.
-- Access는 `ADMIN_KEY`를 대신하지 않습니다. 두개는 서로 독립된 문입니다.
+- Access는 관리자 열쇠를 대신하지 않습니다. 두개는 서로 독립된 문입니다.
 - `Bypass`는 세 공개경로(`/sub/*`, `/api/node/*`, `/api/health`)에만
   쓰십시오. `/admin`이나 `/api/admin`에 Bypass를 만들면 관리면이 그대로
   드러납니다.
@@ -2651,7 +2656,7 @@ label은 임의의 글자입니다. 만든 다음 마디의 **Domain**을
 API로 같은 일을 하기:
 
 ```bash
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
 CP=https://cp.example.com
 
 curl -sS -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
@@ -2914,7 +2919,8 @@ point-in-time restore)을 복사하십시오. D1에는 상태와 증명서 산�
 
 ### 7. 안전경계와 알려진 한계
 
-- `ADMIN_KEY`는 root와 같은 힘을 가집니다. Cloudflare Access는 추가 문이며
+- 저장된 모든 관리자 열쇠는 root와 같은 힘을 가집니다. Script가 첫 열쇠 발행과
+  회복경로입니다. Cloudflare Access는 추가 문이며
   대신하는것이 아닙니다.
 - `KEY_SECRET`은 돌릴수 없습니다. 돌리면 저장된 모든 마디열쇠, 증명서열쇠,
   ACME 계정을 읽을수 없습니다.
@@ -2974,7 +2980,7 @@ dolandyryş SPA-si `/admin` astynda berilýär; her düwünde
 
 ```
 Brauzer ── /admin ─────────────► Worker (Hono + statik SPA)
-                                   │  /api/admin/*  ← ADMIN_KEY
+                                   │  /api/admin/*  ← admin key
                                    │  /api/node/*   ← düwün tokeni
                                    │  /sub/{token}  ← abuna tokeni
                                    ▼
@@ -3044,36 +3050,33 @@ açyk domeni bolmaly, ýogsa Cloudflare Access-i aýlanyp geçip bolýar.
 `wrangler.jsonc` hakyky domeni we ilkinji ýerleşdirmeden soň ýazylýan D1
 ID-sini saklaýar, şonuň üçin gitignore-da.
 
-#### 3.3 Üç gizlin açar döretmek
+#### 3.3 Möhürleýiş açar döretmek
 
 ```bash
-node -e "console.log('ADMIN_KEY=' + require('node:crypto').randomBytes(32).toString('base64url'))"
 node -e "console.log('KEY_SECRET=' + require('node:crypto').randomBytes(32).toString('base64'))"
 ```
 
-Olary `.env.production` faýlyna ýazyň (hiç wagt commit etmäň):
+Ony `.env.production` faýlyna ýazyň (hiç wagt commit etmäň):
 
 ```dotenv
-ADMIN_KEY=<base64url-of-32-random-bytes>
 KEY_SECRET=<base64-of-32-random-bytes>
-CF_DNS_API_TOKEN=<cloudflare-dns-token>
 ```
 
 ```bash
 chmod 600 .env.production
 ```
 
-- `ADMIN_KEY` — ähli `/api/admin/*` haýyşlary we SPA girişi üçin Bearer
-  açar. Ol root bilen deňdir: syrsa, paneli ýitirýärsiňiz.
-- Goşmaça admin şahsyýetleri: açaralary panelde (Users → Admin keys) dörediň
-  we ýatyryň, ýa-da buýruk setirinden — `node scripts/admin_key.mjs create
-  --label <name>`. Skript birinji adminiň ýoly we ähli açaralar ýatyrylandan
-  soňky dikeldiş ýolydyr. Ýokardaky `ADMIN_KEY` gizlini bu goberlişde
-  aragatlyk ýoly hökmünde kabul edilýär; indiki goberliş ony aýyrýar.
 - `KEY_SECRET` — saklanýan REALITY açaralaryny, şahadatnama açaralaryny we
   ACME hasap açaralaryny möhürleýän AES-256-GCM açary. **Ony çalşyp
   bolmaýar**: çalşyrsaňyz, ähli saklanýan açaralar okalmaz bolýar. Bir gezek
-  dörediň we oflaýn ätiýaçlyk nusgasyny saklaň.
+  dörediň we oflaýn ätiýaçlyk nusgasyny saklaň. Bu goberlişde galan ýeke-täk
+  ýerleşdirme gizlinidir.
+- Admin şahsyýetleri gizlin däl, D1-de setirler: ilkinji açary **birinji
+  ýerleşdirmeden soň** `node scripts/admin_key.mjs create --label
+  operator-<yyyy-mm> --out .env.admin` bilen dörediň (`--out` diňe ýoly çap
+  edýär we tokeni 0600 faýla ýazýar; bu bolmasa token bir gezek görünýär).
+  Soňraky açaralar panelde (Users → Admin keys) döredilýär we ýatyrylýar. Her
+  açar root bilen deňdir; ählisi ýatyrylsa, bu skript ýeke-täk dikeldiş ýoly.
 - Ýerli iş üçin `.dev.vars`, önümçilik üçin `.env.production` ulanyň; bir
   bahany iki gezek ulanmaň.
 
@@ -3084,9 +3087,13 @@ Cloudflare paneli → My Profile → API Tokens → Create Token → Custom toke
 - Permissions: `Zone → DNS → Edit`, `Zone → Zone → Read`
 - Zone Resources: Include → Specific zone → şahadatnama domenleri boljak zona
 
-Bahany `.env.production` faýlyndaky `CF_DNS_API_TOKEN`-a goýuň. Bu tokeni
-Worker `_acme-challenge` TXT ýazgylaryny döretmek/öçürmek we zona sanawyny
-okamak üçin ulanýar; ol `wrangler login` maglumaty däl.
+Tokeni ygtybarly ýerde saklaň. Birinji ýerleşdirmeden soň panelde
+**Certificates → DNS credential** saýlanyňyzda ony goýuň: **Verify** (zona sanyny
+görkezýär) → **Save** → **Activate**. Worker diňe active setiri okaýar: saklanan
+ýöne işledilmedik setir — ýa-da hiç setir ýok — her berlişi
+`no DNS credential configured` bilen şowsuz edýär. Bu token
+`_acme-challenge` TXT ýazgylaryny döretmek/öçürmek we zona sanawyny okamak üçin
+ulanylýar; ol `wrangler login` maglumaty däl.
 
 #### 3.5 Ýerleşdirmek
 
@@ -3111,9 +3118,10 @@ npx wrangler deployments list
 npx wrangler workflows list
 ```
 
-`https://cp.example.com/admin` saýtyny açyň we `ADMIN_KEY`-i goýuň. Saýtyň
-açylmagy diňe SPA-nyň işleýändigini aňladýar; düwünleriň sanawy D1 we
-dolandyryş API-siniň işleýändigini aňladýar.
+`https://cp.example.com/admin` saýtyny açyň we 3.3-de döredilen admin açary
+(ýa-da Users → Admin keys-den islendik açar) goýuň. Saýtyň açylmagy diňe
+SPA-nyň işleýändigini aňladýar; düwünleriň sanawy D1 we dolandyryş API-siniň
+işleýändigini aňladýar.
 
 #### 3.7 Täzelemek, yzyna gaýtarmak we gizlinleri üýtgetmek
 
@@ -3126,18 +3134,19 @@ npm run deploy -- --secrets-file .env.production
 
 - Kody yzyna gaýtarmak: `npx wrangler rollback`. Ol D1-i yzyna gaýtarmaýar;
   migrasiýalar öňki wersiýa bilen gabat gelmeli.
-- Soňraky gizlin üýtgetmesi: `npx wrangler secret put <NAME>`.
-- `KEY_SECRET` çalşylmaýar. Admin goşmak ýa-da aýyrmak — panelde açary
-  döretmek ýa-da ýatyrmakdyr (`node scripts/admin_key.mjs` hem şonuň ýaly) —
-  täzelemeksiz we ähli brauzerleri we skriptleri üýtgetmensiz. `ADMIN_KEY`
-  gizlini bu goberlişde aragatlyk ýoly hökmünde goýuň; indiki goberliş ony
-  aýyrýar.
+- Galan ýerleşdirme gizlini diňe `KEY_SECRET` we ol çalşylmaýar.
+- Admin goşmak ýa-da aýyrmak — panelde açary döretmek ýa-da ýatyrmakdyr
+  (`node scripts/admin_key.mjs` hem şonuň ýaly), DNS token bolsa
+  **Certificates → DNS credential**-de saklanýan we işledilýän setirdir —
+  täzelemeksiz we ähli brauzerleri we skriptleri üýtgetmensiz. Işleýän açar
+  galmasa, paneli açyp bolmaýar; `node scripts/admin_key.mjs create` ýeke-täk
+  yzyna gaýdýan ýol.
 - Ýerli gurnama barlagy: `npm run deploy -- --dry-run` (bulutsuz).
 
 ### 4. Cloudflare Access (maslahat berilýär)
 
 Cloudflare Access Cloudflare gyrasynda goşmaça şahsyýet gatlagyny goşýar.
-Ol `ADMIN_KEY`-i **çalyşmaýar**: Worker henizem Bearer açar talap edýär;
+Ol admin açaryny **çalyşmaýar**: Worker henizem Bearer açar talap edýär;
 Access diňe tassyklanmadyk haýyşlary Worker-e ýetirmez ýaly edýär. Ilki
 Worker-i ýerleşdiriň, soň Access-i açyň, sebäbi ýerleşdirme skripti we
 cloud-init ikisi hem `/api/health`-e mätäç.
@@ -3215,7 +3224,7 @@ Zero Trust → Access controls → Service credentials → Service tokens → Cr
 ```bash
 export CF_ACCESS_CLIENT_ID='<client-id>'
 export CF_ACCESS_CLIENT_SECRET='<client-secret>'
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
 
 curl -sS \
   -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
@@ -3241,7 +3250,7 @@ curl -i https://cp.example.com/sub/<token>
 # Worker-iň 401 JSON-y bolmaly, Access giriş sahypasy däl
 curl -i -X POST https://cp.example.com/api/node/enroll
 
-# Dolandyryş API: diňe ADMIN_KEY Access tarapyndan saklanýar; ikisi bilelikde 200
+# Dolandyryş API: diňe admin açar Access tarapyndan saklanýar; ikisi bilelikde 200
 curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/nodes
 ```
 
@@ -3251,7 +3260,7 @@ Bellikler:
   porty goragly däl.
 - `workers.dev`, preview URL ýa-da başga route bar bolsa, Access-i aýlanyp
   geçip bolýar. Şablon olary öçüripdir; açmaň.
-- Access `ADMIN_KEY`-i çalyşmaýar; olar iki sany garaşsyz derweze.
+- Access admin açaryny çalyşmaýar; olar iki sany garaşsyz derweze.
 - `Bypass`-y diňe üç açyk ýol üçin ulanyň (`/sub/*`, `/api/node/*`,
   `/api/health`); `/admin` ýa `/api/admin` üçin hiç wagt Bypass goşmaň,
   ýogsa dolandyryş ýüzi açylýar.
@@ -3277,7 +3286,7 @@ dörediň (köne token derrew işlemeýär).
 API bilen deňi:
 
 ```bash
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.production | cut -d= -f2-)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
 CP=https://cp.example.com
 
 curl -sS -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
@@ -3547,7 +3556,8 @@ täzeden çykaryp bolýar; hususy açarlary bolmaýar.
 
 ### 7. Howpsuzlyk çäkleri we belli çäklendirmeler
 
-- `ADMIN_KEY` root bilen deňdir; Cloudflare Access goşmaça derweze, onuň
+- Saklanýan her admin açar root bilen deňdir; skript başlangyç we dikeldiş
+  ýoludur. Cloudflare Access goşmaça derweze, onuň
   ýerini tutmaýar.
 - `KEY_SECRET` çalşylmaýar. Çalşyrsaňyz, saklanýan ähli düwün açarlary,
   şahadatnama açarlary we ACME hasaby okalmaz bolýar.

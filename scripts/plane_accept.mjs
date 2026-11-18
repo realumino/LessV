@@ -15,7 +15,7 @@
  *
  * Usage:
  *   node scripts/plane_accept.mjs --host https://cp.example.com \
- *     --admin-key-file .env.production --node <node-id> --user <username> \
+ *     --admin-key-file .env.admin --node <node-id> --user <username> \
  *     --domain <cert-domain> --fingerprint <sha256-hex> [--renew]
  *
  * Exit codes: 0 all checks pass, 1 some check failed, 2 bad arguments.

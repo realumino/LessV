@@ -58,11 +58,15 @@ npx wrangler dev --port 8788 --persist-to /tmp/vela-dev --ip 0.0.0.0
 `--persist-to` keeps all local state out of the repository; `--ip 0.0.0.0` is
 only needed when the node under test runs in a container on another host.
 
-Bootstrap a node through the admin API. `ADMIN_KEY` is the value from
-`.dev.vars` (wrangler does not export it into your shell):
+Bootstrap a node through the admin API. The plane has no deploy-time admin
+key, so this tier's own D1 needs one row — insert it with the same persistence
+directory the server uses:
 
 ```sh
-AK=<ADMIN_KEY from .dev.vars>
+node scripts/admin_key.mjs create --label local-dev --local \
+  --persist-to /tmp/vela-dev --out .env.admin
+AK=$(grep '^ADMIN_KEY=' .env.admin | cut -d= -f2-)
+
 BASE=http://127.0.0.1:8788
 curl -X POST -H "Authorization: Bearer $AK" -H 'Content-Type: application/json' \
   -d '{"id":"local01","label":"local01"}' $BASE/api/admin/nodes
@@ -99,9 +103,9 @@ that only renders.
 
 What this tier proves: the plane's *own* renderer — validation, preset merge
 order, DEFAULT injection, hash computation — feeding a real agent. What it does
-not: certificates. A local Worker configured with a placeholder
-`CF_DNS_API_TOKEN` fails issuance by design; keep it that way and expect an
-empty certificate manifest.
+not: certificates. A local Worker with no active DNS credential row fails
+issuance by design (`no DNS credential configured`); keep it that way and
+expect an empty certificate manifest.
 
 A useful boundary: tier B is the only tier where the plane's source can be
 edited and observed in seconds. Use it before touching anything involving the
@@ -110,17 +114,22 @@ renderer or the protocol.
 ## Tier C — a separate deployment, created and destroyed by one command
 
 ```sh
-node scripts/stage.mjs create --config wrangler.staging.jsonc   --secrets-file .env.staging --generate-secrets
-# ... the test run, e.g. scripts/accept.mjs --plane https://<host> ...
+node scripts/stage.mjs create --config wrangler.staging.jsonc \
+  --secrets-file .env.staging --generate-secrets --dns-token-file .plans/KEYS
+# ... the test run, e.g. scripts/accept.mjs --plane https://<host> \
+#   --admin-key-file .env.staging.admin ...
 node scripts/stage.mjs destroy --config wrangler.staging.jsonc
 ```
 
 The config is the only input — copy `wrangler.example.jsonc` and edit its
 `name`, route, `database_name` and workflow name. `create` deploys through the
 pipeline (real SPA, remote migrations, health probe), uploads the secrets, and
-generates the two plane-owned ones (`ADMIN_KEY`, `KEY_SECRET`) when told to;
-the DNS token is a third-party credential, so it is copied from an existing env
-file, never invented. `destroy` removes the workflow, the Worker (its
+generates the one plane-owned secret (`KEY_SECRET`) when told to. Two
+credentials are runtime rows instead: the first admin key is minted into
+`<secrets-file>.admin` (a fresh plane has no `admin_keys` row, so nothing
+could open its panel), and `--dns-token-file` reads the Cloudflare token from
+that file and stores it sealed and active — without an active row every
+issuance fails. `destroy` removes the workflow, the Worker (its
 custom-domain record goes with it) and the database, in that order — a
 workflow's records outlive its Worker, and `wrangler delete` never touches D1.
 The secrets file is not deleted: its values are only disposable once the
@@ -132,13 +141,16 @@ Without the script, the same steps are:
 cp wrangler.example.jsonc wrangler.staging.jsonc     # then edit the four names
 npm run deploy -- --config wrangler.staging.jsonc --secrets-file .env.staging
 npx wrangler secret bulk .env.staging --config wrangler.staging.jsonc
+node scripts/admin_key.mjs create --label staging --config wrangler.staging.jsonc --out .env.staging.admin
+# then Certificates → DNS credential → paste → Verify → Save → Activate
 npx wrangler workflows delete <workflow> --config wrangler.staging.jsonc
 npx wrangler delete --config wrangler.staging.jsonc
 npx wrangler d1 delete <database> --config wrangler.staging.jsonc
 ```
 
-Isolation is structural, not procedural: its own D1, its own `ADMIN_KEY`, its
-own `KEY_SECRET`. The DNS token in it should be scoped to the test zone only —
+Isolation is structural, not procedural: its own D1 (so its own admin key and
+its own DNS credential row), its own `KEY_SECRET`. The DNS token in it should
+be scoped to the test zone only —
 a token scoped to the wrong zone makes the plane blind to the test zone, which
 fails at the first `test-issue`, not at deploy time.
 
@@ -157,7 +169,7 @@ a teardown that happens even when a check fails:
 
 ```sh
 node scripts/accept.mjs --plane https://staging.example.com \
-  --admin-key-file .env.staging --zone example.com \
+  --admin-key-file .env.staging.admin --zone example.com \
   --linode-token-file .plans/KEYS \
   --image ghcr.io/owner/vela-server:latest \
   [--proxy socks5://127.0.0.1:7890] [--keep] [--timeout 900]
@@ -253,24 +265,25 @@ only create what a third party issues.
 
 | Bucket | Members | Losing it costs |
 |---|---|---|
-| **Disposable** — regenerated per environment | `ADMIN_KEY`; node tokens; REALITY and certificate keys (plane-generated); Access and registry tokens | re-auth / re-enroll |
+| **Disposable** — regenerated per environment | panel admin keys and the DNS token (D1 rows); node tokens; REALITY and certificate keys (plane-generated); Access and registry tokens | re-auth / re-enroll |
 | **Back it up** — generated once | `KEY_SECRET` | in production: every sealed key unreadable |
-| **You create — know the scope** | `CF_DNS_API_TOKEN`; the provider token (Linode et al.) | the token reaches real assets |
+| **You create — know the scope** | the Cloudflare DNS token; the provider token (Linode et al.) | the token reaches real assets |
 
 ### In a disposable test environment, only the third row matters
 
-Everything a test environment generates is destroyed with it, so `ADMIN_KEY`,
-`KEY_SECRET`, node tokens and every plane-generated key are **not** things to be
-careful about: mint them per run (`node -e
-"console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`),
-use them, delete the environment. A leaked test `KEY_SECRET` opens nothing once
+Everything a test environment generates is destroyed with it, so panel admin
+keys, `KEY_SECRET`, node tokens and every plane-generated key are **not** things
+to be
+careful about: mint them per run (`node scripts/admin_key.mjs create --label
+staging --config wrangler.staging.jsonc`), use them, delete the environment. A
+leaked test `KEY_SECRET` opens nothing once
 its D1 is gone.
 
 That leaves two credentials that can still reach something you own:
 
 | Credential | Reaches | Before you create it |
 |---|---|---|
-| `CF_DNS_API_TOKEN` | every DNS record in its zone — production names included if the test shares the zone — and, via DNS-01, certificates for any name in it | point it at a test zone or a delegated subdomain, or accept that the test can rewrite production DNS |
+| Cloudflare DNS token | every DNS record in its zone — production names included if the test shares the zone — and, via DNS-01, certificates for any name in it | point it at a test zone or a delegated subdomain, or accept that the test can rewrite production DNS |
 | provider token (Linode et al.) | every instance **on the account** (scopes are per resource type, not per instance) | a token made for testing, with an expiry, revoked after the run — the same token can delete your real nodes |
 
 ### Three ways "it dies with the environment" stops being true
@@ -301,9 +314,9 @@ That leaves two credentials that can still reach something you own:
 | Credential | If it leaks |
 |---|---|
 | `KEY_SECRET` | with a DB dump, opens **every** sealed key: all REALITY private keys (server identity — an attacker can decrypt traffic to the nodes), every leaf certificate key, every ACME account key |
-| `ADMIN_KEY` | full admin API: mint any node's token → read its rendered config (REALITY private key + every UUID), read users, delete nodes, trigger issuance. Cloudflare Access in front is a second layer, not a substitute |
+| panel admin key | full admin API: mint any node's token → read its rendered config (REALITY private key + every UUID), read users, delete nodes, trigger issuance. Cloudflare Access in front is a second layer, not a substitute |
 | provider token | create, reboot, **delete** every instance on the account |
-| `CF_DNS_API_TOKEN` | rewrite any record in its zone; obtain certificates for any name in it |
+| Cloudflare DNS token | rewrite any record in its zone; obtain certificates for any name in it |
 | node token | that one node's rendered config (its REALITY private key and UUIDs) and its identity to the plane |
 | registry read token | pull the image |
 
@@ -316,7 +329,7 @@ so an invented value would only mislead you.
 
 | Name | Minimum permission | Never grant |
 |---|---|---|
-| `CF_DNS_API_TOKEN` | **Zone → Zone → Read** + **Zone → DNS → Edit**, Zone Resources: *Include → Specific zone → that zone* | Account-scoped tokens, `Zone → Zone → Edit`, `API Tokens → Edit`, Workers permissions |
+| Cloudflare DNS token | **Zone → Zone → Read** + **Zone → DNS → Edit**, Zone Resources: *Include → Specific zone → that zone* | Account-scoped tokens, `Zone → Zone → Edit`, `API Tokens → Edit`, Workers permissions |
 | provider token | Linode: `linodes:read_write`, with an expiry | account, volume, firewall or domain scopes |
 | registry token (private package only) | `read:packages` | `write:packages` outside the release workflow |
 
@@ -331,7 +344,7 @@ Verify a token before trusting it, against the **test** zone:
 
 ```sh
 ZONE=<test-zone>
-TOKEN=<CF_DNS_API_TOKEN>
+TOKEN=<the token you pasted into the panel>
 curl -s -H "Authorization: Bearer $TOKEN"   "https://api.cloudflare.com/client/v4/zones?name=$ZONE"   | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["success"], [z["name"] for z in d.get("result",[])])'
 ```
 
