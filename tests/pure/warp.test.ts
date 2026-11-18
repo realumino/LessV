@@ -123,9 +123,32 @@ describe("enrollMasque", () => {
     expect(enrollment).toEqual({
       peer_public_key:
         "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIw==\n-----END PUBLIC KEY-----\n",
-      endpoint: "162.159.198.2",
+      endpoint: "2606:4700:103::2",
+      // Both interface addresses survive: only the dialled edge is v6.
       addresses: ["172.16.0.2/32", "2606:4700:110:8a78:72d9:6e7f:da52:294f/128"],
     });
+  });
+
+  it("falls back to the v4 edge when the response carries no v6 one", async () => {
+    const keys = await generateP256KeyPair();
+    const { fetcher } = stub([
+      () =>
+        Response.json({
+          config: {
+            peers: [
+              {
+                public_key: "pub",
+                endpoint: { v4: "162.159.198.2:0" },
+              },
+            ],
+            interface: {
+              addresses: { v4: "172.16.0.2", v6: "2606:4700:110::1" },
+            },
+          },
+        }),
+    ]);
+    const enrollment = await enrollMasque(fetcher, { id: "d", token: "t" }, keys);
+    expect(enrollment.endpoint).toBe("162.159.198.2");
   });
 
   it("fails when the response lacks the fields a tunnel needs", async () => {
@@ -222,7 +245,7 @@ describe("warpMasqueOutbound", () => {
       tag: "warp",
       protocol: "masque",
       settings: {
-        address: "162.159.198.2",
+        address: "2606:4700:103::2",
         port: 443,
         remoteDNS: [
           "1.1.1.1",

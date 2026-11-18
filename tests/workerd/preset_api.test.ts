@@ -211,7 +211,7 @@ describe("the preset catalog", () => {
       streamSettings: Record<string, unknown>;
     };
     expect(warp.protocol).toBe("masque");
-    expect(warp.settings["address"]).toBe("162.159.198.2");
+    expect(warp.settings["address"]).toBe("2606:4700:103::2");
     expect(warp.settings["port"]).toBe(443);
     expect(warp.streamSettings).toMatchObject({
       network: "masque",

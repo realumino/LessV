@@ -279,17 +279,24 @@ export async function enrollMasque(
   }
   const peer = peers[0] as Record<string, unknown>;
   const endpointField = peer["endpoint"];
-  const endpoint = endpointHost(
+  const peerEndpoint =
     typeof endpointField === "object" && endpointField !== null
-      ? (endpointField as Record<string, unknown>)["v4"]
-      : undefined,
-  );
+      ? (endpointField as Record<string, unknown>)
+      : {};
+  // WHY v6 first: a v6-only or CGNAT host can only reach the v6 edge, and it
+  // is the path Cloudflare prefers. The v4 fallback keeps a registration
+  // working if the API ever omits `v6`; the port it reports is meaningless
+  // (see endpointHost), so only the host survives.
+  const endpoint = endpointHost(peerEndpoint["v6"]) ?? endpointHost(peerEndpoint["v4"]);
   if (endpoint === null) {
     throw new Error("warp: enrollment response has no peer endpoint");
   }
   return {
     peer_public_key: stringField(peer, "public_key"),
     endpoint,
+    // WHY both families: only the edge we dial moves to v6. Dropping the v4
+    // address would take the tunnel's IPv4 source away and break every IPv4
+    // destination it exits to.
     addresses: [
       `${stringField(config, "interface.addresses.v4")}/32`,
       `${stringField(config, "interface.addresses.v6")}/128`,
