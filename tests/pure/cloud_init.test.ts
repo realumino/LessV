@@ -25,6 +25,15 @@ const values = {
   binary: "/usr/local/bin/vela-server",
 };
 
+/** WHAT: the periodic upgrade script, from its own path to the next file. */
+function upgradeJob(doc: string): string {
+  const start = doc.indexOf("path: /etc/periodic/weekly/vela-upgrade");
+  const end = doc.indexOf("path: /root/vela-bootstrap.sh");
+  expect(start).toBeGreaterThan(0);
+  expect(end).toBeGreaterThan(start);
+  return doc.slice(start, end);
+}
+
 describe("renderCloudInit", () => {
   it("starts as a cloud-config and leaves no placeholder behind", () => {
     const doc = renderCloudInit(values);
@@ -41,10 +50,11 @@ describe("renderCloudInit", () => {
     expect(doc).toContain('BINARY="/usr/local/bin/vela-server"');
   });
 
-  it("keeps the container contract: two ports, two volumes, one image", () => {
+  it("keeps the container contract: published ports, two volumes, one image", () => {
     const doc = renderCloudInit(values);
     expect(doc).toContain("80:80");
     expect(doc).toContain("443:443/tcp");
+    expect(doc).toContain("443:443/udp");
     expect(doc).toContain("vela-etc:/etc/vela");
     expect(doc).toContain("vela-state:/var/lib/vela");
     // compose prefixes a volume with the project name; the one-shot enroll
@@ -59,6 +69,43 @@ describe("renderCloudInit", () => {
     expect(doc).toContain("pull attempt");
     expect(doc).toContain("while :; do");
     expect(doc).toContain("docker compose -f /etc/vela/compose.yaml up -d");
+  });
+
+  it("opens udp 443 and answers ICMP echo on both families", () => {
+    const doc = renderCloudInit(values);
+    expect(doc).toContain("udp dport 443 accept");
+    const v4 = /icmp type \{([^}]*)\}/.exec(doc)?.[1] ?? "";
+    const v6 = /icmpv6 type \{([^}]*)\}/.exec(doc)?.[1] ?? "";
+    expect(v4).toContain("echo-request");
+    expect(v6).toContain("echo-request");
+    // PMTU depends on the error types, so the echo request joins them.
+    expect(v4).toContain("destination-unreachable");
+    expect(v6).toContain("packet-too-big");
+    // 22 stays closed: sshd is removed from the runlevels.
+    expect(doc).not.toContain("tcp dport 22");
+  });
+
+  it("patches host packages weekly, from day 0, without the image or a reboot", () => {
+    const doc = renderCloudInit(values);
+    const job = upgradeJob(doc);
+
+    // The scheduler has to be in the runlevel for the job to run at all.
+    expect(doc).toContain("rc-update add crond default");
+    expect(job).toContain("apk -U upgrade");
+    expect(job).toContain("docker compose -f /etc/vela/compose.yaml up -d");
+    expect(job).toContain("/var/log/vela-upgrade.log");
+
+    // Day 0: the bootstrap runs the same script once, before the service.
+    const bootstrap = doc.slice(doc.indexOf("path: /root/vela-bootstrap.sh"));
+    expect(bootstrap).toContain("/etc/periodic/weekly/vela-upgrade");
+    expect(bootstrap.lastIndexOf("docker compose -f /etc/vela/compose.yaml up -d")).toBeGreaterThan(
+      bootstrap.indexOf("/etc/periodic/weekly/vela-upgrade"),
+    );
+
+    // The policy is packages only: no image update, no reboot.
+    expect(job).not.toContain("docker pull");
+    expect(job).not.toContain("reboot");
+    expect(doc).not.toMatch(/^\s*(?:sudo\s+)?reboot\b/m);
   });
 });
 

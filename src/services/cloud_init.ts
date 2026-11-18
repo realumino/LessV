@@ -68,10 +68,12 @@ const CLOUD_INIT_TEMPLATE = `#cloud-config
 # WHAT: first boot for a disposable Alpine (OpenRC) Vela node. The same file
 # works on any provider whose Alpine 3.22+ image runs cloud-init.
 # WHY: a node is cattle. This file raises the socket/fd ceilings, installs
-# Docker, enrolls the node image once, and runs it with the two ports the
-# server needs published. There is no Tailscale, no configuration-management
-# agent, and no package upgrade step: a host that drifts or breaks is
-# destroyed and rebuilt from this file plus the plane.
+# Docker, enrolls the node image once, and runs it with the ports the server
+# needs published. There is no Tailscale and no configuration-management
+# agent. The host's own packages are patched weekly by a periodic job, and
+# that is the entire maintenance policy: never the node image (it is
+# versioned and rolled out through the plane), never a reboot, and a host
+# that drifts or breaks is still destroyed and rebuilt from this file.
 #
 # WHAT: rendered by the plane when a node token is minted — one document per
 # node, with the id, the control-plane URL and the token already in place.
@@ -142,10 +144,12 @@ write_files:
       net.ipv4.tcp_keepalive_probes = 3
       net.ipv4.tcp_tw_reuse = 1
 
-  # Input fallback: drop everything except the two service ports. The ICMP
-  # and DHCP exceptions keep TCP/IP correct (PMTU, IPv6 ND) and survive a
-  # DHCP-based image; they expose no service. 22 is absent because sshd is
-  # stopped and removed from the runlevels below.
+  # Input fallback: drop everything except the service ports. UDP 443 is
+  # opened ahead of a listener — the image ships none today — so a future
+  # inbound does not need a new host document. The ICMP (echo plus the error
+  # types PMTU needs) and DHCP exceptions keep TCP/IP correct and survive a
+  # DHCP-based image; none of them expose a service. 22 is absent because
+  # sshd is stopped and removed from the runlevels below.
   #
   # WHY there is no forward chain: the container's traffic is DNAT'd onto the
   # bridge and crosses the forward hook, which Docker manages in its own
@@ -164,8 +168,9 @@ write_files:
               ct state established,related accept
               ct state invalid drop
               tcp dport { 80, 443 } accept
-              icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
-              icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+              udp dport 443 accept
+              icmp type { destination-unreachable, time-exceeded, parameter-problem, echo-request } accept
+              icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-request, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
               udp sport 67 udp dport 68 accept
               udp sport 547 udp dport 546 accept
           }
@@ -183,6 +188,24 @@ write_files:
     content: |
       tcp_bbr
       sch_fq
+
+  # WHAT: the weekly host-package maintenance, run by busybox crond.
+  # WHY the compose re-run: a docker upgrade restarts the daemon and leaves
+  # the service down, so the job re-converges it. WHY no image update and no
+  # reboot: the image tag is the plane's decision, and a host that needs more
+  # than packages rebuilt is destroyed rather than patched.
+  - path: /etc/periodic/weekly/vela-upgrade
+    owner: root:root
+    permissions: '0700'
+    content: |
+      #!/bin/sh
+      set -u
+      log=/var/log/vela-upgrade.log
+      stamp() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
+      echo "[$(stamp)] apk -U upgrade" >>"$log"
+      apk -U upgrade >>"$log" 2>&1
+      echo "[$(stamp)] docker compose up -d" >>"$log"
+      docker compose -f /etc/vela/compose.yaml up -d >>"$log" 2>&1
 
   - path: /root/vela-bootstrap.sh
     owner: root:root
@@ -245,7 +268,12 @@ write_files:
       install -m 0644 /root/vela.nft /etc/nftables.nft
       rc-update add nftables boot >/dev/null 2>&1 || true
       rc-service nftables restart
-      echo "firewall loaded (input: tcp 80/443 only)"
+      echo "firewall loaded (input: tcp 80/443, udp 443, icmp echo)"
+
+      # The weekly upgrade needs a scheduler; without it the job above is a
+      # file nobody runs. Missing init scripts must not fail the boot.
+      rc-update add crond default >/dev/null 2>&1 || true
+      rc-service crond start >/dev/null 2>&1 || true
 
       # Docker's init script declares "need cgroups" and fails with
       # "cannot start docker as cgroups would not start" when this image boots
@@ -329,10 +357,12 @@ write_files:
       {
           echo "# WHAT: the node image, as this host runs it."
           echo "#"
-          echo "# WHY bridge networking with two published ports: it is the only"
-          echo "# network mode that behaves the same on every provider, and the server"
-          echo "# needs nothing else. Source addresses are rewritten by the bridge; the"
-          echo "# plane takes the public address from the edge instead."
+          echo "# WHY bridge networking with published ports: it is the only network"
+          echo "# mode that behaves the same on every provider, and the server needs"
+          echo "# nothing else. UDP 443 is published with no listener behind it yet, so"
+          echo "# a future inbound does not need a new host document. Source addresses"
+          echo "# are rewritten by the bridge; the plane takes the public address from"
+          echo "# the edge instead."
           echo "services:"
           echo "  vela-server:"
           echo "    image: \\"\${IMAGE}\\""
@@ -342,6 +372,7 @@ write_files:
           echo "    ports:"
           echo "      - \\"80:80\\""
           echo "      - \\"443:443/tcp\\""
+          echo "      - \\"443:443/udp\\""
           echo "    stop_grace_period: 90s"
           echo "    security_opt:"
           echo "      - no-new-privileges:true"
@@ -371,6 +402,14 @@ write_files:
           "$IMAGE" enroll --cp "$CP_URL" --node "$NODE_ID" \\
           --nginx-conf-path /etc/nginx/http.d/vela-decoy.conf
       echo "enrolled $NODE_ID"
+
+      # A host provisioned today must not wait a week for its first patch, and
+      # a daemon restart caused by an upgrade belongs before the service is
+      # serving rather than under it. Non-fatal: the packages matter less than
+      # the node, and the failure is in the log.
+      if ! /etc/periodic/weekly/vela-upgrade; then
+          echo "warning: the day-0 package upgrade failed; see /var/log/vela-upgrade.log" >&2
+      fi
 
       docker compose -f /etc/vela/compose.yaml up -d
 
