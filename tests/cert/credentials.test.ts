@@ -1,11 +1,11 @@
 /**
  * The DNS credential reader, over a real plane.
  *
- * WHY this tier: the lookup order (active sealed row → binding fallback →
- * named error) is the contract every DNS call site rides on, and the
- * corrupt-ciphertext error must name the credential, not say "REALITY key".
- * Zone verification runs against the outbound mock; no ACME call and no
- * real Cloudflare request is involved.
+ * WHY this tier: the lookup (active sealed row, or the named error) is the
+ * contract every DNS call site rides on, and the corrupt-ciphertext error
+ * must name the credential, not say "REALITY key". Zone verification runs
+ * against the outbound mock; no ACME call and no real Cloudflare request is
+ * involved.
  */
 
 import { env } from "cloudflare:workers";
@@ -18,17 +18,14 @@ import {
   verifyDnsToken,
 } from "../../src/cert/credentials";
 
-/** WHAT: an env slice with the binding fallback removed. */
-function noFallbackEnv() {
-  return { DB: env.DB, KEY_SECRET: env.KEY_SECRET, CF_DNS_API_TOKEN: "" };
-}
-
 describe("activeDnsToken", () => {
-  it("falls back to the binding when no row is active", async () => {
-    await expect(activeDnsToken(env)).resolves.toBe(env.CF_DNS_API_TOKEN);
+  it("names the absence when no row is active", async () => {
+    // No test in this file leaves an active row behind, so the plane is in
+    // the state a fresh deployment is in: no credential at all.
+    await expect(activeDnsToken(env)).rejects.toThrow(NO_DNS_CREDENTIAL_ERROR);
   });
 
-  it("prefers the active sealed row over the binding", async () => {
+  it("unseals and uses the active row", async () => {
     const saved = await saveDnsCredential(
       env,
       { label: `reader-${crypto.randomUUID()}`, token: "row-token" },
@@ -42,12 +39,6 @@ describe("activeDnsToken", () => {
     await env.DB.prepare("DELETE FROM dns_credentials WHERE id = ?")
       .bind(saved.id)
       .run();
-  });
-
-  it("names the absence instead of surfacing a Cloudflare 401", async () => {
-    await expect(activeDnsToken(noFallbackEnv())).rejects.toThrow(
-      NO_DNS_CREDENTIAL_ERROR,
-    );
   });
 
   it("names the sealed credential when its ciphertext is corrupt", async () => {

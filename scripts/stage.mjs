@@ -16,13 +16,16 @@
  *
  * Usage:
  *   node scripts/stage.mjs create --config wrangler.staging.jsonc \
- *     [--secrets-file .env.staging] [--generate-secrets]
+ *     [--secrets-file .env.staging] [--generate-secrets] \
+ *     [--dns-token-file <file>]
  *   node scripts/stage.mjs destroy --config wrangler.staging.jsonc
  *     [--secrets-file .env.staging]
  *
  * With --secrets-file the create run also mints the plane's first admin key
  * into `<secrets-file>.admin`: a fresh plane has no admin row, and with no env
- * fallback that plane accepts no key at all.
+ * fallback that plane accepts no key at all. --dns-token-file provisions the
+ * other runtime credential the same way — the token is read from that file and
+ * stored sealed and active, because an issuance with no active row fails.
  *
  * Exit codes: 0 success, 1 a step failed, 2 bad arguments.
  *
@@ -72,7 +75,7 @@ function npx(argv) {
 
 /** WHAT: parse `command --flag [value]`; values and flags are declared. */
 function parseArgs(argv) {
-  const valued = new Set(["config", "secrets-file"]);
+  const valued = new Set(["config", "secrets-file", "dns-token-file"]);
   const flags = new Set(["generate-secrets"]);
   const values = { _: [] };
   for (let i = 0; i < argv.length; i += 1) {
@@ -98,7 +101,9 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 const [command] = args._;
 if (command !== "create" && command !== "destroy") {
-  fail("usage: scripts/stage.mjs create|destroy --config <file> [--secrets-file <file>] [--generate-secrets]");
+  fail(
+    "usage: scripts/stage.mjs create|destroy --config <file> [--secrets-file <file>] [--generate-secrets] [--dns-token-file <file>]",
+  );
 }
 
 const configPath = args.config ?? "wrangler.staging.jsonc";
@@ -141,6 +146,30 @@ function readSecrets(path) {
   return map;
 }
 
+/**
+ * WHAT: one admin API call on the freshly deployed plane.
+ *
+ * WHY the admin key is passed in: this is the only credential the plane
+ * accepts, and it was minted a moment ago; nothing about the call is
+ * privileged beyond that.
+ */
+async function api(adminKey, method, path, body) {
+  const response = await fetch(`https://${pattern}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${adminKey}`,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(30000),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    fail(`${method} ${path} -> ${response.status}: ${text.slice(0, 300)}`);
+  }
+  return text === "" ? null : JSON.parse(text);
+}
+
 /** WHAT: generate a secrets file with a fresh KEY_SECRET. */
 function generateSecrets(path) {
   if (existsSync(join(REPO_ROOT, path))) {
@@ -151,40 +180,22 @@ function generateSecrets(path) {
   if (required.length === 0) {
     fail("the config declares no secrets.required list; cannot generate one");
   }
-  // WHAT: the plane-generated values, and where a third-party value comes from.
-  // WHY the split: KEY_SECRET is plane-owned and can be minted here;
-  // CF_DNS_API_TOKEN was issued by someone else, so the script copies it from
-  // an existing env file and never invents one. An admin key is not a secret
-  // at all — it is a D1 row, minted after the deploy (see below).
+  // WHAT: the one value this script may mint, and why nothing else is here.
+  // WHY only KEY_SECRET: it is the plane's own sealing key, disposable with
+  // the plane. An admin key is a D1 row and the DNS token is issued by
+  // Cloudflare and stored sealed — neither is deploy-time state, so inventing
+  // either here would be a lie. A config that requires something else fails
+  // loudly instead of being half-filled.
   // WHY KEY_SECRET is padded base64, not base64url: the seal/unseal path
   // decodes it with atob, which accepts only the standard alphabet; a '-'
   // or '_' in a base64url value is a decode failure at the first render.
-  const generated = {
-    KEY_SECRET: () => randomBytes(32).toString("base64"),
-  };
   const lines = [];
   for (const name of required) {
-    if (name in generated) {
-      lines.push(`${name}=${generated[name]()}`);
+    if (name === "KEY_SECRET") {
+      lines.push(`KEY_SECRET=${randomBytes(32).toString("base64")}`);
       continue;
     }
-    let copied = null;
-    for (const source of [".env.production", ".env.vela2", ".env.vela"]) {
-      const file = join(REPO_ROOT, source);
-      if (!existsSync(file)) continue;
-      const value = readFileSync(file, "utf8")
-        .split(/\r?\n/)
-        .find((line) => line.startsWith(`${name}=`));
-      if (value !== undefined) {
-        copied = value.trim();
-        console.log(`copied ${name} from ${source}`);
-        break;
-      }
-    }
-    if (copied === null) {
-      fail(`cannot generate ${name}; put it into ${path} by hand and rerun without --generate-secrets`);
-    }
-    lines.push(copied);
+    fail(`cannot generate ${name}; put it into ${path} by hand and rerun without --generate-secrets`);
   }
   writeFileSync(join(REPO_ROOT, path), `${lines.join("\n")}\n`, "utf8");
   console.log(`generated ${path}`);
@@ -266,6 +277,34 @@ if (command === "create") {
     fail(`https://${pattern}/api/health answered ${health.status}`);
   }
   console.log(`\nhealth ok: https://${pattern}/api/health -> 200`);
+
+  // 4. The DNS credential this release requires: without one active sealed
+  //    row the plane fails every issuance with the named sentence.
+  const dnsTokenFile = args["dns-token-file"] ?? null;
+  if (dnsTokenFile !== null) {
+    if (adminKeyFile === null) {
+      fail("--dns-token-file needs --secrets-file (the admin key is minted into <secrets-file>.admin)");
+    }
+    const source = readSecrets(dnsTokenFile);
+    const dnsToken = source.CLOUDFLARE_DNS ?? source.CF_DNS_API_TOKEN;
+    if (!dnsToken) {
+      fail(`${dnsTokenFile} has no CLOUDFLARE_DNS= or CF_DNS_API_TOKEN= line`);
+    }
+    const adminKey = readSecrets(adminKeyFile).ADMIN_KEY;
+    if (!adminKey) {
+      fail(`${adminKeyFile} has no ADMIN_KEY= line`);
+    }
+    const saved = await api(adminKey, "POST", "/api/admin/dns-credentials", {
+      label: "staging",
+      token: dnsToken,
+    });
+    await api(adminKey, "POST", `/api/admin/dns-credentials/${saved.id}/activate`);
+    console.log(`DNS credential: active (id ${saved.id}), ${saved.zones} zone(s) visible to the token`);
+  } else {
+    console.log('DNS credential: none — issuance on this plane fails with "no DNS credential configured"');
+    console.log("  add one in the panel, or rerun create with --dns-token-file <file>");
+  }
+
   console.log(`plane ready: ${workerName} at https://${pattern} (D1 ${databaseName}, workflow ${workflow})`);
   if (secretsFile) {
     console.log(`credentials: ${secretsFile} (deploy secrets), ${adminKeyFile} (panel admin key)`);

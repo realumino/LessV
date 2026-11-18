@@ -6,9 +6,14 @@
  */
 
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { createScriptedFetch } from "./support/fake-fetch";
-import { seedCertificate, seedCertDomain, seedIssueRun } from "./support/fixtures";
+import {
+  seedActiveDnsCredential,
+  seedCertificate,
+  seedCertDomain,
+  seedIssueRun,
+} from "./support/fixtures";
 import { MockAcme, type MockAcmeOptions } from "./support/mock-acme";
 import { MockCloudflareDns } from "./support/mock-dns";
 import {
@@ -42,6 +47,12 @@ import {
 } from "../../src/cert/store/d1";
 
 describe("issuance workflow steps", () => {
+  beforeAll(async () => {
+    // WHY: every DNS call resolves the active sealed row, and there is no env
+    // fallback left; without one these steps fail before reaching the mocks.
+    await seedActiveDnsCredential(env.DB);
+  });
+
   it("removes a key row when issuance fails before the certificate is committed in D1", async () => {
     const domain = await seedCertDomain(env.DB, { includeWildcard: false });
     const { runId } = await seedIssueRun(env.DB, domain.id);

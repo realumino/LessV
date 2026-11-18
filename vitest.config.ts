@@ -107,16 +107,13 @@ export default defineConfig({
           ],
           bindings: {
             TEST_MIGRATIONS: migrations,
-            // Test-only fixed secrets: the suite runs hermetically —
-            // no .dev.vars, no operator values. Production values come
-            // from `wrangler secret` / --secrets-file only. The admin
-            // identity is a seeded `admin_keys` row (tests/setup.ts), not
-            // a binding, because the plane has no env fallback.
+            // The one test-only secret: the suite runs hermetically — no
+            // .dev.vars, no operator values. Production values come from
+            // `wrangler secret` / --secrets-file only. Panel identities and
+            // the DNS token are D1 rows: identity is seeded in
+            // tests/setup.ts, and every DNS call is mocked outbound, so no
+            // credential binding exists to drift from production.
             KEY_SECRET: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
-            // Also fixed: every DNS call is mocked in tests, so a
-            // placeholder keeps the binding shape real without network
-            // access.
-            CF_DNS_API_TOKEN: "test-only-token",
           },
           // WHY the binding is declared here and not in wrangler.jsonc:
           // the deploy config never fetches assets from the Worker, so

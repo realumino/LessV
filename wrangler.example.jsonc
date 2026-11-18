@@ -72,7 +72,7 @@
   // Panel identities and the DNS token are NOT here: both are rows in D1,
   // managed at runtime, so nothing about them is deploy-time state.
   "secrets": {
-    "required": ["KEY_SECRET", "CF_DNS_API_TOKEN"]
+    "required": ["KEY_SECRET"]
   },
 
   // Static assets own /admin (built by frontend/, nested to mirror the

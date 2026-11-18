@@ -131,9 +131,9 @@ export default function DnsCredentialCard() {
         The Cloudflare DNS token the certificate subsystem uses for
         <code className="cf-mono"> _acme-challenge </code>
         records. Stored sealed; verified against the zone list before it is
-        kept. Until one row is active, the deployment&apos;s
-        <code className="cf-mono"> CF_DNS_API_TOKEN </code>
-        secret is used.
+        kept. Issuance uses the active row and nothing else: with no active
+        row, every run fails with
+        <code className="cf-mono"> no DNS credential configured </code>.
       </p>
       {error && <ErrorNote>{error}</ErrorNote>}
       {notice && <ErrorNote>{notice}</ErrorNote>}
@@ -248,8 +248,8 @@ export default function DnsCredentialCard() {
       )}
       {rows !== null && rows.length === 0 && (
         <EmptyState>
-          No stored credential — the deployment&apos;s CF_DNS_API_TOKEN secret is
-          in force.
+          No stored credential — every issuance fails with &quot;no DNS
+          credential configured&quot; until one is saved and activated.
         </EmptyState>
       )}
     </section>

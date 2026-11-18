@@ -12,8 +12,33 @@ import {
   type CertDomainStatus,
 } from "../../../src/cert/store/d1";
 import { putCertificateArtifacts, putCertificatePrivateKey } from "../../../src/cert/store/d1";
+import { saveDnsCredential } from "../../../src/cert/credentials";
 import { seal } from "../../../src/services/key_cipher";
 import { env } from "cloudflare:workers";
+
+/**
+ * WHAT: store one sealed DNS credential and make it the active one.
+ *
+ * WHY through the service and not a raw INSERT: the plane only ever holds a
+ * credential through this path — verified against the zone list, sealed with
+ * KEY_SECRET, then activated — and a test that needs one should exercise the
+ * same code the panel calls. With no env fallback, an active row is also the
+ * only way a test plane can reach Cloudflare's DNS API at all.
+ */
+export async function seedActiveDnsCredential(
+  db: D1Database,
+  at = 1700,
+): Promise<string> {
+  const saved = await saveDnsCredential(
+    env,
+    { label: `test-${crypto.randomUUID().slice(0, 8)}`, token: "test-dns-token" },
+    at,
+  );
+  await db.prepare("UPDATE dns_credentials SET active = 1 WHERE id = ?")
+    .bind(saved.id)
+    .run();
+  return saved.id;
+}
 
 export interface SeedDomainOptions {
   name?: string;

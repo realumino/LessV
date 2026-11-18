@@ -10,8 +10,12 @@
 
 import { introspectWorkflowInstance } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
-import { seedIssueRun, seedCertDomain } from "./support/fixtures";
+import { beforeAll, describe, expect, it } from "vitest";
+import {
+  seedActiveDnsCredential,
+  seedIssueRun,
+  seedCertDomain,
+} from "./support/fixtures";
 import { getIssueRun } from "../../src/cert/store/d1";
 import { NO_DNS_CREDENTIAL_ERROR } from "../../src/cert/credentials";
 import type { IssuePayload } from "../../src/cert/issue/types";
@@ -20,6 +24,12 @@ const EXPIRED_PROBLEM =
   '{"type":"urn:ietf:params:acme:error:expiredAuthorization","detail":"Authorization expired"}';
 
 describe("CertificateWorkflow orchestration", () => {
+  beforeAll(async () => {
+    // WHY: the run resolves its DNS credential from D1 and there is no env
+    // fallback, so a plane without an active row fails before any CA call.
+    await seedActiveDnsCredential(env.DB);
+  });
+
   it("runs the durable steps and finalizes the D1 run", async () => {
     const domain = await seedCertDomain(env.DB);
     const { runId, workflowId } = await seedIssueRun(env.DB, domain.id, "manual", "production");

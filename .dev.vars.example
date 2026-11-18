@@ -23,6 +23,9 @@
 #    one with `node scripts/admin_key.mjs create --label dev --local`
 #    after the local database exists — a fresh local D1 has no row, and a
 #    plane with no row accepts nothing.
+#  - There is no DNS token here either. It is a sealed row: paste it in the
+#    panel (Certificates → DNS credential → Verify → Save → Activate).
+#    With no active row, issuance fails with `no DNS credential configured`.
 #  - Use DIFFERENT values locally and in production.
 #  - Rotating a KEY_SECRET in production strands every sealed REALITY key
 #    ever stored (they are unreadable without it). Generate once per
@@ -34,9 +37,3 @@
 # AES-256-GCM key that seals REALITY private keys at rest. base64 of 32
 # random bytes. NOT rotatable without a migration plan; see warning above.
 KEY_SECRET=base64-of-32-random-bytes
-
-# Enabled in P1b (DNS-01 certificate automation): a Cloudflare token with
-# Zone.DNS Edit + Zone.Zone Read on the certificate zone(s). Local dev and
-# tests never call the DNS API (everything is mocked), so any placeholder
-# works here; real value only needed for `wrangler dev` flows that hit it.
-CF_DNS_API_TOKEN=test-only-token

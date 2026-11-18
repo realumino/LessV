@@ -1,18 +1,16 @@
 /**
  * The DNS API credential the certificate subsystem runs on.
  *
- * WHY this module and not a binding read everywhere: the credential moved
- * from a deploy-time secret to a panel-managed sealed row, and every call
- * site must agree on the lookup order — active row, then the binding
- * fallback, then a named error. One reader keeps that order from drifting,
- * and the error is the sentence the operators see in `last_error`, so it
- * says what to do instead of echoing a Cloudflare 401.
+ * WHY this module and not a binding read everywhere: the credential is one
+ * sealed row the panel verifies, stores and activates, and every call site
+ * must agree on the lookup — the active row, or a named error. One reader
+ * keeps that from drifting, and the error is the sentence operators see in
+ * `last_error`, so it says what to do instead of echoing a Cloudflare 401.
  *
- * WHY the fallback is temporary: the row path exists so rotation needs no
- * deploy; the binding fallback keeps this release compatible with every
- * deployment that has not stored a row yet. The next release removes
- * `CF_DNS_API_TOKEN` — after that the panel is the only place a DNS token
- * lives.
+ * WHY row-only: there is no env fallback left. `CF_DNS_API_TOKEN` was the
+ * deploy-time original; a plane with no active row now fails issuance with
+ * `no DNS credential configured` instead of quietly using whatever the last
+ * deploy carried. Rotation and recovery are panel actions.
  */
 
 import { ApiError } from "../models";
@@ -25,28 +23,22 @@ export const NO_DNS_CREDENTIAL_ERROR = "no DNS credential configured";
 /**
  * WHAT: the env slice the credential reader needs.
  *
- * WHY a Pick and not Env: issuance runs on `IssueEnv` (DB, KEY_SECRET, the
- * fallback binding), and the reader must work on that slice unchanged.
+ * WHY a Pick and not Env: issuance runs on `IssueEnv` (DB and KEY_SECRET —
+ * the sealing key), and the reader must work on that slice unchanged.
  */
-export type DnsCredentialEnv = Pick<
-  Env,
-  "DB" | "KEY_SECRET" | "CF_DNS_API_TOKEN"
->;
+export type DnsCredentialEnv = Pick<Env, "DB" | "KEY_SECRET">;
 
 /**
  * WHAT: the token the DNS calls should use right now.
  *
- * WHY a row beats the binding: the row is what the panel verifies and
- * shows; the binding is whatever the last deploy carried. When both exist
- * the row wins — that is the point of activating it.
+ * WHY the row and nothing else: it is what the panel verifies and shows, so
+ * a rotation is one panel action with no deploy. A plane with no active row
+ * has no credential at all, and says so.
  */
 export async function activeDnsToken(env: DnsCredentialEnv): Promise<string> {
   const row = await db.getActiveDnsCredential(env.DB);
   if (row !== null) {
     return await unseal(env, "DNS token", row.sealed_token);
-  }
-  if (env.CF_DNS_API_TOKEN) {
-    return env.CF_DNS_API_TOKEN;
   }
   throw new Error(NO_DNS_CREDENTIAL_ERROR);
 }
@@ -170,10 +162,10 @@ export async function activateDnsCredential(
 /**
  * WHAT: delete one credential row.
  *
- * WHY no protection for the active row: deleting the active credential
- * must be possible (that is how the panel returns to the binding
- * fallback); the next issuance run then fails with the named error until
- * a new credential is stored, which is the honest state.
+ * WHY no protection for the active row: deleting the active credential must
+ * be possible (that is how the operator withdraws a token); the next
+ * issuance run then fails with the named error until a new credential is
+ * stored and activated, which is the honest state.
  */
 export async function deleteDnsCredential(
   env: DnsCredentialEnv,

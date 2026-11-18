@@ -4,9 +4,15 @@
  */
 
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { planeFetch, planeJson, uid } from "../helpers";
-import { seedIssueRun } from "../cert/support/fixtures";
+import { seedActiveDnsCredential, seedIssueRun } from "../cert/support/fixtures";
+
+// WHY the file seeds a credential: the zone list and every certificate call
+// resolve the active sealed row from D1, and there is no env fallback left.
+beforeAll(async () => {
+  await seedActiveDnsCredential(env.DB);
+});
 
 /**
  * WHY a local seed helper: the cert tier's fixtures live beside its tests;

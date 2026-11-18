@@ -64,11 +64,10 @@ export interface IssueTimings {
  *
  * WHY the whole `env` rides along: `key_cipher.seal/unseal` reads
  * `env.KEY_SECRET`, and the cron/test seams pass the full binding object.
- * `CF_DNS_API_TOKEN` stays in the slice for one release: with no active
- * sealed row the credential reader falls back to it, and the next release
- * removes that fallback with the binding itself.
+ * The DNS token is not here: it is a sealed row, resolved per call by
+ * `activeDnsToken`.
  */
-export type IssueEnv = Pick<Env, "DB" | "KEY_SECRET" | "CF_DNS_API_TOKEN">;
+export type IssueEnv = Pick<Env, "DB" | "KEY_SECRET">;
 
 export interface IssueDependencies {
   env: IssueEnv;

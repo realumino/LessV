@@ -27,7 +27,7 @@ import {
 } from "../../src/cert/store/d1";
 import { createScriptedFetch } from "./support/fake-fetch";
 import { MockCloudflareDns } from "./support/mock-dns";
-import { seedCertificate, seedCertDomain, seedIssueRun } from "./support/fixtures";
+import { seedActiveDnsCredential, seedCertificate, seedCertDomain, seedIssueRun } from "./support/fixtures";
 
 const NOW = new Date("2026-01-02T00:00:00.000Z");
 
@@ -42,8 +42,9 @@ function makeSetup() {
 }
 
 function sweeperDeps(fetcher: typeof fetch): SweeperDependencies {
-  // The env carries the test-only CF_DNS_API_TOKEN binding; the DNS calls
-  // are intercepted by the mock, so the token value is irrelevant.
+  // The env carries DB and KEY_SECRET; the DNS calls are intercepted by the
+  // mock, so which token the reader unseals does not matter here — only that
+  // an active row exists, because there is no env fallback.
   return { db: env.DB, env, fetcher, now: () => NOW };
 }
 
@@ -177,7 +178,39 @@ describe("stale challenge-record sweeper", () => {
     return id;
   }
 
+  it("leaves every record alone when no credential is active", async () => {
+    const { dns, fetch } = makeSetup();
+    const domain = await seedCertDomain(env.DB, { name: "sweep-nocred.example.com" });
+    const { runId } = await seedIssueRun(env.DB, domain.id);
+    const recordId = await seedChallengeRow(
+      domain,
+      runId,
+      "kept-record-id",
+      "_acme-challenge.kept.example.com",
+      new Date(NOW.getTime() - 48 * 3600_000).toISOString(),
+    );
+
+    await expect(sweepStaleChallengeRecords(sweeperDeps(fetch))).resolves.toEqual({
+      deleted: 0,
+      failed: 1,
+    });
+    // WHY nothing was attempted: the record still exists at the provider and
+    // in the table, because a missing credential is a configuration fact, not
+    // a per-record Cloudflare failure.
+    expect(dns.records).toEqual([]);
+    const row = await env.DB.prepare("SELECT deleted_at FROM challenge_records WHERE id = ?")
+      .bind(recordId)
+      .first<{ deleted_at: string | null }>();
+    expect(row?.deleted_at).toBeNull();
+    // WHY the row is removed again: sibling tests sweep every stale record in
+    // the table, so a fixture left behind would be swept by the next one.
+    await env.DB.prepare("DELETE FROM challenge_records WHERE id = ?")
+      .bind(recordId)
+      .run();
+  });
+
   it("deletes records older than 24h and marks them, keeping fresh ones", async () => {
+    await seedActiveDnsCredential(env.DB);
     const { dns, fetch } = makeSetup();
     const domain = await seedCertDomain(env.DB, { name: "sweep-txt.example.com" });
     const { runId } = await seedIssueRun(env.DB, domain.id);
@@ -219,6 +252,7 @@ describe("stale challenge-record sweeper", () => {
   });
 
   it("counts a 404 from the DNS API as deleted", async () => {
+    await seedActiveDnsCredential(env.DB);
     const { fetch } = makeSetup();
     const domain = await seedCertDomain(env.DB, { name: "sweep-gone.example.com" });
     const { runId } = await seedIssueRun(env.DB, domain.id);
