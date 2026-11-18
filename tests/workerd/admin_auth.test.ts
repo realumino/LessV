@@ -130,8 +130,8 @@ describe("admin key identities", () => {
   });
 
   it("authenticates a second key through the same middleware", async () => {
-    // WHY: one principal was the old model; the point of identities is a
-    // second one working beside ADMIN_KEY, with no role distinction yet.
+    // WHY: one principal was the old model; every identity is a row now, and
+    // a second one must authenticate with no role distinction yet.
     const created = await mint("second");
     const response = await planeJson("GET", "/api/admin/keys", undefined, {
       Authorization: `Bearer ${created.token}`,
@@ -163,11 +163,35 @@ describe("admin key identities", () => {
     expect(list.find((key) => key.id === created.id)?.disabled_at).not.toBeNull();
   });
 
-  it("still accepts the ADMIN_KEY binding (break-glass this release)", async () => {
-    // WHY: identities must never lock the operator out before the binding
-    // path is removed; TEST_ADMIN_KEY resolves through the env binding.
-    const response = await planeJson("GET", "/api/admin/keys");
-    expect(response.status).toBe(200);
+  it("closes the panel when no key row exists", async () => {
+    // WHY: with no env fallback, an empty table is the whole failure mode — a
+    // plane that was never provisioned accepts nothing, and nothing else
+    // answers for it.
+    const rows = await env.DB.prepare(
+      "SELECT id, label, key_hash, created_at, disabled_at FROM admin_keys",
+    ).all<{
+      id: string;
+      label: string;
+      key_hash: string;
+      created_at: number;
+      disabled_at: number | null;
+    }>();
+    await env.DB.prepare("DELETE FROM admin_keys").run();
+    try {
+      const response = await planeJson("GET", "/api/admin/keys");
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ detail: "admin key required" });
+    } finally {
+      // WHY restored by hand: the tier shares one D1, so a test that left the
+      // table empty would fail every file that ran after it.
+      for (const row of rows.results) {
+        await env.DB.prepare(
+          "INSERT INTO admin_keys (id, label, key_hash, created_at, disabled_at) VALUES (?, ?, ?, ?, ?)",
+        )
+          .bind(row.id, row.label, row.key_hash, row.created_at, row.disabled_at)
+          .run();
+      }
+    }
   });
 
   it("404s the revoke of an unknown key id", async () => {
@@ -183,10 +207,9 @@ describe("admin key identities", () => {
     expect(response.status).toBe(422);
   });
 
-  it("keeps working when a stored row's hash is tampered", async () => {
-    // WHY: the middleware looks the hash up in D1; a corrupt row must not
-    // break the admin surface — the binding path still answers, and the
-    // stored key just fails like any unknown token.
+  it("answers 401 when a stored row's hash no longer matches its token", async () => {
+    // WHY: the hash is the only thing compared, so a corrupt row must fail
+    // like any unknown token — there is no second source to fall back on.
     const created = await mint("tampered");
     await env.DB.prepare(
       "UPDATE admin_keys SET key_hash = 'deadbeef' WHERE id = ?",
@@ -194,12 +217,10 @@ describe("admin key identities", () => {
       .bind(created.id)
       .run();
 
-    const withRow = await planeJson("GET", "/api/admin/keys", undefined, {
+    const response = await planeJson("GET", "/api/admin/keys", undefined, {
       Authorization: `Bearer ${created.token}`,
     });
-    expect(withRow.status).toBe(401);
-
-    const withBinding = await planeJson("GET", "/api/admin/keys");
-    expect(withBinding.status).toBe(200);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ detail: "admin key required" });
   });
 });

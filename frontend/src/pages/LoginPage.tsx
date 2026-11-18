@@ -62,7 +62,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
               className="cf-input"
               value={key}
               onChange={(event) => setKey(event.target.value)}
-              placeholder="Paste the ADMIN_KEY"
+              placeholder="Paste an admin key"
               aria-label="Admin key"
               autoComplete="off"
             />

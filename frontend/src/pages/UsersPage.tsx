@@ -207,9 +207,10 @@ export default function UsersPage() {
           </div>
         )}
         <p className="cf-card__note">
-          A disabled key answers with the same error as an unknown one. The
-          sign-in key (the deployment&apos;s ADMIN_KEY secret) is break-glass:
-          it works even when every key here is disabled.
+          A disabled key answers with the same error as an unknown one. Every
+          identity is a row: with no working key the panel cannot be opened at
+          all, and a lost key is recovered on the operator machine with{" "}
+          <code className="cf-mono">node scripts/admin_key.mjs create</code>.
         </p>
       </section>
 

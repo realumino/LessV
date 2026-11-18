@@ -3,20 +3,25 @@
  * command line.
  *
  * WHY a script and not an API call: the first admin key must exist before
- * anyone can log in to the panel, and a lost panel (every key disabled,
- * ADMIN_KEY rotated away) needs a recovery path that does not depend on
- * the panel working. This is that path — the bootstrap and the recovery
- * action in one command. The `POST /api/admin/keys` endpoint does the same
- * thing through the panel once some key works.
+ * anyone can log in to the panel, and a plane with no rows (or with every
+ * key disabled) accepts nothing at all. This is the bootstrap and the
+ * recovery path in one command — it depends on wrangler access, not on the
+ * panel working. The `POST /api/admin/keys` endpoint does the same thing
+ * through the panel once some key works, and that is the normal path.
  *
- * WHY the token is printed exactly once and never written to disk: the
- * plane stores only its SHA-256 hash; the temp SQL file carries the hash
- * and is deleted before this script exits.
+ * WHY the token is shown exactly once: the plane stores only its SHA-256
+ * hash, so there is no second chance to read it. By default it goes to
+ * stdout; `--out <file>` writes `ADMIN_KEY=<token>` with mode 0600 and
+ * prints only the path, so a script can consume it without the token
+ * landing in a log. The temp SQL file carries the hash and is deleted
+ * before this script exits.
  *
  * Usage:
  *   node scripts/admin_key.mjs create --label <name>            # remote D1
  *   node scripts/admin_key.mjs create --label <name> --local    # wrangler dev D1
+ *   node scripts/admin_key.mjs create --label <name> --local --persist-to <dir>
  *   node scripts/admin_key.mjs create --label <name> --config <wrangler-file>
+ *   node scripts/admin_key.mjs create --label <name> --out <file>  # path, not token
  */
 
 import { spawnSync } from "node:child_process";
@@ -27,7 +32,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -59,10 +64,13 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 if (args._[0] !== "create") {
-  fail("usage: node scripts/admin_key.mjs create --label <name> [--local] [--config <file>]");
+  fail("usage: node scripts/admin_key.mjs create --label <name> [--local [--persist-to <dir>]] [--config <file>] [--out <file>]");
 }
 if (!args.label || typeof args.label !== "string") {
   fail("--label <name> is required (shown in the panel's key list)");
+}
+if (args["persist-to"] && !args.local) {
+  fail("--persist-to only applies with --local (a remote D1 has no local state)");
 }
 
 // --- mint: the same 32-byte base64url token the plane mints ---------------
@@ -91,6 +99,11 @@ try {
 const wranglerArgs = ["wrangler", "d1", "execute", "DB", "--file", tempFile];
 if (args.local) {
   wranglerArgs.push("--local");
+  // WHY the passthrough: a Worker started with `--persist-to <dir>` keeps its
+  // D1 there, so the row has to be inserted there too or the panel stays shut.
+  if (args["persist-to"]) {
+    wranglerArgs.push("--persist-to", args["persist-to"]);
+  }
 } else {
   wranglerArgs.push("--remote");
 }
@@ -113,7 +126,23 @@ if (result.status !== 0) {
   fail("wrangler d1 execute failed — the key was NOT stored");
 }
 
-// --- reveal: stdout only, after the hash is safely stored -----------------
+// --- reveal: stdout, or a mode-0600 file, after the hash is stored --------
+
+if (args.out) {
+  // WHY the path and not the token: a script consuming this cannot leak what
+  // it never read from a log, and the file is readable only by its owner.
+  const target = resolve(args.out);
+  writeFileSync(target, `ADMIN_KEY=${token}\n`, { mode: 0o600 });
+  try {
+    chmodSync(target, 0o600);
+  } catch {
+    /* Windows may ignore the mode; the file holds a live token */
+  }
+  console.log("");
+  console.log(`Admin key for "${args.label}" written to ${target} (mode 0600) as ADMIN_KEY=<token>.`);
+  console.log("The token was not printed; read it from the file.");
+  process.exit(0);
+}
 
 console.log("");
 console.log(`Admin key for "${args.label}" (shown once; the plane stores only its hash):`);

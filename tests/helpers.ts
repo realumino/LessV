@@ -16,9 +16,9 @@ const ORIGIN = "https://plane.test";
 /**
  * WHAT: the admin key the test harness presents to /api/admin/*.
  *
- * WHY a fixed literal: it must equal the ADMIN_KEY binding that
- * vitest.config.ts declares for the test workerd (that binding is the
- * single source of the value); production secrets never touch tests.
+ * WHY a fixed literal: `tests/setup.ts` seeds the hash of exactly this value
+ * into `admin_keys`, so it is the token of a row, not a binding — the plane
+ * has no env fallback, and production secrets never touch tests.
  */
 export const TEST_ADMIN_KEY = "test-admin-key";
 

@@ -108,12 +108,14 @@ export default defineConfig({
           bindings: {
             TEST_MIGRATIONS: migrations,
             // Test-only fixed secrets: the suite runs hermetically —
-            // no .dev.vars, no operator values. Production secrets come
-            // from `wrangler secret` / --secrets-file only. CF_DNS_API_TOKEN
-            // Also fixed: every DNS call is mocked in tests, so a placeholder
-            // keeps the binding shape real without network access.
+            // no .dev.vars, no operator values. Production values come
+            // from `wrangler secret` / --secrets-file only. The admin
+            // identity is a seeded `admin_keys` row (tests/setup.ts), not
+            // a binding, because the plane has no env fallback.
             KEY_SECRET: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
-            ADMIN_KEY: "test-admin-key",
+            // Also fixed: every DNS call is mocked in tests, so a
+            // placeholder keeps the binding shape real without network
+            // access.
             CF_DNS_API_TOKEN: "test-only-token",
           },
           // WHY the binding is declared here and not in wrangler.jsonc:

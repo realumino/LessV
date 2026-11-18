@@ -2,14 +2,17 @@
 # into two jobs so a frontend failure is not buried behind a long workerd
 # run.
 #
-# WHY the test step sets ADMIN_KEY / KEY_SECRET / CF_DNS_API_TOKEN: the
-# wrangler config declares `secrets.required`, and without .dev.vars (which
-# is never committed) wrangler warns about missing required secrets. These
-# three values are not secrets — they are test-only placeholders, equal to
-# the miniflare bindings declared in vitest.config.ts, which win over the
-# environment; if those bindings ever change, the first CI run fails loudly
-# on a drifted expectation instead of passing on accidentally consistent
-# env values.
+# WHY the test step sets KEY_SECRET / CF_DNS_API_TOKEN: the wrangler config
+# declares `secrets.required`, and without .dev.vars (which is never
+# committed) wrangler warns about missing required secrets. These values are
+# not secrets — they are test-only placeholders, equal to the miniflare
+# bindings declared in vitest.config.ts, which win over the environment; if
+# those bindings ever change, the first CI run fails loudly on a drifted
+# expectation instead of passing on accidentally consistent env values.
+#
+# WHY there is no admin key here: panel identities are `admin_keys` rows, and
+# tests/setup.ts seeds the one the suite authenticates with. Nothing about an
+# identity is deploy-time state.
 #
 # WHY `npm run deploy -- --dry-run` is NOT run here: deploy.mjs refuses the
 # placeholder hostname `cp.example.com`, and a config with a real hostname
@@ -45,7 +48,6 @@ jobs:
       - run: npm run typecheck
       - run: npm test
         env:
-          ADMIN_KEY: test-admin-key
           KEY_SECRET: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
           CF_DNS_API_TOKEN: test-only-token
 

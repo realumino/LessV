@@ -19,6 +19,10 @@
 # loaded by dev, tests, or typecheck. Both files are gitignored.
 #
 # Warnings:
+#  - There is no admin key here. Panel identities are rows: mint the first
+#    one with `node scripts/admin_key.mjs create --label dev --local`
+#    after the local database exists — a fresh local D1 has no row, and a
+#    plane with no row accepts nothing.
 #  - Use DIFFERENT values locally and in production.
 #  - Rotating a KEY_SECRET in production strands every sealed REALITY key
 #    ever stored (they are unreadable without it). Generate once per
@@ -26,10 +30,6 @@
 #  - Never pipe these values into wrangler from PowerShell 5.1: the pipe
 #   prepends a UTF-8 BOM and the decoder rejects it. Use the interactive
 #   prompt (`npx wrangler secret put`) or a dotenv file.
-
-# Bearer key for every /api/admin/* request (also what the SPA login page
-# asks for).
-ADMIN_KEY=base64url-of-32-random-bytes
 
 # AES-256-GCM key that seals REALITY private keys at rest. base64 of 32
 # random bytes. NOT rotatable without a migration plan; see warning above.

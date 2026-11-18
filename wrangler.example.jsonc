@@ -65,11 +65,14 @@
   // `wrangler deploy --secrets-file <file>` because `wrangler secret
   // put` cannot address a Worker that does not exist yet.
   //
-  // WHY both names matter locally too: `wrangler dev` binds a .dev.vars
+  // WHY every name matters locally too: `wrangler dev` binds a .dev.vars
   // key only when the config declares it, so an undeclared key silently
   // stays missing at runtime (401s that look like a wrong value).
+  //
+  // Panel identities and the DNS token are NOT here: both are rows in D1,
+  // managed at runtime, so nothing about them is deploy-time state.
   "secrets": {
-    "required": ["ADMIN_KEY", "KEY_SECRET", "CF_DNS_API_TOKEN"]
+    "required": ["KEY_SECRET", "CF_DNS_API_TOKEN"]
   },
 
   // Static assets own /admin (built by frontend/, nested to mirror the

@@ -20,6 +20,10 @@
  *   node scripts/stage.mjs destroy --config wrangler.staging.jsonc
  *     [--secrets-file .env.staging]
  *
+ * With --secrets-file the create run also mints the plane's first admin key
+ * into `<secrets-file>.admin`: a fresh plane has no admin row, and with no env
+ * fallback that plane accepts no key at all.
+ *
  * Exit codes: 0 success, 1 a step failed, 2 bad arguments.
  *
  * WHY top-level await: the health probe is the last create step, and the
@@ -137,7 +141,7 @@ function readSecrets(path) {
   return map;
 }
 
-/** WHAT: generate a secrets file with fresh ADMIN_KEY and KEY_SECRET. */
+/** WHAT: generate a secrets file with a fresh KEY_SECRET. */
 function generateSecrets(path) {
   if (existsSync(join(REPO_ROOT, path))) {
     fail(`${path} already exists; pass a different path or delete it first`);
@@ -148,14 +152,14 @@ function generateSecrets(path) {
     fail("the config declares no secrets.required list; cannot generate one");
   }
   // WHAT: the plane-generated values, and where a third-party value comes from.
-  // WHY the split: ADMIN_KEY and KEY_SECRET are disposable or plane-owned and
-  // can be minted here; CF_DNS_API_TOKEN was issued by someone else, so the
-  // script copies it from an existing env file and never invents one.
+  // WHY the split: KEY_SECRET is plane-owned and can be minted here;
+  // CF_DNS_API_TOKEN was issued by someone else, so the script copies it from
+  // an existing env file and never invents one. An admin key is not a secret
+  // at all — it is a D1 row, minted after the deploy (see below).
   // WHY KEY_SECRET is padded base64, not base64url: the seal/unseal path
   // decodes it with atob, which accepts only the standard alphabet; a '-'
   // or '_' in a base64url value is a decode failure at the first render.
   const generated = {
-    ADMIN_KEY: () => randomBytes(32).toString("base64url"),
     KEY_SECRET: () => randomBytes(32).toString("base64"),
   };
   const lines = [];
@@ -226,6 +230,35 @@ if (command === "create") {
     );
   }
 
+  // 2b. The identity the release requires: panel keys are D1 rows now, so a
+  //     freshly created plane has none and cannot open its own panel. Minting
+  //     here is what makes this command produce a usable plane; an existing
+  //     file is reused so a repeated run keeps its key instead of piling up
+  //     rows.
+  const adminKeyFile = secretsFile ? `${secretsFile}.admin` : null;
+  if (adminKeyFile !== null) {
+    if (existsSync(join(REPO_ROOT, adminKeyFile))) {
+      console.log(`\nadmin key: reusing ${adminKeyFile}`);
+    } else {
+      step(
+        "admin key",
+        "node",
+        [
+          "scripts/admin_key.mjs",
+          "create",
+          "--label",
+          "staging",
+          "--config",
+          configPath,
+          "--out",
+          adminKeyFile,
+        ],
+        { inherit: true },
+      );
+      console.log(`admin key: written to ${adminKeyFile} (mode 0600, ADMIN_KEY=<token>)`);
+    }
+  }
+
   // 3. The pipeline probed /api/health already; repeat it here because the
   //    secret upload above restarted the Worker.
   const health = await fetch(`https://${pattern}/api/health`, { signal: AbortSignal.timeout(20000) });
@@ -235,7 +268,9 @@ if (command === "create") {
   console.log(`\nhealth ok: https://${pattern}/api/health -> 200`);
   console.log(`plane ready: ${workerName} at https://${pattern} (D1 ${databaseName}, workflow ${workflow})`);
   if (secretsFile) {
-    console.log(`credentials: ${secretsFile} (ADMIN_KEY is the panel key)`);
+    console.log(`credentials: ${secretsFile} (deploy secrets), ${adminKeyFile} (panel admin key)`);
+  } else {
+    console.log("admin key: none minted — run scripts/admin_key.mjs create before using this plane");
   }
 }
 
