@@ -124,6 +124,15 @@ const proxy = args.proxy ?? null;
 const outDir = args.out ?? ".plans/accept";
 const label = args.label ?? "vela-accept";
 
+/**
+ * WHAT: the provider's ceiling for `metadata.user_data`, in bytes.
+ *
+ * WHY a constant: it is a Linode API limit (16 KiB) and the boot document is
+ * edited in this tree, so a size regression must fail here — before an
+ * instance exists — instead of as a 400 after the node row and certificate.
+ */
+const LINODE_USER_DATA_LIMIT = 16384;
+
 /** WHAT: the ids this run created, so the teardown can be exact. */
 const created = { nodeId: null, certDomainId: null, linodeId: null };
 const checks = [];
@@ -309,6 +318,15 @@ async function provisionPlane() {
 
 /** WHAT: boot one disposable host from the document the plane just rendered. */
 async function bootHost(userData) {
+  // WHY checked here and not in the plane: the limit belongs to the provider's
+  // API. Exceeding it is a 400 after the node row and certificate already
+  // exist, which reads like a transient failure instead of a document budget.
+  const bytes = Buffer.byteLength(userData, "utf8");
+  if (bytes > LINODE_USER_DATA_LIMIT) {
+    record("boot document fits the provider limit", false, `${bytes} > ${LINODE_USER_DATA_LIMIT} bytes`);
+    throw new Error("the rendered boot document exceeds the provider's user-data limit");
+  }
+  record("boot document fits the provider limit", true, `${bytes} bytes`);
   const instance = await linode("POST", "/linode/instances", {
     region,
     type,

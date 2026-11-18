@@ -54,6 +54,8 @@ import { join } from "node:path";
 
 const API = "https://api.linode.com/v4";
 const BOOT_TIMEOUT_S = 300;
+/** WHAT: the provider's ceiling for metadata.user_data, in bytes. */
+const USER_DATA_LIMIT = 16384;
 const DEFAULT_SERVER_IMAGE = "ghcr.io/realumino/vela-server:latest";
 const DEFAULT_SERVER_BINARY = "/usr/local/bin/vela-server";
 
@@ -510,6 +512,14 @@ async function cmdNode(args) {
     const userData = minted?.cloud_init;
     if (typeof userData !== "string" || !userData.startsWith("#cloud-config")) {
       throw new Error("the plane returned no cloud-init with the token");
+    }
+    // WHY before the instance is created: a document over the provider's
+    // limit is a 400 that leaves the node row and inventory behind.
+    const userDataBytes = Buffer.byteLength(userData, "utf8");
+    if (userDataBytes > USER_DATA_LIMIT) {
+      throw new Error(
+        `the rendered boot document is ${userDataBytes} bytes; the provider accepts ${USER_DATA_LIMIT}. Trim src/services/cloud_init.ts.`,
+      );
     }
 
     const rootPass = randomRootPassword();
