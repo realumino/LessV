@@ -61,7 +61,11 @@ presses Save config.
   a reported version is older, because the apply's config test would
   otherwise reject the outbound and roll back. A node that reports no version
   gets no warning: unknown is not the same as too old. `h3` only: the tunnel
-  is QUIC, so a node whose uplink blocks UDP/443 cannot use it.
+  is QUIC, so a node whose uplink blocks UDP/443 cannot use it. The edge is
+  dialled over IPv6 when the registration offers it (`v6` first, `v4` only as
+  a fallback), so a CGNAT or v6-only host still reaches it; the interface
+  keeps both address families, because dropping the v4 one would leave every
+  IPv4 destination without a source address.
 - **Geo block routing** — appends `geoip:<code>` and/or `geosite:<category>`
   rules that send matches to `BLOCK` (or another chosen tag). Two rules,
   because Xray ANDs the matchers inside one rule (`ip` + `domain` in one rule
@@ -192,19 +196,21 @@ First boot sets:
   applies it on later boots. `ip_forward` is deliberately absent: the host
   terminates its own TLS and is not a router.
 - `/etc/nftables.nft` — an inbound fallback that drops everything except TCP
-  80/443. ICMP errors, IPv6 neighbour discovery, and DHCP client replies are
-  allowed because TCP/IP and boot need them; no service listens on those
-  ports. There is deliberately no `forward` chain: the container's traffic is
-  DNAT'd onto the Docker bridge and crosses that hook, which Docker manages in
-  its own table — a second drop verdict there would race Docker's accepts and
-  break the published ports. `22` is not open.
+  80/443, UDP 443 and ICMP echo. ICMP errors, IPv6 neighbour discovery, and
+  DHCP client replies are allowed because TCP/IP and boot need them; no
+  service listens on UDP 443 or answers the echo — the port is opened ahead of
+  a listener so a future inbound does not need a new host document. There is
+  deliberately no `forward` chain: the container's traffic is DNAT'd onto the
+  Docker bridge and crosses that hook, which Docker manages in its own table —
+  a second drop verdict there would race Docker's accepts and break the
+  published ports. `22` is not open.
 - `/etc/init.d/sshd` is replaced by a no-op. Stopping the service alone is not
   enough: cloud-init's `cc_ssh` calls `rc-service sshd restart`, and the
   default runlevel can start it after the bootstrap's cleanup. The no-op makes
   both paths inert; there is no SSH listener even if a runlevel link survives.
 - Docker plus the compose plugin, started from the default runlevel. The
   compose file is written to `/etc/vela/compose.yaml`: one service, bridge
-  networking, `ports: ["80:80", "443:443/tcp"]`, `restart:
+  networking, `ports: ["80:80", "443:443/tcp", "443:443/udp"]`, `restart:
   unless-stopped`, a 90-second stop grace period, a 1M `nofile` ulimit,
   `no-new-privileges`, and two named volumes (`vela-etc` on `/etc/vela`,
   `vela-state` on `/var/lib/vela`). The mount points are the image's
@@ -213,11 +219,26 @@ First boot sets:
   the token never lands in a shell history, an argument list, or the host's
   filesystem. `docker compose up -d` then starts the service, and the
   bootstrap fails loudly if the container is not running afterwards.
+- `/etc/periodic/weekly/vela-upgrade` is the host's only maintenance: busybox
+  crond (added to the default runlevel) runs `apk -U upgrade` and then
+  `docker compose … up -d`, appending both to `/var/log/vela-upgrade.log` with
+  a UTC timestamp. The bootstrap runs the same script once before the service
+  starts, so a host provisioned today is patched today. It never reboots and
+  never touches the image: the tag is the plane's decision and a rebuild is
+  the recovery path.
 
 Failure policy: a node that does not enroll is destroyed and rebuilt with a
 new node id; user data is not retained for an in-place rebuild. Read
 `/var/log/cloud-init-output.log` through the provider console when the first
 boot fails.
+
+Host maintenance is the weekly job above. Read `/var/log/vela-upgrade.log`
+the same way — through the provider console (Lish or equivalent), because the
+host has no SSH listener. A failed run is logged and nothing else: the job
+neither reboots nor retries, and the service keeps running what it was
+running. `docker compose ps` after a weekly run that upgraded `docker` itself
+is the one observation worth making, since the job re-creates the container
+right after the daemon restart.
 
 The node token is in cloud-init user data (and in the root-only cloud-init
 cache on the host). Providers generally cannot update user data in place, so
@@ -230,7 +251,7 @@ Keep rendered user data and inventories out of the tree.
 The server is a container image built and tested in
 [LessV-Node](https://github.com/realumino/vela-server). It carries the
 reconciler, Xray, nginx and the s6 supervisor; the host carries Docker, the
-firewall and the two published ports.
+firewall and the published ports.
 
 - **Upgrades replace the image.** Nothing on the host or in the plane updates
   Xray, nginx or the reconciler in place. Pin a tag in the compose file for a

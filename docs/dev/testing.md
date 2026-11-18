@@ -175,8 +175,8 @@ The checks are: plane health, the zone visible to its DNS token, node + preset,
 staging issuance to `complete`, the certificate assigned in the staging
 environment, the rendered document, the host booting from it, `in_sync` with
 `health: ok`, no render warnings, `nginx_ok: 1`, the certificate in the
-manifest, `:80` answering 301, and `:443` presenting the staging issuer with
-`X25519MLKEM768`.
+manifest, `:80` answering 301, the host answering ICMP echo, and `:443`
+presenting the staging issuer with `X25519MLKEM768`.
 
 By hand, if you want to watch it: **Nodes → Add node → Re-generate token**
 returns the document beside the token, with the node id, the control-plane URL,
@@ -193,8 +193,9 @@ What the plane side checks after a boot, in order:
 # enrolled and converged: last_seen set, applied_hash == desired_hash
 curl -sS -H "Authorization: Bearer $ADMIN_KEY"   https://<cp>/api/admin/nodes/<id>/sync | jq '{health,in_sync,warnings,nginx_ok,certs}'
 
-# the two published ports, from outside the host
+# the published ports and the firewall's ICMP exception, from outside the host
 curl -I http://<id>.lvtest.<zone>/            # 301 to https
+ping -c 2 <ip>                                # echo is allowed, nothing else is
 openssl s_client -connect <ip>:443 -servername <id>.lvtest.<zone> </dev/null 2>/dev/null   | grep -E 'issuer=|Negotiated TLS'          # staging CA, X25519MLKEM768
 ```
 

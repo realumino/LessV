@@ -252,17 +252,20 @@ plane if it:
 5. executes advertised actions and answers through `POST /api/node/action`.
 
 The image is the delivery vehicle, and it has one operator-facing requirement:
-publish port 80 and port 443/tcp and nothing else needs exposing. Inside, the
+publish TCP 80, TCP 443 and UDP 443, and nothing else needs exposing. UDP 443
+is published ahead of any listener — the image ships none today — so a future
+inbound does not need a new host document. Inside, the
 server owns Xray on 443 and nginx on the decoy's Unix socket, and it keeps its
 two directories as volumes (`/etc/vela` for identity and certificates,
 `/var/lib/vela` for state, the live config and geodata). The image's own s6
 tree supervises the three processes; how a node runs it — compose, a plain
 `docker run`, an orchestrator — is invisible to the plane. The plane never connects to a
 node: every call is server-initiated, so a node behind NAT needs no inbound
-port except the two it serves traffic on.
+port except the ports it serves traffic on.
 
 A server is upgraded by replacing its image. The plane cannot and does not
-update Xray, nginx or the reconciler on a running host.
+update Xray, nginx or the reconciler on a running host; host packages are the
+node's own business, patched weekly from the document's periodic job.
 
 ## Secrets
 

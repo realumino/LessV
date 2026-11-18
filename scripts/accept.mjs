@@ -423,6 +423,25 @@ function assertPorts(address) {
   record("decoy serves the staging CA", /staging/i.test(issuer), issuer || "no issuer line");
 }
 
+/** WHAT: the host's ICMP echo exception, as a client outside the host sees it. */
+function assertPing(address) {
+  // WHY skipped behind a proxy: ICMP has no proxy, so a proxied run would
+  // report a failure that says nothing about the host's firewall.
+  if (proxy !== null) {
+    skip("host answers ICMP echo", "ICMP cannot go through --proxy");
+    return;
+  }
+  const argv = process.platform === "win32"
+    ? ["-n", "2", "-w", "2000", address]
+    : ["-c", "2", "-W", "2", address];
+  const result = run("ping", argv);
+  if (result === null) {
+    skip("host answers ICMP echo", "ping is not installed on this machine");
+    return;
+  }
+  record("host answers ICMP echo", result.status === 0, `exit ${result.status}`);
+}
+
 /** WHAT: remove everything this run created, by id, in dependency order. */
 async function teardown() {
   const failures = [];
@@ -494,6 +513,7 @@ try {
   report.certDomain = { id: created.certDomainId, name: certName };
   await assertConvergence(timeoutS);
   assertPorts(address);
+  assertPing(address);
 } catch (error) {
   record("run", false, String(error).slice(0, 300));
 } finally {

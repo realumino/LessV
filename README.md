@@ -40,7 +40,7 @@ Vela 是一套自托管的流量转发管理面板：控制面跑在 Cloudflare 
 | 本机 | Node.js 22 LTS+、npm |
 | 面板域名 | 例如 `cp.example.com`，必须使用 Cloudflare Custom Domain（由 Cloudflare 托管） |
 | 节点域名 | 例如 `node1.example.com`，**DNS only**（灰云），指向节点 IP |
-| 节点主机 | 任何装有 Docker 及 compose 插件的 Linux，root，80/443 空闲 |
+| 节点主机 | 任何装有 Docker 及 compose 插件的 Linux，root，TCP 80/443 与 UDP 443 空闲 |
 | 出站 | 节点可访问 80/443：容器镜像仓库、面板 HTTPS |
 | 备份 | `KEY_SECRET`、`.env.production`、D1 备份、节点 token 的妥善保存 |
 
@@ -157,7 +157,7 @@ Cloudflare Access 在 Cloudflare 边缘增加一层身份认证。它**不是** 
 | `/api/node/*` | **否** | 节点服务只发 Bearer token，不支持 Access；保护后所有节点失联 |
 | `/sub/*` | **否** | 订阅客户端（v2rayN、Clash、Shadowrocket 等）不会走 Access；保护后订阅全断 |
 | `/api/health` | **否** | 部署脚本和 cloud-init 用它判断面板可达；返回值只是常量 |
-| 节点域名 `:443` | **不适用** | 节点 A 记录是 DNS only，流量不经过 Cloudflare；由节点防火墙只开 80/443 |
+| 节点域名 `:443` | **不适用** | 节点 A 记录是 DNS only，流量不经过 Cloudflare；由节点防火墙只开 TCP 80/443、UDP 443 与 ICMP echo |
 
 `/api/health` 若被 Access 挡住，`npm run deploy` 的最终探针和 cloud-init 的等待循环都会失败；它必须保持公开。
 
@@ -235,7 +235,7 @@ curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/n
 - 只要存在 `workers.dev`、preview URL 或另一条 route，Access 就能被绕过。模板已关闭，不要手动打开。
 - Access 不替代 `ADMIN_KEY`；两者是独立的两个门槛。
 - `Bypass` 只用于 `/sub/*`、`/api/node/*`、`/api/health` 三个公开路径；不要给 `/admin` 或 `/api/admin` 加 Bypass，否则管理面就失去保护。
-- 节点主机不经过 Cloudflare，Access 管不到它；节点安全靠只开 80/443、禁用密码登录和及时打补丁。
+- 节点主机不经过 Cloudflare，Access 管不到它；节点安全靠只开 TCP 80/443、UDP 443 与 ICMP echo，禁用密码登录，主机软件包每周自动更新。
 
 ### 5. 添加节点
 
@@ -281,6 +281,7 @@ services:
     ports:
       - "80:80"
       - "443:443/tcp"
+      - "443:443/udp"
     stop_grace_period: 90s
     security_opt:
       - no-new-privileges:true
@@ -306,7 +307,7 @@ printf '%s\n' '<粘贴节点 token>' | docker run --rm -i \
 docker compose -f /etc/vela/compose.yaml up -d
 ```
 
-对外只发布两个端口，别的都不需要暴露。`vela-etc` 存放身份与证书目录，丢失要重新 enroll；`vela-state` 存放状态文件、运行配置与 geodata，丢失只需一次同步。日志：
+对外发布 80/tcp、443/tcp 与 443/udp，别的都不需要暴露。`vela-etc` 存放身份与证书目录，丢失要重新 enroll；`vela-state` 存放状态文件、运行配置与 geodata，丢失只需一次同步。日志：
 
 ```bash
 docker compose -f /etc/vela/compose.yaml ps
@@ -317,13 +318,13 @@ docker compose -f /etc/vela/compose.yaml logs -n 50
 
 #### 5.3 方式二：cloud-init
 
-cloud-config 由面板生成：它是给 Alpine 3.22+ / OpenRC 且带 cloud-init 的镜像用的一次性文档，不需要手改。它会设置 BBR 与 fd 上限、安装 Docker 与 nftables（只开 80/443）、禁用并移除 sshd、写 compose 文件、执行一次 enroll 并启动服务。首次启动后节点没有 SSH，后续全部通过面板管理；故障按不可变基础设施处理，销毁重建。
+cloud-config 由面板生成：它是给 Alpine 3.22+ / OpenRC 且带 cloud-init 的镜像用的一次性文档，不需要手改。它会设置 BBR 与 fd 上限、安装 Docker 与 nftables（只开 TCP 80/443、UDP 443 与 ICMP echo）、禁用并移除 sshd、写 compose 文件、执行一次 enroll 并启动服务。主机软件包由文档写入的每周任务自动更新，节点镜像只经面板更新。首次启动后节点没有 SSH，后续全部通过面板管理；故障按不可变基础设施处理，销毁重建。
 
 步骤：
 
 1. 按 5.1 建好节点、Domain 和 DNS。
 2. 生成 token（5.1）。对话框里 token 旁边就是已经填好的 cloud-config——节点 id、面板地址、镜像和入口都已就位，token 只在这里出现一次。复制它。
-3. 在 VPS 服务商处创建 Alpine 3.22+ 实例，把该文件作为 **user-data** 传入；防火墙放行入站 TCP 80/443（22 不需要，模板会禁用 sshd）。
+3. 在 VPS 服务商处创建 Alpine 3.22+ 实例，把该文件作为 **user-data** 传入；防火墙放行入站 TCP 80/443、UDP 443 与 ICMP echo（22 不需要，模板会禁用 sshd）。
 4. 等待首启完成。面板上节点的 `Health` 变为 `healthy`、`Applied` 追上 `Desired` 即成功；失败时通过服务商控制台看 `/var/log/cloud-init-output.log`。
 5. 首启失败不要原地修：销毁实例，用新的 node id 和 token 重建。`cloud-init` 只跑一次。
 
@@ -405,7 +406,7 @@ curl -I https://node1.example.com    # 200，证书有效（不用 -k）
 
 | 现象 | 先检查 | 处理 |
 |---|---|---|
-| 节点一直不出现 | DNS 是否 DNS only、是否发布 80/443、出站 80/443 与镜像仓库、token 是否复制完整、主机时间 | 修网络/重建 token；`docker compose -f /etc/vela/compose.yaml logs -n 50` |
+| 节点一直不出现 | DNS 是否 DNS only、是否发布 TCP 80/443 与 UDP 443、出站 80/443 与镜像仓库、token 是否复制完整、主机时间 | 修网络/重建 token；`docker compose -f /etc/vela/compose.yaml logs -n 50` |
 | 面板有节点但 `health` 不对 | `last_error`、`applied_hash` 与 `desired_hash` | 看节点日志（节点在应用前会校验配置） |
 | 配置保存后不生效 | JSON 是否合法、REALITY `privateKey` 是否留空、`serverNames` 是否覆盖域名 | 修正配置并 Save；节点保留上一份可用配置 |
 | `nginx_ok=0` | `nginx_error` | decoy 的 TLS 库在镜像里；确认跑的是哪个 tag 并重建镜像 |
@@ -496,7 +497,7 @@ on 443.
 | Local machine | Node.js 22 LTS+, npm |
 | Plane hostname | e.g. `cp.example.com`, proxied by Cloudflare (Custom Domain) |
 | Node hostname | e.g. `node1.example.com`, **DNS only** (grey cloud), pointing at the node IP |
-| Node host | Any Linux with Docker and its compose plugin, root, ports 80 and 443 free |
+| Node host | Any Linux with Docker and its compose plugin, root, TCP 80 and 443 plus UDP 443 free |
 | Egress | The node can reach 80/443: its container registry, and the plane over HTTPS |
 | Backups | `KEY_SECRET`, `.env.production`, a D1 backup, and the node tokens |
 
@@ -645,7 +646,7 @@ both need `/api/health`.
 | `/api/node/*` | **No** | The node server sends only its Bearer token and cannot do Access; protecting it disconnects every node |
 | `/sub/*` | **No** | Subscription clients (v2rayN, Clash, Shadowrocket, etc.) cannot do Access; protecting it breaks every subscription |
 | `/api/health` | **No** | The deploy script and cloud-init use it to check reachability; it returns a constant |
-| Node hostname `:443` | **Not applicable** | The node A record is DNS only; traffic does not go through Cloudflare. The node firewall opens only 80/443 |
+| Node hostname `:443` | **Not applicable** | The node A record is DNS only; traffic does not go through Cloudflare. The node firewall opens only TCP 80/443, UDP 443, and ICMP echo |
 
 If Access blocks `/api/health`, the final probe in `npm run deploy` and the cloud-init wait loop both fail; keep it public.
 
@@ -747,8 +748,8 @@ Caveats:
   `/api/health`); never add Bypass for `/admin` or `/api/admin`—that would
   expose the admin surface.
 - The node host does not pass through Cloudflare, so Access cannot protect it.
-  Node security is a minimal 80/443 firewall, no password SSH, and timely
-  patches.
+  Node security is a minimal firewall (TCP 80/443, UDP 443, ICMP echo),
+  no password SSH, and a weekly host-package update.
 
 ### 5. Adding a node
 
@@ -803,6 +804,7 @@ services:
     ports:
       - "80:80"
       - "443:443/tcp"
+      - "443:443/udp"
     stop_grace_period: 90s
     security_opt:
       - no-new-privileges:true
@@ -828,10 +830,10 @@ printf '%s\n' '<paste node token>' | docker run --rm -i \
 docker compose -f /etc/vela/compose.yaml up -d
 ```
 
-Two ports are published and nothing else needs exposing. `vela-etc` holds the
-identity and the certificate tree; `vela-state` holds the state file, the live
-config and geodata. Losing `vela-etc` means re-enrolling; losing
-`vela-state` costs one reconcile. Logs:
+80/tcp, 443/tcp and 443/udp are published and nothing else needs exposing.
+`vela-etc` holds the identity and the certificate tree; `vela-state` holds the
+state file, the live config and geodata. Losing `vela-etc` means re-enrolling;
+losing `vela-state` costs one reconcile. Logs:
 
 ```bash
 docker compose -f /etc/vela/compose.yaml ps
@@ -848,10 +850,12 @@ refreshed from the panel (**Maintenance → Refresh Geodata**).
 
 The plane writes the cloud-config for you: it is a one-shot document for an
 Alpine 3.22+ / OpenRC image that runs cloud-init, and it needs no edits. It
-raises BBR and fd limits, installs Docker and nftables (80/443 only), disables
-and removes sshd, writes the compose file, enrolls once, and starts the
-service. After first boot the node has no SSH; manage it from the panel. Treat
-a broken node as immutable: destroy and rebuild.
+raises BBR and fd limits, installs Docker and nftables (TCP 80/443, UDP 443,
+ICMP echo only), disables and removes sshd, writes the compose file, enrolls
+once, and starts the service. Host packages are patched weekly by a job the
+document installs; the node image changes only through the plane. After first
+boot the node has no SSH; manage it from the panel. Treat a broken node as
+immutable: destroy and rebuild.
 
 Steps:
 
@@ -860,8 +864,8 @@ Steps:
 token — the node id, the control-plane URL, the image and the entrypoint are
 already filled in, and the token appears there only once. Copy it.
 3. Create an Alpine 3.22+ instance at the VPS provider and pass the file as
-   **user-data**. Allow inbound TCP 80/443 in the provider firewall (22 is not
-   needed; the template disables sshd).
+   **user-data**. Allow inbound TCP 80/443, UDP 443 and ICMP echo in the
+   provider firewall (22 is not needed; the template disables sshd).
 4. Wait for first boot. Success is the panel showing `Health: healthy` and
    `Applied` catching up with `Desired`. If it fails, read
    `/var/log/cloud-init-output.log` through the provider console.
@@ -1000,7 +1004,7 @@ changes the links clients import — no node re-renders.
 
 | Symptom | Check first | Fix |
 |---|---|---|
-| Node never appears | DNS is DNS only; published ports 80/443; egress 80/443 and the registry; token copied completely; host clock | Fix the network or mint a new token; `docker compose -f /etc/vela/compose.yaml logs -n 50` |
+| Node never appears | DNS is DNS only; published TCP 80/443 and UDP 443; egress 80/443 and the registry; token copied completely; host clock | Fix the network or mint a new token; `docker compose -f /etc/vela/compose.yaml logs -n 50` |
 | Node exists but `health` is wrong | `last_error`, `applied_hash` vs `desired_hash` | Read the node log; the node validates the config before applying it |
 | Saved config does not apply | JSON validity; REALITY `privateKey` left empty; `serverNames` covers the domain | Fix and save; the node keeps the previous working config |
 | `nginx_ok=0` | `nginx_error` | The decoy's TLS library is inside the image; check which tag runs and rebuild |
@@ -1125,7 +1129,7 @@ Vela یک صفحهٔ مدیریت خودمیزبان برای سرویس هدا�
 | ماشین محلی | Node.js 22 LTS+ و npm |
 | میزبان صفحهٔ کنترل | مثلاً `cp.example.com`، با Cloudflare (Custom Domain) |
 | میزبان گره | مثلاً `node1.example.com`، فقط **DNS** (ابر خاکستری)، به IP گره |
-| ماشین گره | هر لینوکسی با Docker و افزونهٔ compose، دسترسی root، پورت 80 و 443 آزاد |
+| ماشین گره | هر لینوکسی با Docker و افزونهٔ compose، دسترسی root، پورت‌های TCP 80 و 443 و UDP 443 آزاد |
 | خروجی | گره به 80/443 دسترسی دارد: رجیستری تصویر و HTTPS صفحهٔ کنترل |
 | پشتیبان | `KEY_SECRET`، `.env.production`، پشتیبان D1 و توکن‌های گره |
 
@@ -1273,7 +1277,7 @@ Cloudflare Access یک لایهٔ هویت در لبهٔ Cloudflare اضافه �
 | `/api/node/*` | **نه** | سرور گره فقط Bearer token می‌فرستد و Access را نمی‌فهمد؛ محافظت یعنی قطع همهٔ گره‌ها |
 | `/sub/*` | **نه** | کلاینت‌های اشتراک (v2rayN، Clash، Shadowrocket و…) Access را انجام نمی‌دهند؛ محافظت یعنی قطع همهٔ اشتراک‌ها |
 | `/api/health` | **نه** | اسکریپت استقرار و cloud-init برای بررسی دسترسی از آن استفاده می‌کنند؛ بدنه فقط یک ثابت است |
-| میزبان گره `:443` | **موضوعیت ندارد** | رکورد A گره DNS only است و ترافیک از Cloudflare نمی‌گذرد؛ فایروال گره فقط 80/443 را باز می‌کند |
+| میزبان گره `:443` | **موضوعیت ندارد** | رکورد A گره DNS only است و ترافیک از Cloudflare نمی‌گذرد؛ فایروال گره فقط TCP 80/443، UDP 443 و ICMP echo را باز می‌کند |
 
 اگر Access مسیر `/api/health` را ببندد، بررسی نهایی `npm run deploy` و حلقهٔ انتظار cloud-init هر دو شکست می‌خورند؛ آن را عمومی نگه دارید.
 
@@ -1369,7 +1373,8 @@ curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/n
   `/api/health`) استفاده کنید؛ هرگز برای `/admin` یا `/api/admin` Bypass
   نسازید—سطح مدیریت بی‌محافظت می‌شود.
 - میزبان گره از Cloudflare عبور نمی‌کند، پس Access از آن محافظت نمی‌کند.
-  امنیت گره یعنی فایروال حداقلی 80/443، بدون SSH با رمز، و وصله‌های به‌موقع.
+  امنیت گره یعنی فایروال حداقلی (TCP 80/443، UDP 443، ICMP echo)، بدون SSH
+  با رمز، و به‌روزرسانی هفتگی بسته‌های میزبان.
 
 ### ۵. افزودن گره
 
@@ -1424,6 +1429,7 @@ services:
     ports:
       - "80:80"
       - "443:443/tcp"
+      - "443:443/udp"
     stop_grace_period: 90s
     security_opt:
       - no-new-privileges:true
@@ -1449,8 +1455,8 @@ printf '%s\n' '<paste node token>' | docker run --rm -i \
 docker compose -f /etc/vela/compose.yaml up -d
 ```
 
-فقط دو پورت منتشر می‌شود و چیز دیگری لازم نیست باز شود. `vela-etc` هویت و
-درخت گواهی را دارد؛ `vela-state` فایل وضعیت، پیکربندی زنده و geodata را.
+فقط سه پورت منتشر می‌شود (TCP 80/443 و UDP 443) و چیز دیگری لازم نیست باز شود.
+`vela-etc` هویت و درخت گواهی را دارد؛ `vela-state` فایل وضعیت، پیکربندی زنده و geodata را.
 از دست دادن `vela-etc` یعنی enroll دوباره؛ از دست دادن `vela-state` فقط یک
 همگام‌سازی هزینه دارد. گزارش‌ها:
 
@@ -1469,10 +1475,11 @@ docker compose -f /etc/vela/compose.yaml logs -n 50
 
 پنل خود cloud-config را می‌سازد: سندی یک‌بارمصرف برای Alpine 3.22+ / OpenRC با
 cloud-init که نیازی به ویرایش ندارد. سقف‌های BBR و fd را بالا می‌برد، Docker و
-nftables را نصب می‌کند (فقط 80/443)، sshd را غیرفعال و حذف می‌کند، فایل compose
-را می‌نویسد، یک‌بار enroll می‌کند و سرویس را بالا می‌آورد. پس از اولین بوت،
-گره SSH ندارد؛ مدیریت از پنل است. گرهٔ خراب را immutable بدانید: نابود و
-بازسازی کنید.
+nftables را نصب می‌کند (فقط TCP 80/443، UDP 443 و ICMP echo)، sshd را غیرفعال و
+حذف می‌کند، فایل compose را می‌نویسد، یک‌بار enroll می‌کند و سرویس را بالا می‌آورد.
+بسته‌های میزبان با وظیفهٔ هفتگی که همین سند می‌نویسد به‌روز می‌شوند؛ تصویر گره فقط
+از پنل تغییر می‌کند. پس از اولین بوت، گره SSH ندارد؛ مدیریت از پنل است. گرهٔ خراب
+را immutable بدانید: نابود و بازسازی کنید.
 
 مراحل:
 
@@ -1481,8 +1488,8 @@ nftables را نصب می‌کند (فقط 80/443)، sshd را غیرفعال و
    شناسهٔ گره، نشانی پنل، تصویر و entrypoint از پیش پر شده‌اند و توکن فقط
    همان‌جا یک‌بار دیده می‌شود. آن را کپی کنید.
 3. در ارائه‌دهندهٔ VPS یک نمونهٔ Alpine 3.22+ بسازید و فایل را به‌عنوان
-   **user-data** بدهید. در فایروال ارائه‌دهنده ورودی TCP 80/443 را باز کنید
-   (22 لازم نیست؛ قالب sshd را غیرفعال می‌کند).
+   **user-data** بدهید. در فایروال ارائه‌دهنده ورودی TCP 80/443، UDP 443 و
+   ICMP echo را باز کنید (22 لازم نیست؛ قالب sshd را غیرفعال می‌کند).
 4. منتظر اولین بوت بمانید. موفقیت یعنی پنل `Health: healthy` و رسیدن
    `Applied` به `Desired` را نشان دهد. در شکست،
    `/var/log/cloud-init-output.log` را از کنسول ارائه‌دهنده بخوانید.
@@ -1618,7 +1625,7 @@ variantهای اضافی همان inbound (CDN، پورت دیگر، SNI متف�
 
 | نشانه | اول بررسی کنید | رفع |
 |---|---|---|
-| گره هرگز ظاهر نمی‌شود | DNS فقط DNS باشد؛ انتشار 80/443؛ خروجی 80/443 و رجیستری؛ توکن کامل؛ ساعت میزبان | شبکه را درست کنید یا توکن جدید بسازید؛ `docker compose -f /etc/vela/compose.yaml logs -n 50` |
+| گره هرگز ظاهر نمی‌شود | DNS فقط DNS باشد؛ انتشار TCP 80/443 و UDP 443؛ خروجی 80/443 و رجیستری؛ توکن کامل؛ ساعت میزبان | شبکه را درست کنید یا توکن جدید بسازید؛ `docker compose -f /etc/vela/compose.yaml logs -n 50` |
 | گره هست ولی `health` درست نیست | `last_error`، `applied_hash` در برابر `desired_hash` | گزارش گره (گره پیش از اعمال، پیکربندی را بررسی می‌کند) |
 | پیکربندی ذخیره شد ولی اعمال نشد | اعتبار JSON؛ خالی بودن `privateKey`؛ پوشش `serverNames` | درست کنید و Save؛ گره پیکربندی سالم قبلی را نگه می‌دارد |
 | `nginx_ok=0` | `nginx_error` | کتابخانهٔ TLS سایت فریبنده داخل تصویر است؛ tag اجراشده را بررسی و تصویر را بازسازی کنید |
@@ -1741,7 +1748,7 @@ Vela — саморазмещаемая панель управления сер
 | Локальная машина | Node.js 22 LTS+ и npm |
 | Имя панели | Например `cp.example.com`, находится за Cloudflare (Custom Domain) |
 | Имя узла | Например `node1.example.com`, **только DNS** (серое облако), на IP узла |
-| Хост узла | Любой Linux с Docker и плагином compose, root, порты 80 и 443 свободны |
+| Хост узла | Любой Linux с Docker и плагином compose, root, порты TCP 80 и 443 и UDP 443 свободны |
 | Исходящий доступ | Узел достигает 80/443: реестр образов и панель по HTTPS |
 | Резервные копии | `KEY_SECRET`, `.env.production`, копия D1 и токены узлов |
 
@@ -1890,7 +1897,7 @@ Worker, затем включайте Access, потому что скрипт �
 | `/api/node/*` | **Нет** | Сервер узла отправляет только Bearer-токен и не умеет Access; защита отключит все узлы |
 | `/sub/*` | **Нет** | Клиенты подписки (v2rayN, Clash, Shadowrocket и т. д.) не проходят Access; защита сломает все подписки |
 | `/api/health` | **Нет** | Скрипт развёртывания и cloud-init проверяют им доступность; ответ — константа |
-| Имя узла `:443` | **Не применимо** | A-запись узла — DNS only; трафик не идёт через Cloudflare. Брандмауэр узла открывает только 80/443 |
+| Имя узла `:443` | **Не применимо** | A-запись узла — DNS only; трафик не идёт через Cloudflare. Брандмауэр узла открывает только TCP 80/443, UDP 443 и ICMP echo |
 
 Если Access закроет `/api/health`, финальная проверка `npm run deploy` и цикл ожидания cloud-init завершатся ошибкой; оставьте путь публичным.
 
@@ -1993,8 +2000,8 @@ curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/n
   или `/api/admin`—это откроет административную поверхность.
   Приложения только для административных путей оставляют границу явной.
 - Хост узла не проходит через Cloudflare, поэтому Access его не защищает.
-  Безопасность узла — минимальный брандмауэр 80/443, SSH без пароля и
-  своевременные обновления.
+  Безопасность узла — минимальный брандмауэр (TCP 80/443, UDP 443, ICMP echo),
+  SSH без пароля и еженедельное обновление пакетов хоста.
 
 ### 5. Добавление узла
 
@@ -2049,6 +2056,7 @@ services:
     ports:
       - "80:80"
       - "443:443/tcp"
+      - "443:443/udp"
     stop_grace_period: 90s
     security_opt:
       - no-new-privileges:true
@@ -2074,10 +2082,10 @@ printf '%s\n' '<paste node token>' | docker run --rm -i \
 docker compose -f /etc/vela/compose.yaml up -d
 ```
 
-Наружу публикуются два порта, больше ничего открывать не нужно. `vela-etc`
-хранит идентичность и дерево сертификатов; `vela-state` — файл состояния,
-живую конфигурацию и geodata. Потеря `vela-etc` означает повторный enroll,
-потеря `vela-state` — одну синхронизацию. Логи:
+Наружу публикуются порты TCP 80, TCP 443 и UDP 443, больше ничего открывать не
+нужно. `vela-etc` хранит идентичность и дерево сертификатов; `vela-state` —
+файл состояния, живую конфигурацию и geodata. Потеря `vela-etc` означает
+повторный enroll, потеря `vela-state` — одну синхронизацию. Логи:
 
 ```bash
 docker compose -f /etc/vela/compose.yaml ps
@@ -2095,10 +2103,12 @@ docker compose -f /etc/vela/compose.yaml logs -n 50
 
 cloud-config пишет панель: это одноразовый документ для образа Alpine 3.22+ /
 OpenRC с cloud-init, и править в нём нечего. Он поднимает лимиты BBR и fd,
-ставит Docker и nftables (только 80/443), отключает и удаляет sshd, пишет
-compose-файл, один раз выполняет enroll и запускает сервис. После первого
-запуска SSH на узле нет; управление идёт из панели. Сломанный узел считается
-неизменяемым: уничтожить и пересоздать.
+ставит Docker и nftables (только TCP 80/443, UDP 443 и ICMP echo), отключает и
+удаляет sshd, пишет compose-файл, один раз выполняет enroll и запускает сервис.
+Пакеты хоста обновляет еженедельная задача, которую пишет этот документ; образ
+узла меняется только через панель. После первого запуска SSH на узле нет;
+управление идёт из панели. Сломанный узел считается неизменяемым: уничтожить и
+пересоздать.
 
 Шаги:
 
@@ -2107,8 +2117,8 @@ compose-файл, один раз выполняет enroll и запускае�
    id узла, адрес панели, образ и entrypoint уже подставлены, а токен виден
    только здесь и только один раз. Скопируйте его.
 3. У провайдера VPS создайте инстанс Alpine 3.22+ и передайте файл как
-   **user-data**. В брандмауэре провайдера откройте входящие TCP 80/443 (22 не
-   нужен; шаблон отключает sshd).
+   **user-data**. В брандмауэре провайдера откройте входящие TCP 80/443, UDP 443
+   и ICMP echo (22 не нужен; шаблон отключает sshd).
 4. Дождитесь первого запуска. Успех — панель показывает `Health: healthy`, а
    `Applied` догоняет `Desired`. При сбое читайте
    `/var/log/cloud-init-output.log` через консоль провайдера.
@@ -2247,7 +2257,7 @@ staging-сертификаты не продлеваются и удаляютс
 
 | Симптом | Что проверить | Что делать |
 |---|---|---|
-| Узел не появляется | DNS only; опубликованные 80/443; исходящий 80/443 и реестр; токен скопирован полностью; часы хоста | Исправить сеть или создать новый токен; `docker compose -f /etc/vela/compose.yaml logs -n 50` |
+| Узел не появляется | DNS only; опубликованные TCP 80/443 и UDP 443; исходящий 80/443 и реестр; токен скопирован полностью; часы хоста | Исправить сеть или создать новый токен; `docker compose -f /etc/vela/compose.yaml logs -n 50` |
 | Узел есть, но `health` неверный | `last_error`, `applied_hash` против `desired_hash` | Лог узла (узел проверяет конфигурацию перед применением) |
 | Конфигурация сохранена, но не применяется | Валидность JSON; пустой `privateKey`; `serverNames` покрывает домен | Исправить и сохранить; узел держит предыдущую рабочую конфигурацию |
 | `nginx_ok=0` | `nginx_error` | TLS-библиотека заглушки внутри образа; проверьте, какой tag запущен, и пересоберите образ |
@@ -2373,7 +2383,7 @@ Workers에서 실행되고, 관리용 SPA는 `/admin` 아래에서 봉사되며,
 | 본지 | Node.js 22 LTS+ 및 npm |
 | 관리평면 주소 | 례: `cp.example.com`, Cloudflare (Custom Domain)를 거쳐야 함 |
 | 마디 주소 | 례: `node1.example.com`, **DNS only**(회색구름), 마디 IP를 가리킴 |
-| 마디 주계산기 | Docker와 compose 부속을 갖춘 임의의 Linux, root, 80/443 비어있음 |
+| 마디 주계산기 | Docker와 compose 부속을 갖춘 임의의 Linux, root, TCP 80/443과 UDP 443이 비어있음 |
 | 바깥련결 | 마디가 80/443에 접속할수 있어야 함: 홀씨그림 창고, 관리평면 HTTPS |
 | 예비복사 | `KEY_SECRET`, `.env.production`, D1 예비복사, 마디 토큰 |
 
@@ -2521,7 +2531,7 @@ Worker를 전개한 다음 Access를 켜십시오. 전개 Script와 cloud-init�
 | `/api/node/*` | **아니오** | 마디 서버는 Bearer 토큰만 보내며 Access를 모름; 보호하면 모든 마디가 끊김 |
 | `/sub/*` | **아니오** | 구독 클라이언트(v2rayN, Clash, Shadowrocket 등)는 Access를 거치지 못함; 보호하면 모든 구독이 끊김 |
 | `/api/health` | **아니오** | 전개 Script와 cloud-init이 도달성검사에 씀; 응답은 상수임 |
-| 마디 주소 `:443` | **해당없음** | 마디 A 레코드는 DNS only이며 흐름이 Cloudflare를 거치지 않음. 마디 방화벽은 80/443만 염 |
+| 마디 주소 `:443` | **해당없음** | 마디 A 레코드는 DNS only이며 흐름이 Cloudflare를 거치지 않음. 마디 방화벽은 TCP 80/443, UDP 443, ICMP echo만 엽니다 |
 
 `/api/health`를 Access가 막으면 `npm run deploy`의 마지막 검사와 cloud-init의 기다림고리가 모두 실패합니다. 공개로 두십시오.
 
@@ -2621,8 +2631,8 @@ curl -i -H "Authorization: Bearer $ADMIN_KEY" https://cp.example.com/api/admin/n
   드러납니다.
   관리경로에만 응용프로그람을 만들면 경계가 분명해집니다.
 - 마디 주계산기는 Cloudflare를 거치지 않으므로 Access가 보호할수 없습니다.
-  마디안전은 80/443만 려는 방화벽, 비밀번호없는 SSH, 때맞춘 보안수정으로
-  이룹니다.
+  마디안전은 TCP 80/443, UDP 443, ICMP echo만 려는 방화벽, 비밀번호없는
+  SSH, 매주 자동으로 도는 주계산기 꾸러미 보안수정으로 이룹니다.
 
 ### 5. 마디 추가
 
@@ -2677,6 +2687,7 @@ services:
     ports:
       - "80:80"
       - "443:443/tcp"
+      - "443:443/udp"
     stop_grace_period: 90s
     security_opt:
       - no-new-privileges:true
@@ -2702,8 +2713,8 @@ printf '%s\n' '<paste node token>' | docker run --rm -i \
 docker compose -f /etc/vela/compose.yaml up -d
 ```
 
-바깥으로는 두 포트만 내놓으며 다른것은 열 필요가 없습니다. `vela-etc`는 신분과
-증명서 나무를, `vela-state`는 상태파일과 실행설정, geodata를 담습니다.
+바깥으로는 TCP 80, TCP 443, UDP 443만 내놓으며 다른것은 열 필요가 없습니다.
+`vela-etc`는 신분과 증명서 나무를, `vela-state`는 상태파일과 실행설정, geodata를 담습니다.
 `vela-etc`를 잃으면 다시 enroll해야 하고, `vela-state`를 잃으면 한번의
 동기화만 치르면 됩니다. 기록:
 
@@ -2722,10 +2733,11 @@ watchtower 같은 자동갱신기에 맡기십시오. 홀씨그림은 흐름전�
 
 cloud-config는 관리평면이 만듭니다. cloud-init이 도는 Alpine 3.22+ / OpenRC
 화상에 쓰는 한번실행 문서이며 고칠곳이 없습니다. BBR과 fd 한계를 올리고,
-Docker와 nftables(80/443만)를 설치하고, sshd를 끄고 지우며, compose 파일을
-쓰고, 한번 enroll한 다음 봉사를 시작합니다. 첫 시작 뒤 마디에는 SSH가
-없습니다. 관리화면에서 다스립니다. 고장난 마디는 고치지 않고 없애고 다시
-만듭니다.
+Docker와 nftables(TCP 80/443, UDP 443, ICMP echo만)를 설치하고, sshd를 끄고
+지우며, compose 파일을 쓰고, 한번 enroll한 다음 봉사를 시작합니다. 주계산기
+꾸러미는 본보기가 쓰는 매주 보안수정 과업으로 갱신되고, 마디 홀씨그림은
+관리화면으로만 바뀝니다. 첫 시작 뒤 마디에는 SSH가 없습니다. 관리화면에서
+다스립니다. 고장난 마디는 고치지 않고 없애고 다시 만듭니다.
 
 절차:
 
@@ -2734,8 +2746,8 @@ Docker와 nftables(80/443만)를 설치하고, sshd를 끄고 지우며, compose
    있습니다 — 마디 id, 관리평면 주소, 홀씨그림, entrypoint가 채워져 있고
    토큰은 여기서 한번만 보입니다. 그것을 복사하십시오.
 3. VPS 봉사자에서 Alpine 3.22+ 실례를 만들고 그 파일을 **user-data**로
-   넘기십시오. 봉사자 방화벽에서 들어오는 TCP 80/443을 려십시오(22는 필요
-   없음; 본보기가 sshd를 끔).
+   넘기십시오. 봉사자 방화벽에서 들어오는 TCP 80/443, UDP 443, ICMP echo를
+   려십시오(22는 필요 없음; 본보기가 sshd를 끔).
 4. 첫 시작을 기다리십시오. 성공은 관리화면의 `Health: healthy`와 `Applied`가
    `Desired`를 따라잡는것입니다. 실패하면 봉사자 콘솔에서
    `/var/log/cloud-init-output.log`를 읽으십시오.
@@ -2869,7 +2881,7 @@ inbound의 추가 변형(CDN 앞단, 다른 포트, 다른 SNI)은 URI 매개변
 
 | 증상 | 먼저 볼것 | 고치기 |
 |---|---|---|
-| 마디가 끝내 나타나지 않음 | DNS가 DNS only인가; 내놓은 80/443; 나가는 80/443과 홀씨그림 창고; 토큰을 온전히 복사했는가; 주계산기 시계 | 망을 고치거나 새 토큰을 만드십시오; `docker compose -f /etc/vela/compose.yaml logs -n 50` |
+| 마디가 끝내 나타나지 않음 | DNS가 DNS only인가; 내놓은 TCP 80/443과 UDP 443; 나가는 80/443과 홀씨그림 창고; 토큰을 온전히 복사했는가; 주계산기 시계 | 망을 고치거나 새 토큰을 만드십시오; `docker compose -f /etc/vela/compose.yaml logs -n 50` |
 | 마디는 있으나 `health`가 틀림 | `last_error`, `applied_hash`와 `desired_hash` | 마디 기록(마디가 적용 전에 설정을 검사합니다) |
 | 설정을 저장해도 적용되지 않음 | JSON 정확성; REALITY `privateKey`가 비였는가; `serverNames`가 도메인을 덮는가 | 고치고 Save; 마디는 이전의 쓸수 있는 설정을 지킴 |
 | `nginx_ok=0` | `nginx_error` | 위장누리집의 TLS 라이브러리는 홀씨그림안에 있습니다; 어느 tag가 도는지 보고 홀씨그림을 다시 만드십시오 |
@@ -2990,7 +3002,7 @@ diňletmäň.
 | Ýerli maşyn | Node.js 22 LTS+ we npm |
 | Panel domeni | Mysal üçin `cp.example.com`, Cloudflare Custom Domain arkaly |
 | Düwün domeni | Mysal üçin `node1.example.com`, **diňe DNS** (çar şemal), düwün IP-sine |
-| Düwün serweri | Docker we compose goşundysy bolan islendik Linux, root, 80/443 boş |
+| Düwün serweri | Docker we compose goşundysy bolan islendik Linux, root, TCP 80/443 we UDP 443 boş |
 | Çykyş | Düwün 80/443-e ýetýär: obraz ammary, panel HTTPS |
 | Ätiýaçlyk | `KEY_SECRET`, `.env.production`, D1 ätiýaçlygy, düwün tokenleri |
 
@@ -3139,7 +3151,7 @@ cloud-init ikisi hem `/api/health`-e mätäç.
 | `/api/node/*` | **Ýok** | Düwün serweri diňe Bearer token iberýär we Access-i bilmeýär; gorasaňyz, ähli düwünler aýrylýar |
 | `/sub/*` | **Ýok** | Abuna klientleri (v2rayN, Clash, Shadowrocket we başgalar) Access-den geçip bilmeýär; gorasaňyz, ähli abunalar bozulýar |
 | `/api/health` | **Ýok** | Ýerleşdirme skripti we cloud-init onuň bilen elýeterliligi barlaýar; jogap hemişe birmeňzeş |
-| Düwün domeni `:443` | **Degişli däl** | Düwüniň A ýazgysy diňe DNS; trafik Cloudflare-den geçmeýär. Düwüniň gorag diwary diňe 80/443-i açýar |
+| Düwün domeni `:443` | **Degişli däl** | Düwüniň A ýazgysy diňe DNS; trafik Cloudflare-den geçmeýär. Düwüniň gorag diwary diňe TCP 80/443, UDP 443 we ICMP echo açýar |
 
 Eger Access `/api/health`-i ýaparsa, `npm run deploy`-yň soňky barlagy we
 cloud-init-iň garaşmak sikli ikisi hem şowsuz bolýar; ony açyk saklaň.
@@ -3244,8 +3256,9 @@ Bellikler:
   `/api/health`); `/admin` ýa `/api/admin` üçin hiç wagt Bypass goşmaň,
   ýogsa dolandyryş ýüzi açylýar.
 - Düwün serweri Cloudflare-den geçmeýär, şonuň üçin Access ony
-  gorap bilmeýär. Düwüniň howpsuzlygy 80/443 gorag diwary, parolsyz SSH we
-  öz wagtynda ýapylýan howpsuzlyk täzelenmeleridir.
+  gorap bilmeýär. Düwüniň howpsuzlygy TCP 80/443, UDP 443 we ICMP echo açýan
+  gorag diwary, parolsyz SSH we her hepde awtomatik ýapylýan howpsuzlyk
+  täzelenmeleridir.
 
 ### 5. Düwün goşmak
 
@@ -3300,6 +3313,7 @@ services:
     ports:
       - "80:80"
       - "443:443/tcp"
+      - "443:443/udp"
     stop_grace_period: 90s
     security_opt:
       - no-new-privileges:true
@@ -3325,10 +3339,10 @@ printf '%s\n' '<paste node token>' | docker run --rm -i \
 docker compose -f /etc/vela/compose.yaml up -d
 ```
 
-Daşyna diňe iki port çykarylýar, başga zat açylmaly däl. `vela-etc` şahsyýeti
-we şahadatnama agajyny saklaýar; `vela-state` ýagdaý faýlyny, işleýän
-konfigurasiýany we geodata-ny. `vela-etc` ýitse täzeden enroll etmeli; 
-`vela-state` ýitse bir sinhronlaşma ýeter. Žurnallar:
+Daşyna diňe üç port (TCP 80, TCP 443, UDP 443) çykarylýar, başga zat açylmaly
+däl. `vela-etc` şahsyýeti we şahadatnama agajyny saklaýar; `vela-state` ýagdaý
+faýlyny, işleýän konfigurasiýany we geodata-ny. `vela-etc` ýitse täzeden enroll
+etmeli; `vela-state` ýitse bir sinhronlaşma ýeter. Žurnallar:
 
 ```bash
 docker compose -f /etc/vela/compose.yaml ps
@@ -3346,10 +3360,12 @@ täzelenýär.
 
 cloud-config-y panel ýazýar: cloud-init işleýän Alpine 3.22+ / OpenRC obrazy
 üçin bir gezeklik resminama we ony üýtgetmek gerek däl. Ol BBR we fd çäklerini
-ýokarlandyrýar, Docker we nftables (diňe 80/443) gurýar, sshd-ni öçürýär we
-aýyrýar, compose faýlyny ýazýar, bir gezek enroll edýär we serwisi başlaýar.
-Ilkinji açylyşdan soň düwünde SSH ýok; dolandyryş panelden bolýar. Bozulan
-düwüni üýtgedip bejermäň: ýok ediň we täzeden dörediň.
+ýokarlandyrýar, Docker we nftables (diňe TCP 80/443, UDP 443 we ICMP echo)
+gurýar, sshd-ni öçürýär we aýyrýar, compose faýlyny ýazýar, bir gezek enroll
+edýär we serwisi başlaýar. Düwüniň paketlerini şu resminamanyň ýazýan hepdelik
+işi täzeläýär; düwüniň obrazy diňe panelden üýtgeýär. Ilkinji açylyşdan soň
+düwünde SSH ýok; dolandyryş panelden bolýar. Bozulan düwüni üýtgedip bejermäň:
+ýok ediň we täzeden dörediň.
 
 Ädimler:
 
@@ -3358,8 +3374,8 @@ düwüni üýtgedip bejermäň: ýok ediň we täzeden dörediň.
    düwün id-si, panel salgysy, obraz we entrypoint eýýäm doldurylan, token bolsa
    diňe şu ýerde bir gezek görünýär. Ony göçüriň.
 3. VPS üpjün edijisinde Alpine 3.22+ instansyny dörediň we faýly
-   **user-data** hökmünde beriň. Gorag diwarynda giriş TCP 80/443 açyň (22
-   gerek däl; şablon sshd-ni öçürýär).
+   **user-data** hökmünde beriň. Gorag diwarynda giriş TCP 80/443, UDP 443 we
+   ICMP echo açyň (22 gerek däl; şablon sshd-ni öçürýär).
 4. Ilkinji açylyşa garaşyň. Üstünlik: panelde `Health: healthy` we
    `Applied`-yň `Desired`-a ýetmegi. Şowsuz bolsa, üpjün edijiniň
    konsolyndan `/var/log/cloud-init-output.log`-y okaň.
@@ -3495,7 +3511,7 @@ täze bellemäsiz yzarlaýar.
 
 | Alamaty | Ilki barlaň | Düzediş |
 |---|---|---|
-| Düwün hiç görünmeýär | DNS diňe DNS-mi; çykarylan 80/443; çykyş 80/443 we obraz ammary; token doly göçürildimi; serwer sagadymy | Tora düzediş ediň ýa täze token dörediň; `docker compose -f /etc/vela/compose.yaml logs -n 50` |
+| Düwün hiç görünmeýär | DNS diňe DNS-mi; çykarylan TCP 80/443 we UDP 443; çykyş 80/443 we obraz ammary; token doly göçürildimi; serwer sagadymy | Tora düzediş ediň ýa täze token dörediň; `docker compose -f /etc/vela/compose.yaml logs -n 50` |
 | Düwün bar, `health` nädogry | `last_error`, `applied_hash` bilen `desired_hash` | Düwüniň žurnalyny okaň; düwün apply-dan öň konfigurasiýany barlaýar |
 | Konfigurasiýa saklandy, ýöne işlemeýär | JSON dogrumy; REALITY `privateKey` boşmy; `serverNames` domeni öz içine alýarmy | Düzediň we Save; düwün öňki işleýän konfigurasiýany saklaýar |
 | `nginx_ok=0` | `nginx_error` | Ýasama saýtyň TLS kitaphanasy obrazyň içinde; haýsy tagyň işleýändigini barlap, obrazy täzeden gurmaly |
@@ -3587,8 +3603,8 @@ täzeden çykaryp bolýar; hususy açarlary bolmaýar.
   optimizm.
 - Düwün işlemeýär diýip, ilki kabeli barlaň; kabel sag bolsa, özüňizi barlaň.
 - `last_error` boş bolsa gowy; doly bolsa, düwün size hat ýazýar.
-- Gorag diwary 80/443-i açýar, 22-ni ýapýar; düwün özüni howpsuz duýýar,
-  siz hem 22-ni barlaň.
+- Gorag diwary TCP 80/443, UDP 443 we ICMP echo açýar, 22-ni ýapýar; düwün
+  özüni howpsuz duýýar, siz hem 22-ni barlaň.
 
 ---
 
