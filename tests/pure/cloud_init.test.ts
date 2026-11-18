@@ -41,6 +41,16 @@ describe("renderCloudInit", () => {
     expect(doc).not.toMatch(/__[A-Z0-9_]+__/);
   });
 
+  it("stays inside the provider's user-data limit", () => {
+    // WHY a size assertion in a rendering test: the provider (Linode) rejects
+    // metadata.user_data over 16 KiB with a 400, and that rejection lands
+    // after the node row and certificate exist. The document is the thing
+    // edited in this tree, so the budget is pinned here, with headroom for a
+    // longer node id or control-plane origin.
+    const bytes = new TextEncoder().encode(renderCloudInit(values)).length;
+    expect(bytes).toBeLessThan(15872);
+  });
+
   it("fills the id, origin, token, image and binary", () => {
     const doc = renderCloudInit(values);
     expect(doc).toContain('NODE_ID="tokyo01"');
@@ -94,11 +104,21 @@ describe("renderCloudInit", () => {
     expect(job).toContain("apk -U upgrade");
     expect(job).toContain("docker compose -f /etc/vela/compose.yaml up -d");
     expect(job).toContain("/var/log/vela-upgrade.log");
+    // A docker upgrade restarts the daemon; re-converging the service without
+    // waiting for it loses the race and leaves the node down.
+    expect(job).toContain("docker info");
 
-    // Day 0: the bootstrap runs the same script once, before the service.
+    // Day 0: the bootstrap runs the same script once — after the first start
+    // is confirmed. WHY that order: apk can restart dockerd, and a restart
+    // before the container exists leaves nothing to bring it back (observed:
+    // the host enrolls and never serves). The script waits for the daemon and
+    // re-converges, and the bootstrap checks running again afterwards.
     const bootstrap = doc.slice(doc.indexOf("path: /root/vela-bootstrap.sh"));
     expect(bootstrap).toContain("/etc/periodic/weekly/vela-upgrade");
-    expect(bootstrap.lastIndexOf("docker compose -f /etc/vela/compose.yaml up -d")).toBeGreaterThan(
+    expect(bootstrap.indexOf("docker compose -f /etc/vela/compose.yaml up -d")).toBeLessThan(
+      bootstrap.indexOf("/etc/periodic/weekly/vela-upgrade"),
+    );
+    expect(bootstrap.lastIndexOf("ps --status running")).toBeGreaterThan(
       bootstrap.indexOf("/etc/periodic/weekly/vela-upgrade"),
     );
 

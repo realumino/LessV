@@ -221,12 +221,13 @@ First boot sets:
   filesystem. `docker compose up -d` then starts the service, and the
   bootstrap fails loudly if the container is not running afterwards.
 - `/etc/periodic/weekly/vela-upgrade` is the host's only maintenance: busybox
-  crond (added to the default runlevel) runs `apk -U upgrade` and then
-  `docker compose … up -d`, appending both to `/var/log/vela-upgrade.log` with
-  a UTC timestamp. The bootstrap runs the same script once before the service
-  starts, so a host provisioned today is patched today. It never reboots and
-  never touches the image: the tag is the plane's decision and a rebuild is
-  the recovery path.
+  crond (added to the default runlevel) runs `apk -U upgrade`, waits for the
+  Docker daemon, and then `docker compose … up -d`, appending both to
+  `/var/log/vela-upgrade.log` with a UTC timestamp. The bootstrap runs the same
+  script once, **after** the service is confirmed running: an `apk` upgrade can
+  restart dockerd, and doing that before the first start leaves nothing to
+  bring the container back. It never reboots and never touches the image: the
+  tag is the plane's decision and a rebuild is the recovery path.
 
 Failure policy: a node that does not enroll is destroyed and rebuilt with a
 new node id; user data is not retained for an in-place rebuild. Read
