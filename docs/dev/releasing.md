@@ -1,11 +1,14 @@
 # Releasing
 
-Two artifacts are versioned independently, in two repositories:
+Two repositories, two release units:
 
-- **Plane** — Worker + SPA + migrations. Version in `package.json`; deployed
-  with `npm run deploy`.
-- **Server** — the node image. Version in the server repository; published
-  there by its own workflow.
+- **Plane** — Worker + SPA + migrations. The deploy is the release: `npm
+  run deploy` puts it live, and its identity is the wrangler deployment id
+  plus the D1 migration ledger. The plane carries no version number, no
+  tag, and no release notes — the commit history is the changelog, and
+  `package.json`'s `version` field is npm boilerplate, not a release claim.
+- **Server** — the node image. Versioned and published in the server
+  repository by its own workflow; the version is the UTC ship date.
 
 The server↔plane protocol is a third, separate number. `docs/PROTOCOL.md` and
 `PROTOCOL_VERSION` in `src/routers/node.ts` (plus the server repo's
@@ -49,9 +52,9 @@ notes, not by the version's shape.
    curl -fsS https://<host>/api/health
    ```
 
-6. Tag the commit and write release notes that name the operator-visible
-   change, the protocol version, and any migration. Do not put hostnames,
-   certificate serials, tokens, or run output in the notes.
+The deploy is the release, and nothing follows it: no tag, no version
+number, no release notes. `npx wrangler deployments list` is the release
+record; the commit history is the changelog.
 
 Rollback of code is `npx wrangler rollback`. Migrations are forward-only:
 `wrangler rollback` does not undo D1 changes, so schema changes must be
@@ -148,4 +151,3 @@ the bucket held.
       `CF_DNS_API_TOKEN` — and `.env.production` carries nothing else, because
       `--secrets-file` re-uploads whatever the file holds.
 - [ ] Plane deploy health check passed.
-- [ ] Release notes name the version, protocol, and operator-visible change.
