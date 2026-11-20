@@ -239,13 +239,17 @@ function NodeHeader({
   );
 }
 
-/** The health fact as a state badge; unknown values stay plain. */
+/**
+ * The health fact as a state badge. The server stores "ok" on a
+ * succeeded stage and "error:<stage>" otherwise (node_state_service.ts) —
+ * never "healthy"; unknown values stay plain.
+ */
 function HealthBadge({ health }: { health: string | null }) {
   if (!health) {
     return <span className="cf-meta">—</span>;
   }
   return (
-    <Badge tone={health === "healthy" ? "ok" : "warn"}>{health}</Badge>
+    <Badge tone={health === "ok" ? "ok" : "warn"}>{health}</Badge>
   );
 }
 
