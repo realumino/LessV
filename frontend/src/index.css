@@ -176,14 +176,6 @@
   text-transform: uppercase;
 }
 
-.cf-sidebar__account {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--vela-line);
-}
-
 .cf-avatar {
   display: inline-flex;
   align-items: center;
@@ -205,29 +197,6 @@
   height: 28px;
   border-radius: 999px;
   font-size: 11px;
-}
-
-.cf-account__text {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-}
-
-.cf-account__name {
-  overflow: hidden;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--vela-foreground);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cf-account__sub {
-  overflow: hidden;
-  font-size: 11.5px;
-  color: var(--vela-foreground-faint);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .cf-nav {
@@ -1887,6 +1856,434 @@
   color: var(--vela-foreground-faint);
   font-size: 11.5px;
   line-height: 1.55;
+}
+
+/* ----------------------------------------------------------- fleet cells */
+
+.cf-statecell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cf-healthcell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--vela-foreground);
+  font-size: 13px;
+}
+
+.cf-healthcell__bar {
+  width: 16px;
+  height: 4px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--vela-state-success);
+}
+
+.cf-healthcell--ok {
+  color: var(--vela-state-success);
+}
+
+.cf-healthcell--warn .cf-healthcell__bar {
+  background: var(--vela-state-warning);
+}
+
+.cf-healthcell--warn {
+  color: var(--vela-state-warning);
+}
+
+.cf-healthcell--unknown {
+  color: var(--vela-foreground-faint);
+}
+
+.cf-healthcell--unknown .cf-healthcell__bar {
+  background: var(--vela-input);
+}
+
+/* ------------------------------------------------------------ admin keys */
+
+.cf-keybar {
+  position: relative;
+}
+
+.cf-keypopover-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.cf-keypopover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  width: 320px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--vela-border);
+  border-radius: var(--vela-radius-xl);
+  background: var(--vela-card);
+  box-shadow: var(--vela-shadow-float);
+}
+
+.cf-keypopover__title {
+  margin: 0;
+  color: var(--vela-foreground-strong);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cf-keypopover__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cf-keylist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cf-keyrow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--vela-line);
+  transition: background-color 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.cf-keyrow:first-child {
+  border-top: 0;
+}
+
+.cf-keyrow:hover {
+  background: var(--vela-sunken);
+}
+
+.cf-keyrow__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 1px solid var(--vela-line);
+  border-radius: var(--vela-radius-md);
+  background: var(--vela-sunken);
+  color: var(--vela-foreground-soft);
+}
+
+.cf-keyrow__glyph svg {
+  width: 15px;
+  height: 15px;
+}
+
+.cf-keyrow__id {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cf-keyrow__name {
+  color: var(--vela-foreground-strong);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.cf-keyrow__meta {
+  color: var(--vela-foreground-faint);
+  font-size: 11.5px;
+}
+
+.cf-keyrow__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.cf-keyrow--disabled .cf-keyrow__glyph {
+  background: var(--vela-card);
+  color: var(--vela-foreground-faint);
+}
+
+.cf-keyrow--disabled .cf-keyrow__name {
+  color: var(--vela-foreground-soft);
+}
+
+/* ------------------------------------------------------ naming templates */
+
+.cf-templates {
+  display: flex;
+  flex-direction: column;
+}
+
+.cf-template {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-top: 1px solid var(--vela-line);
+}
+
+.cf-template:first-child {
+  border-top: 0;
+}
+
+.cf-template__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cf-template__name {
+  color: var(--vela-foreground-strong);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.cf-template__preview {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--vela-foreground-faint);
+  font-size: 11.5px;
+}
+
+.cf-template__preview code {
+  color: var(--vela-foreground-soft);
+  font-family: var(--vela-font-mono);
+  font-size: 11px;
+}
+
+.cf-template__input {
+  font-family: var(--vela-font-mono);
+  font-size: 12px;
+}
+
+.cf-template__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cf-template__tokens {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cf-token {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--vela-line);
+  border-radius: var(--vela-radius-sm);
+  background: var(--vela-sunken);
+  color: var(--vela-foreground-soft);
+  font-family: var(--vela-font-mono);
+  font-size: 11px;
+}
+
+.cf-template__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ------------------------------------------------------ DNS credentials */
+
+.cf-dnsbar {
+  position: relative;
+  display: inline-flex;
+}
+
+.cf-dnspopover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  width: 340px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--vela-border);
+  border-radius: var(--vela-radius-xl);
+  background: var(--vela-card);
+  box-shadow: var(--vela-shadow-float);
+}
+
+.cf-dnspopover__title {
+  margin: 0;
+  color: var(--vela-foreground-strong);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cf-dnspopover__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cf-credentiallist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cf-credentialrow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  transition: background-color 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.cf-credentialrow:hover {
+  background: var(--vela-sunken);
+}
+
+.cf-credentialrow__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 1px solid var(--vela-line);
+  border-radius: var(--vela-radius-md);
+  background: var(--vela-sunken);
+  color: var(--vela-foreground-soft);
+}
+
+.cf-credentialrow__glyph svg {
+  width: 15px;
+  height: 15px;
+}
+
+.cf-credentialrow__id {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cf-credentialrow__name {
+  color: var(--vela-foreground-strong);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.cf-credentialrow__meta {
+  color: var(--vela-foreground-faint);
+  font-size: 11.5px;
+}
+
+.cf-credentialrow__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --------------------------------------------------- certificate downloads */
+
+.cf-downloadbar {
+  position: relative;
+  display: inline-flex;
+}
+
+.cf-downloadpop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  width: 252px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--vela-border);
+  border-radius: var(--vela-radius-xl);
+  background: var(--vela-card);
+  box-shadow: var(--vela-shadow-float);
+  text-align: left;
+}
+
+.cf-downloadpop__title {
+  margin: 0;
+  color: var(--vela-foreground-strong);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cf-downloadpop__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cf-downloadpop__label {
+  margin: 0;
+  color: var(--vela-foreground-faint);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cf-downloadpop__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* WHY only wide viewports: the popover hangs below the actions column, so
+ * the horizontal scroll container must not clip it. */
+@media (min-width: 900px) {
+  .cf-card--downloads .cf-tablewrap {
+    overflow: visible;
+  }
+}
+
+@media (max-width: 720px) {
+  .cf-keyrow,
+  .cf-credentialrow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .cf-keyrow__actions,
+  .cf-credentialrow__actions {
+    width: 100%;
+    padding-left: 44px;
+  }
+
+  .cf-template__head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .cf-template__foot {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 /* ------------------------------------------------------------ responsive */

@@ -159,7 +159,7 @@ function FleetTable({ rows }: { rows: FleetRow[] }) {
             </td>
             <td>{node.address || "—"}</td>
             <td>
-              <span className="cf-inline">
+              <span className="cf-statecell">
                 <Badge tone={STATE_TONE[state]}>{STATE_LABEL[state]}</Badge>
                 {sync && sync.warnings.length > 0 && (
                   <span
@@ -172,7 +172,9 @@ function FleetTable({ rows }: { rows: FleetRow[] }) {
                 )}
               </span>
             </td>
-            <td>{sync?.health ?? "—"}</td>
+            <td>
+              <HealthCell health={sync?.health ?? null} />
+            </td>
             <td>
               <TlsCertCell certs={sync?.certs ?? []} />
             </td>
@@ -205,6 +207,35 @@ function FleetTable({ rows }: { rows: FleetRow[] }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * The fleet health column: a coloured bar plus the reported state, so a
+ * healthy row and an unreported one never read alike at a glance. The
+ * server stores "ok" on a succeeded stage and "error:<stage>" otherwise
+ * (node_state_service.ts) — never "healthy".
+ */
+function HealthCell({ health }: { health: string | null }) {
+  if (!health) {
+    return (
+      <span className="cf-healthcell cf-healthcell--unknown">
+        <span className="cf-healthcell__bar" aria-hidden="true" />
+        unknown
+      </span>
+    );
+  }
+  return (
+    <span
+      className={
+        health === "ok"
+          ? "cf-healthcell cf-healthcell--ok"
+          : "cf-healthcell cf-healthcell--warn"
+      }
+    >
+      <span className="cf-healthcell__bar" aria-hidden="true" />
+      {health}
+    </span>
   );
 }
 

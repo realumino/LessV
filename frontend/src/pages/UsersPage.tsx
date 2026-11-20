@@ -5,33 +5,24 @@
  * "which nodes is this user on, and with how many in/out gains" is the
  * question the list exists to answer, and it must never show a qualified
  * name.
+ *
+ * WHY panel credentials are not on this page: admin keys are a separate
+ * destination (/users/admin-keys); this page is about subscriber accounts
+ * and the nodes they may reach.
  */
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
-import {
-  createAdminKey,
-  deleteUser,
-  disableAdminKey,
-  listAdminKeys,
-  listNodes,
-  listUsers,
-} from "../api";
-import AdminKeyDialog from "../components/AdminKeyDialog";
+import { deleteUser, listNodes, listUsers } from "../api";
 import Badge from "../components/Badge";
 import ConfirmButton from "../components/ConfirmButton";
 import EmptyState from "../components/EmptyState";
 import ErrorNote from "../components/ErrorNote";
 import Icon from "../components/icons";
 import ShareLinksDialog from "../components/ShareLinksDialog";
-import { fmtExpire, fmtTimestamp } from "../lib/format";
-import type {
-  AdminKeyCreatedOut,
-  AdminKeyOut,
-  NodeOut,
-  UserOut,
-} from "../types";
+import { fmtExpire } from "../lib/format";
+import type { NodeOut, UserOut } from "../types";
 
 export default function UsersPage() {
   const [users, setUsers] = useState<UserOut[] | null>(null);
@@ -39,17 +30,11 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [shareFor, setShareFor] = useState<string | null>(null);
-  // Admin identities: the panel's own keys, beside the subscriber accounts
-  // this page already manages — access has two layers now.
-  const [keys, setKeys] = useState<AdminKeyOut[] | null>(null);
-  const [keyLabel, setKeyLabel] = useState("");
-  const [minted, setMinted] = useState<AdminKeyCreatedOut | null>(null);
 
   const load = useCallback(async () => {
-    const [userResult, nodeResult, keyResult] = await Promise.all([
+    const [userResult, nodeResult] = await Promise.all([
       listUsers(),
       listNodes(),
-      listAdminKeys(),
     ]);
     if (userResult.error) {
       setError(userResult.error);
@@ -58,7 +43,6 @@ export default function UsersPage() {
     setError(null);
     setUsers(userResult.data ?? []);
     setNodes(nodeResult.data ?? []);
-    setKeys(keyResult.data ?? []);
   }, []);
 
   useEffect(() => {
@@ -72,32 +56,6 @@ export default function UsersPage() {
       return;
     }
     setNotice(null);
-    await load();
-  };
-
-  const mintKey = async () => {
-    const label = keyLabel.trim();
-    if (!label) {
-      setNotice("Give the key a label first.");
-      return;
-    }
-    const result = await createAdminKey(label);
-    if (result.error) {
-      setNotice(`Mint failed: ${result.error}`);
-      return;
-    }
-    setKeyLabel("");
-    setMinted(result.data!);
-    await load();
-  };
-
-  const disableKey = async (key: AdminKeyOut) => {
-    const result = await disableAdminKey(key.id);
-    if (result.error) {
-      setNotice(`Disable failed: ${result.error}`);
-      return;
-    }
-    setNotice(`Key "${key.label}" disabled; its bearer is rejected immediately.`);
     await load();
   };
 
@@ -128,95 +86,6 @@ export default function UsersPage() {
 
       {error && <ErrorNote>{error}</ErrorNote>}
       {notice && <ErrorNote>{notice}</ErrorNote>}
-
-      <section className="cf-card">
-        <div className="cf-card__head">
-          <div className="cf-inline">
-            <h2 className="cf-card__title">Admin keys</h2>
-            <span className="cf-card__meta">
-              {keys === null
-                ? "Loading…"
-                : `${keys.length} key${keys.length === 1 ? "" : "s"}`}
-            </span>
-          </div>
-        </div>
-        <div className="cf-toolbar">
-          <input
-            className="cf-input"
-            type="text"
-            placeholder="Label, e.g. laptop or CI"
-            value={keyLabel}
-            maxLength={100}
-            onChange={(event) => setKeyLabel(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void mintKey();
-            }}
-            aria-label="New admin key label"
-          />
-          <button
-            type="button"
-            className="cf-btn cf-btn--primary"
-            onClick={() => void mintKey()}
-          >
-            <Icon name="plus" />
-            Mint key
-          </button>
-        </div>
-        {keys !== null && (
-          <div className="cf-tablewrap">
-            <table className="cf-table">
-              <thead>
-                <tr>
-                  <th className="cf-table__first">Label</th>
-                  <th>Created</th>
-                  <th>Status</th>
-                  <th className="cf-cell--actions">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {keys.map((key) => (
-                  <tr key={key.id}>
-                    <td className="cf-table__first">{key.label}</td>
-                    <td>
-                      <span className="cf-meta">{fmtTimestamp(key.created_at)}</span>
-                    </td>
-                    <td>
-                      <Badge tone={key.disabled_at === null ? "ok" : "idle"}>
-                        {key.disabled_at === null ? "active" : "disabled"}
-                      </Badge>
-                    </td>
-                    <td className="cf-cell--actions">
-                      {key.disabled_at === null ? (
-                        <ConfirmButton
-                          className="cf-btn cf-btn--secondary cf-btn--sm"
-                          message={`Disable the admin key "${key.label}"? Anything signed in with it stops working immediately.`}
-                          onConfirm={() => void disableKey(key)}
-                        >
-                          Disable
-                        </ConfirmButton>
-                      ) : (
-                        <span className="cf-meta">
-                          disabled {fmtTimestamp(key.disabled_at)}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <p className="cf-card__note">
-          A disabled key answers with the same error as an unknown one. Every
-          identity is a row: with no working key the panel cannot be opened at
-          all, and a lost key is recovered on the operator machine with{" "}
-          <code className="cf-mono">node scripts/admin_key.mjs create</code>.
-        </p>
-      </section>
-
-      {minted && (
-        <AdminKeyDialog minted={minted} onClose={() => setMinted(null)} />
-      )}
 
       <div className="cf-toolbar">
         <div className="cf-toolbar__left">

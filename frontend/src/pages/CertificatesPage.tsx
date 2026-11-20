@@ -29,7 +29,12 @@ import Field from "../components/Field";
 import Icon from "../components/icons";
 import Modal from "../components/Modal";
 import { inputClass, selectClass } from "../components/styles";
-import type { CertDomainOut, CertRunOut, ZoneOut } from "../types";
+import type {
+  CertDomainOut,
+  CertRunOut,
+  CertificateSummaryOut,
+  ZoneOut,
+} from "../types";
 import { certTone, daysUntilIso, expiryText } from "../lib/cert";
 
 export default function CertificatesPage() {
@@ -265,6 +270,7 @@ function DomainTable({
   onOpenRuns: (domainId: string) => void;
 }) {
   const [confirming, setConfirming] = useState<CertDomainOut | null>(null);
+  const [downloadFor, setDownloadFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const act = async (
@@ -290,7 +296,7 @@ function DomainTable({
   };
 
   return (
-    <section className="cf-card">
+    <section className="cf-card cf-card--downloads">
       <div className="cf-tablewrap">
         <table className="cf-table">
           <thead>
@@ -348,6 +354,39 @@ function DomainTable({
                     >
                       Runs
                     </button>
+                    <span className="cf-downloadbar">
+                      <button
+                        type="button"
+                        className="cf-iconbtn"
+                        aria-label={`Download ${domain.name}`}
+                        aria-haspopup="dialog"
+                        aria-expanded={downloadFor === domain.id}
+                        onClick={() =>
+                          setDownloadFor(
+                            downloadFor === domain.id ? null : domain.id,
+                          )
+                        }
+                      >
+                        <Icon name="download" />
+                      </button>
+                      {downloadFor === domain.id && (
+                        <div
+                          className="cf-downloadpop"
+                          role="dialog"
+                          aria-label={`Download ${domain.name}`}
+                        >
+                          <h3 className="cf-downloadpop__title">Download</h3>
+                          <DownloadGroup
+                            label="Production"
+                            summary={domain.production_certificate}
+                          />
+                          <DownloadGroup
+                            label="Staging"
+                            summary={domain.staging_certificate}
+                          />
+                        </div>
+                      )}
+                    </span>
                     <ConfirmButton
                       className="cf-iconbtn"
                       ariaLabel={`Delete ${domain.name}`}
@@ -393,22 +432,49 @@ function ExpiryCell({
   }
   const days = daysUntilIso(summary.not_after);
   return (
-    <span className="cf-stack">
-      <span className="cf-inline">
-        <Badge tone={certTone(days)}>{expiryText(days)}</Badge>
-        {summary.environment === "staging" && (
-          <span className="cf-badge cf-badge--outline">staging</span>
-        )}
-      </span>
-      <span className="cf-inline">
-        <DownloadButton certificateId={summary.id} file="fullchain">
-          fullchain
-        </DownloadButton>
-        <DownloadButton certificateId={summary.id} file="key">
-          key
-        </DownloadButton>
-      </span>
+    <span className="cf-inline">
+      <Badge tone={certTone(days)}>{expiryText(days)}</Badge>
+      {summary.environment === "staging" && (
+        <span className="cf-badge cf-badge--outline">staging</span>
+      )}
     </span>
+  );
+}
+
+/** One environment's downloads inside the row's download popover. */
+function DownloadGroup({
+  label,
+  summary,
+}: {
+  label: string;
+  summary: CertificateSummaryOut | null;
+}) {
+  return (
+    <div className="cf-downloadpop__group">
+      <p className="cf-downloadpop__label">{label}</p>
+      <div className="cf-downloadpop__actions">
+        {summary ? (
+          <>
+            <DownloadButton
+              certificateId={summary.id}
+              file="fullchain"
+              className="cf-btn cf-btn--secondary cf-btn--sm"
+            >
+              fullchain
+            </DownloadButton>
+            <DownloadButton
+              certificateId={summary.id}
+              file="key"
+              className="cf-btn cf-btn--secondary cf-btn--sm"
+            >
+              key
+            </DownloadButton>
+          </>
+        ) : (
+          <span className="cf-meta">Not issued</span>
+        )}
+      </div>
+    </div>
   );
 }
 

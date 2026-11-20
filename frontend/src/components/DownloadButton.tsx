@@ -15,10 +15,12 @@ import Icon from "./icons";
 export default function DownloadButton({
   certificateId,
   file,
+  className = "cf-rowlink",
   children,
 }: {
   certificateId: string;
   file: "cert" | "chain" | "fullchain" | "key";
+  className?: string;
   children: ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
@@ -40,7 +42,7 @@ export default function DownloadButton({
     <span className="cf-stack">
       <button
         type="button"
-        className="cf-rowlink"
+        className={className}
         onClick={() => void download()}
         disabled={busy}
       >

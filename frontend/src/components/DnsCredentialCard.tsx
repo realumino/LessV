@@ -1,16 +1,20 @@
 /**
- * The DNS API credential card: verify, save, activate, delete.
+ * The DNS API credential card: one row per stored token, plus a popover
+ * that verifies and saves a new or replacement token.
  *
- * WHY verify and save are separate buttons: verification talks to
+ * WHY verify and save are separate actions: verification talks to
  * Cloudflare with the pasted token and stores nothing; saving verifies and
  * seals. An operator can check a token before committing it, and the
  * "verified: N zones" line is the proof the count came from the live API,
  * not from a stale row.
  *
  * WHY the token is an input and never a display: the server stores only
- * the sealed form and returns nothing readable, so the card shows a
- * masked placeholder for stored credentials and the plaintext exists only
- * while the operator is typing it.
+ * the sealed form and returns nothing readable, so rows carry a sealed
+ * state and the plaintext exists only while the operator is typing it.
+ *
+ * WHY inactive rows keep an Activate action: a newly stored credential is
+ * inactive by design, and issuance uses the active row only — without the
+ * action a stored token could never be put to work.
  */
 import { useCallback, useEffect, useState } from "react";
 
@@ -30,15 +34,17 @@ import { inputClass } from "../components/styles";
 import { fmtTimestamp } from "../lib/format";
 import type { DnsCredentialOut } from "../types";
 
+/** WHAT: the token form's target — a new row, or one row being replaced. */
+type Editing = { id: string | null };
+
 export default function DnsCredentialCard() {
   const [rows, setRows] = useState<DnsCredentialOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Editing | null>(null);
   const [label, setLabel] = useState("");
   const [token, setToken] = useState("");
-  const [verified, setVerified] = useState<{ zones: number; at: Date } | null>(
-    null,
-  );
+  const [verified, setVerified] = useState<{ zones: number } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -55,6 +61,22 @@ export default function DnsCredentialCard() {
     void load();
   }, [load]);
 
+  const open = (row: DnsCredentialOut | null) => {
+    setEditing({ id: row?.id ?? null });
+    setLabel(row?.label ?? "");
+    setToken("");
+    setVerified(null);
+    setNotice(null);
+  };
+
+  const close = () => {
+    setEditing(null);
+    setLabel("");
+    setToken("");
+    setVerified(null);
+    setNotice(null);
+  };
+
   const check = async () => {
     if (!token.trim()) {
       setNotice("Paste a token to verify first.");
@@ -68,32 +90,29 @@ export default function DnsCredentialCard() {
       setNotice(`Verify failed: ${result.error}`);
       return;
     }
-    setVerified({ zones: result.data?.zones ?? 0, at: new Date() });
+    setVerified({ zones: result.data?.zones ?? 0 });
   };
 
-  const save = async (id?: string) => {
-    if (!label.trim() || !token.trim()) {
+  const save = async () => {
+    const name = label.trim();
+    const value = token.trim();
+    if (!name || !value) {
       setNotice("Label and token are both required.");
       return;
     }
     setBusy(true);
     setNotice(null);
     const result = await saveDnsCredential({
-      label: label.trim(),
-      token: token.trim(),
-      ...(id ? { id } : {}),
+      label: name,
+      token: value,
+      ...(editing?.id ? { id: editing.id } : {}),
     });
     setBusy(false);
     if (result.error) {
       setNotice(`Save failed: ${result.error}`);
       return;
     }
-    setVerified({
-      zones: result.data?.zones ?? 0,
-      at: new Date(),
-    });
-    setToken("");
-    setLabel("");
+    close();
     await load();
   };
 
@@ -126,131 +145,142 @@ export default function DnsCredentialCard() {
             {rows === null ? "Loading…" : `${rows.length} stored`}
           </span>
         </div>
+        <div className="cf-dnsbar">
+          <button
+            type="button"
+            className="cf-btn cf-btn--secondary cf-btn--sm"
+            aria-haspopup="dialog"
+            aria-expanded={editing !== null && editing.id === null}
+            onClick={() => open(null)}
+          >
+            <Icon name="plus" />
+            New credential
+          </button>
+          {editing && (
+            <div
+              className="cf-dnspopover"
+              role="dialog"
+              aria-label="DNS credential"
+            >
+              <h3 className="cf-dnspopover__title">
+                {editing.id ? "Replace token" : "New credential"}
+              </h3>
+              <label className="cf-field">
+                <span className="cf-label">Label</span>
+                <input
+                  className={inputClass}
+                  value={label}
+                  maxLength={100}
+                  placeholder="main zone token"
+                  aria-label="DNS credential label"
+                  onChange={(event) => setLabel(event.target.value)}
+                />
+              </label>
+              <label className="cf-field">
+                <span className="cf-label">API token</span>
+                <input
+                  className={inputClass}
+                  type="password"
+                  value={token}
+                  placeholder="Cloudflare API token"
+                  aria-label="Cloudflare API token"
+                  onChange={(event) => setToken(event.target.value)}
+                />
+              </label>
+              {verified && (
+                <span className="cf-hint">
+                  verified: {verified.zones} zone
+                  {verified.zones === 1 ? "" : "s"}
+                </span>
+              )}
+              {notice && <span className="cf-hint cf-error">{notice}</span>}
+              <div className="cf-dnspopover__foot">
+                <button
+                  type="button"
+                  className="cf-btn cf-btn--secondary cf-btn--sm"
+                  disabled={busy}
+                  onClick={() => void check()}
+                >
+                  Verify
+                </button>
+                <button
+                  type="button"
+                  className="cf-btn cf-btn--primary cf-btn--sm"
+                  disabled={busy || !label.trim() || !token.trim()}
+                  onClick={() => void save()}
+                >
+                  {busy ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-      <p className="cf-hint">
-        The Cloudflare DNS token the certificate subsystem uses for
-        <code className="cf-mono"> _acme-challenge </code>
-        records. Stored sealed; verified against the zone list before it is
-        kept. Issuance uses the active row and nothing else: with no active
-        row, every run fails with
-        <code className="cf-mono"> no DNS credential configured </code>.
-      </p>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      {notice && <ErrorNote>{notice}</ErrorNote>}
-      {verified && (
-        <p className="cf-alert cf-alert--info">
-          <Icon name="check" />
-          <span>
-            verified: {verified.zones} zone{verified.zones === 1 ? "" : "s"},{" "}
-            {verified.at.toLocaleTimeString()}
-          </span>
-        </p>
-      )}
-      <div className="cf-toolbar">
-        <input
-          className={inputClass}
-          type="text"
-          placeholder="Label, e.g. main zone token"
-          value={label}
-          maxLength={100}
-          onChange={(event) => setLabel(event.target.value)}
-          aria-label="DNS credential label"
-        />
-        <input
-          className={inputClass}
-          type="password"
-          placeholder="Paste the Cloudflare API token"
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          aria-label="Cloudflare API token"
-        />
-        <button
-          type="button"
-          className="cf-btn cf-btn--secondary"
-          disabled={busy}
-          onClick={() => void check()}
-        >
-          Verify
-        </button>
-        <button
-          type="button"
-          className="cf-btn cf-btn--primary"
-          disabled={busy}
-          onClick={() => void save()}
-        >
-          Save
-        </button>
-      </div>
-      {rows !== null && rows.length > 0 && (
-        <div className="cf-tablewrap">
-          <table className="cf-table">
-            <thead>
-              <tr>
-                <th className="cf-table__first">Label</th>
-                <th>Token</th>
-                <th>Updated</th>
-                <th>Status</th>
-                <th className="cf-cell--actions">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td className="cf-table__first">{row.label}</td>
-                  <td>
-                    <span className="cf-meta">•••••••• (sealed)</span>
-                  </td>
-                  <td>
-                    <span className="cf-meta">{fmtTimestamp(row.updated_at)}</span>
-                  </td>
-                  <td>
-                    <Badge tone={row.active ? "ok" : "idle"}>
-                      {row.active ? "active" : "stored"}
-                    </Badge>
-                  </td>
-                  <td className="cf-cell--actions">
-                    <span className="cf-inline">
-                      {!row.active && (
-                        <button
-                          type="button"
-                          className="cf-rowlink"
-                          onClick={() => void activate(row)}
-                        >
-                          Activate
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="cf-rowlink"
-                        onClick={() => {
-                          setLabel(row.label);
-                          setToken("");
-                          void save(row.id);
-                        }}
-                      >
-                        Replace token
-                      </button>
-                      <ConfirmButton
-                        className="cf-iconbtn"
-                        ariaLabel={`Delete ${row.label}`}
-                        message={`Delete the DNS credential "${row.label}"? Issuance falls back to the deployment secret until a new one is stored.`}
-                        onConfirm={() => void remove(row)}
-                      >
-                        <Icon name="trash-2" />
-                      </ConfirmButton>
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+      {error && (
+        <div className="cf-card__body">
+          <ErrorNote>{error}</ErrorNote>
         </div>
       )}
+      {notice && !editing && (
+        <div className="cf-card__body">
+          <ErrorNote>{notice}</ErrorNote>
+        </div>
+      )}
+
+      {rows !== null && rows.length > 0 && (
+        <ul className="cf-credentiallist">
+          {rows.map((row) => (
+            <li key={row.id} className="cf-credentialrow">
+              <span className="cf-credentialrow__glyph">
+                <Icon name="globe" />
+              </span>
+              <div className="cf-credentialrow__id">
+                <span className="cf-credentialrow__name">{row.label}</span>
+                <span className="cf-credentialrow__meta">
+                  Updated {fmtTimestamp(row.updated_at)} · sealed
+                </span>
+              </div>
+              <Badge tone={row.active ? "ok" : "idle"}>
+                {row.active ? "active" : "stored"}
+              </Badge>
+              <div className="cf-credentialrow__actions">
+                {!row.active && (
+                  <button
+                    type="button"
+                    className="cf-btn cf-btn--ghost cf-btn--sm"
+                    onClick={() => void activate(row)}
+                  >
+                    Activate
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="cf-btn cf-btn--secondary cf-btn--sm"
+                  onClick={() => open(row)}
+                >
+                  Replace token
+                </button>
+                <ConfirmButton
+                  className="cf-iconbtn"
+                  ariaLabel={`Delete ${row.label}`}
+                  message={`Delete the DNS credential "${row.label}"? Issuance falls back to the deployment secret until a new one is stored.`}
+                  onConfirm={() => void remove(row)}
+                >
+                  <Icon name="trash-2" />
+                </ConfirmButton>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
       {rows !== null && rows.length === 0 && (
-        <EmptyState>
-          No stored credential — every issuance fails with &quot;no DNS
-          credential configured&quot; until one is saved and activated.
-        </EmptyState>
+        <div className="cf-card__body">
+          <EmptyState>
+            No stored credential — every issuance fails with &quot;no DNS
+            credential configured&quot; until one is saved and activated.
+          </EmptyState>
+        </div>
       )}
     </section>
   );

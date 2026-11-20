@@ -6,18 +6,20 @@
  * name for each (inbound view, exit) pair — the same bytes a client sees — and
  * lets the admin override one combination when the format cannot express it.
  *
- * WHY the preview is not computed here: the renderer lives on the plane, and a
- * second implementation in the SPA would drift. Every save returns the whole
- * view again, so what is on screen is always what the server would emit.
+ * WHY the link-name preview is a server-rendered combination: the renderer
+ * lives on the plane, and a second implementation in the SPA would drift.
+ * The page uses the first rendered combination as its sample; the title
+ * preview is the literal field substitution the server performs with the
+ * two documented fields. Every save returns the whole view again, so what
+ * is on screen is always what the server would emit.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getNaming, saveLinkNameOverride, saveNaming } from "../api";
 import EmptyState from "../components/EmptyState";
 import ErrorNote from "../components/ErrorNote";
-import Field from "../components/Field";
 import Icon from "../components/icons";
-import { inputClass, secondaryButton } from "../components/styles";
+import { inputClass } from "../components/styles";
 import type { NamingCombination, NamingOut } from "../types";
 
 /** WHAT: one combination's identity as a React key and edit-map key. */
@@ -114,6 +116,22 @@ export default function NamesPage() {
     [naming],
   );
 
+  /** WHAT: one server-rendered name, so the preview never re-implements the
+   * renderer that produces it. */
+  const sampleName = useMemo(
+    () => naming?.nodes.flatMap((node) => node.combinations)[0]?.name ?? null,
+    [naming],
+  );
+
+  /** WHAT: the title template with the two documented fields filled with a
+   * sample identity; empty sends no title at all. */
+  const titlePreview =
+    titleTemplate.trim() === ""
+      ? null
+      : titleTemplate
+          .replaceAll("{username}", "alice")
+          .replaceAll("{status}", "active");
+
   if (naming === null) {
     return (
       <div className="cf-page">
@@ -149,110 +167,105 @@ export default function NamesPage() {
 
       <section className="cf-section">
         <div className="cf-section__head">
-          <h2 className="cf-section__title">Link name format</h2>
+          <h2 className="cf-section__title">Naming</h2>
           <span className="cf-section__hint">
-            One format for every generated link. Fields are replaced per
-            combination; an empty result falls back to the built-in format.
+            Link names and subscription titles.
           </span>
         </div>
-        <section className="cf-card">
-          <div className="cf-card__body">
-            <Field label="Format">
-              <input
-                className={inputClass}
-                value={template}
-                onChange={(event) => setTemplate(event.target.value)}
-                aria-label="Link name format"
-              />
-            </Field>
-            <p className="cf-hint">
-              Fields:{" "}
-              {naming.fields.link_name.map((field) => (
-                <code key={field} className="cf-mono">
-                  {`{${field}}`}{" "}
-                </code>
-              ))}
-            </p>
-            <div className="cf-inline">
-              <button
-                type="button"
-                className="cf-btn cf-btn--primary"
-                disabled={busy}
-                onClick={() => void saveTemplate({ link_name_template: template })}
-              >
-                {busy ? "Saving…" : "Save format"}
-              </button>
-              <button
-                type="button"
-                className={secondaryButton}
-                disabled={busy}
-                onClick={() =>
-                  setTemplate(naming.defaults.link_name_template)
-                }
-              >
-                <Icon name="rotate-ccw" />
-                Use default
-              </button>
+        <section className="cf-card cf-templates">
+          <div className="cf-template">
+            <div className="cf-template__head">
+              <span className="cf-template__name">Link name</span>
+              <span className="cf-template__preview">
+                Preview <code>{sampleName ?? "—"}</code>
+              </span>
+            </div>
+            <input
+              className={`${inputClass} cf-template__input`}
+              value={template}
+              onChange={(event) => setTemplate(event.target.value)}
+              aria-label="Link name format"
+            />
+            <div className="cf-template__foot">
+              <div className="cf-template__tokens">
+                {naming.fields.link_name.map((field) => (
+                  <code key={field} className="cf-token">
+                    {`{${field}}`}
+                  </code>
+                ))}
+              </div>
+              <div className="cf-template__actions">
+                <button
+                  type="button"
+                  className="cf-btn cf-btn--secondary cf-btn--sm"
+                  disabled={busy}
+                  onClick={() => setTemplate(naming.defaults.link_name_template)}
+                >
+                  <Icon name="rotate-ccw" />
+                  Use default
+                </button>
+                <button
+                  type="button"
+                  className="cf-btn cf-btn--primary cf-btn--sm"
+                  disabled={busy}
+                  onClick={() =>
+                    void saveTemplate({ link_name_template: template })
+                  }
+                >
+                  {busy ? "Saving…" : "Save"}
+                </button>
+              </div>
             </div>
           </div>
-        </section>
-      </section>
 
-      <section className="cf-section">
-        <div className="cf-section__head">
-          <h2 className="cf-section__title">Subscription title</h2>
-          <span className="cf-section__hint">
-            The profile name a client shows for the subscription URL. Leave it
-            empty to send no title at all. Only entitled users receive it.
-          </span>
-        </div>
-        <section className="cf-card">
-          <div className="cf-card__body">
-            <Field
-              label="Title format"
-              hint="Literal text plus the fields below; empty sends no title."
-            >
-              <input
-                className={inputClass}
-                value={titleTemplate}
-                onChange={(event) => setTitleTemplate(event.target.value)}
-                aria-label="Subscription title format"
-              />
-            </Field>
-            <p className="cf-hint">
-              Fields:{" "}
-              {naming.fields.subscription_title.map((field) => (
-                <code key={field} className="cf-mono">
-                  {`{${field}}`}{" "}
-                </code>
-              ))}
-            </p>
-            <div className="cf-inline">
-              <button
-                type="button"
-                className="cf-btn cf-btn--primary"
-                disabled={busy}
-                onClick={() =>
-                  void saveTemplate({
-                    subscription_title_template: titleTemplate,
-                  })
-                }
-              >
-                {busy ? "Saving…" : "Save title"}
-              </button>
-              <button
-                type="button"
-                className={secondaryButton}
-                disabled={busy}
-                onClick={() =>
-                  setTitleTemplate(
-                    naming.defaults.subscription_title_template,
-                  )
-                }
-              >
-                <Icon name="rotate-ccw" />
-                Clear
-              </button>
+          <div className="cf-template">
+            <div className="cf-template__head">
+              <span className="cf-template__name">Subscription title</span>
+              <span className="cf-template__preview">
+                Preview <code>{titlePreview ?? "—"}</code>
+              </span>
+            </div>
+            <input
+              className={`${inputClass} cf-template__input`}
+              value={titleTemplate}
+              onChange={(event) => setTitleTemplate(event.target.value)}
+              aria-label="Subscription title format"
+            />
+            <div className="cf-template__foot">
+              <div className="cf-template__tokens">
+                {naming.fields.subscription_title.map((field) => (
+                  <code key={field} className="cf-token">
+                    {`{${field}}`}
+                  </code>
+                ))}
+              </div>
+              <div className="cf-template__actions">
+                <button
+                  type="button"
+                  className="cf-btn cf-btn--secondary cf-btn--sm"
+                  disabled={busy}
+                  onClick={() =>
+                    setTitleTemplate(
+                      naming.defaults.subscription_title_template,
+                    )
+                  }
+                >
+                  <Icon name="rotate-ccw" />
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  className="cf-btn cf-btn--primary cf-btn--sm"
+                  disabled={busy}
+                  onClick={() =>
+                    void saveTemplate({
+                      subscription_title_template: titleTemplate,
+                    })
+                  }
+                >
+                  {busy ? "Saving…" : "Save"}
+                </button>
+              </div>
             </div>
           </div>
         </section>

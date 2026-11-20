@@ -17,6 +17,7 @@ import { Link, Navigate, Route, Routes, useLocation } from "react-router";
 
 import { clearAdminKey, getAdminKey, onAuthChange } from "./lib/auth";
 import Icon, { BrandMark } from "./components/icons";
+import AdminKeysPage from "./pages/AdminKeysPage";
 import CertificatesPage from "./pages/CertificatesPage";
 import FleetPage from "./pages/FleetPage";
 import LoginPage from "./pages/LoginPage";
@@ -66,6 +67,7 @@ export default function App() {
               <Route path="links" element={<NodeLinksPage />} />
             </Route>
             <Route path="/users" element={<UsersPage />} />
+            <Route path="/users/admin-keys" element={<AdminKeysPage />} />
             <Route path="/users/new" element={<UserEditPage />} />
             <Route path="/users/:username" element={<UserEditPage />} />
             <Route path="*" element={<NotFoundPage />} />
@@ -80,7 +82,7 @@ export default function App() {
   );
 }
 
-/** The product sidebar: brand, the signed-in identity, nav, and sign-out. */
+/** The product sidebar: brand, primary nav, and sign-out. */
 function Sidebar() {
   const { pathname } = useLocation();
   return (
@@ -95,16 +97,6 @@ function Sidebar() {
         <span className="cf-brand__tag">Admin</span>
       </div>
 
-      <div className="cf-sidebar__account">
-        <span className="cf-avatar" aria-hidden="true">
-          VL
-        </span>
-        <span className="cf-account__text">
-          <span className="cf-account__name">Vela</span>
-          <span className="cf-account__sub">Self-hosted control plane</span>
-        </span>
-      </div>
-
       <nav className="cf-nav" aria-label="Primary">
         <p className="cf-nav__label">Manage</p>
         <SidebarLink to="/nodes" icon="server" active={pathname.startsWith("/nodes")}>
@@ -117,8 +109,22 @@ function Sidebar() {
           Names
         </SidebarLink>
         <p className="cf-nav__label">Access</p>
-        <SidebarLink to="/users" icon="users" active={pathname.startsWith("/users")}>
+        <SidebarLink
+          to="/users"
+          icon="users"
+          active={
+            pathname.startsWith("/users") &&
+            !pathname.startsWith("/users/admin-keys")
+          }
+        >
           Users
+        </SidebarLink>
+        <SidebarLink
+          to="/users/admin-keys"
+          icon="key-round"
+          active={pathname.startsWith("/users/admin-keys")}
+        >
+          Admin keys
         </SidebarLink>
       </nav>
 
@@ -147,7 +153,7 @@ function SidebarLink({
   children,
 }: {
   to: string;
-  icon: "server" | "shield-check" | "users" | "pencil";
+  icon: "server" | "shield-check" | "users" | "pencil" | "key-round";
   active: boolean;
   children: string;
 }) {
@@ -184,7 +190,7 @@ function Topbar() {
             <Link to={`/${section}`}>{SECTION_LABEL[section] ?? "Nodes"}</Link>
             <span className="cf-crumbs__sep">/</span>
             <span className="cf-crumbs__current">
-              {section === "users" && detail === "new" ? "New user" : detail}
+              {detailLabel(section, detail)}
             </span>
           </>
         ) : (
@@ -213,3 +219,13 @@ const SECTION_LABEL: Record<string, string> = {
   names: "Names",
   users: "Users",
 };
+
+/** Fixed sub-page titles the URL segment alone does not spell nicely. */
+const DETAIL_LABEL: Record<string, string> = {
+  "users/new": "New user",
+  "users/admin-keys": "Admin keys",
+};
+
+function detailLabel(section: string, detail: string): string {
+  return DETAIL_LABEL[`${section}/${detail}`] ?? detail;
+}
