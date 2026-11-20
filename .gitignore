@@ -28,6 +28,3 @@ wrangler.*.jsonc
 # operator-local workspace: work-in-progress plans, acceptance run outputs,
 # run reports. The public repo stays clean.
 .plans/
-# imported design bundle (static HTML mockups, generator manifests): reference
-# material for the admin UI, not part of the deployable unit.
-lessv-admin-design-cf/
