@@ -42,8 +42,8 @@ import * as certService from "../cert/service";
  * docs/PROTOCOL.md → Version skew). MIN === CURRENT today: the window is
  * scaffolding until the next bump, which must ship its own N−1 renderer in
  * ACTION_RENDERERS below — that registry is what makes the bump non-flag-day.
- * Raising MIN deletes a renderer and is therefore a MAJOR image release,
- * never a patch-level cleanup.
+ * Raising MIN deletes a renderer and is therefore a protocol bump in its
+ * own right, never a routine release.
  */
 export const PROTOCOL_VERSION = 3;
 export const SUPPORTED_PROTOCOL_MIN = 3;

@@ -50,8 +50,7 @@ The upgrade order is always **plane first**: deploy the new plane (it accepts
 the old server's protocol), then upgrade the servers, and only when no server
 still speaks the older protocol may the plane raise
 `SUPPORTED_PROTOCOL_MIN`. Raising the minimum deletes a renderer, so it is a
-MAJOR image release and a documented protocol bump — never a patch-level
-cleanup.
+documented protocol bump in its own right — never a routine release.
 
 ## Transport and authentication
 
@@ -89,7 +88,7 @@ Request:
 ```json
 {
   "protocol": 3,
-  "agent_version": "0.6.0",
+  "agent_version": "26.11.20",
   "xray_version": "26.11.9",
   "platform": "linux/x86_64"
 }
@@ -127,7 +126,7 @@ Request (every field but `protocol` is optional; a missing field means
   "xray_running": true,
   "xray_pid": 4242,
   "agent_uptime": 3600,
-  "agent_version": "0.6.0",
+  "agent_version": "26.11.20",
   "xray_version": "26.11.9",
   "geodata_version": "20261110230135",
   "last_error": null

@@ -9,9 +9,9 @@
  * docs/PROTOCOL.md together.
  *
  * Why MIN is pinned beside CURRENT: the two constants move as a pair — a
- * bump creates the window by raising CURRENT first, and raising MIN later is
- * a MAJOR image release that deletes the N−1 renderer. Pinning both here is
- * what makes that sequence reviewable.
+ * bump creates the window by raising CURRENT first, and raising MIN later
+ * deletes the N−1 renderer and is a protocol bump in its own right. Pinning
+ * both here is what makes that sequence reviewable.
  */
 
 import { expect, it } from "vitest";

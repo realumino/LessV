@@ -11,10 +11,10 @@ The server↔plane protocol is a third, separate number. `docs/PROTOCOL.md` and
 `PROTOCOL_VERSION` in `src/routers/node.ts` (plus the server repo's
 `Cargo.toml`) move together only when the wire contract changes; the version is
 pinned by `tests/pure/protocol_freeze.test.ts`. A plane deploy that changes the
-protocol requires a server release, and vice versa. On the server side that
-release is a **MAJOR** image bump: the image version is the release unit (MAJOR
-= protocol or data-format break, MINOR = additive capability, PATCH = contents
-only), so the tag identifies one artifact and the bump names the break.
+protocol requires a server release, and vice versa. The server image's version
+is its UTC ship date (`YY.M.D`, unpadded), so its tag identifies one dated
+artifact; the break itself is named by the protocol number and the release
+notes, not by the version's shape.
 
 ## Plane release
 
@@ -94,8 +94,9 @@ The node server is built, tested and published in
 [LessV-Node](https://github.com/realumino/vela-server): the crate, the
 `Dockerfile`, the compose file and the image workflow all live there, and its
 `docs/` describe the release procedure. Releases are `v<version>` tags on the
-image's own version (strict SemVer; a pre-release never moves `latest`), built
-per architecture on native runners and merged into one multi-arch index. This
+image's own version (its UTC ship date, `YY.M.D` unpadded; a pre-release never
+moves `latest`), built per architecture on native runners and merged into one
+multi-arch index. This
 repository ships no server artifact and no installer.
 
 The plane side of a server release is the contract: `docs/PROTOCOL.md` and
